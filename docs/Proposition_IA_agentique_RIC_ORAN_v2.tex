@@ -1,0 +1,616 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage{fontspec}
+\usepackage{polyglossia}
+\setmainlanguage{french}
+\usepackage[a4paper,margin=2.5cm]{geometry}
+\usepackage{microtype}
+\usepackage{amssymb}
+\usepackage{booktabs,tabularx,array}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,fit,backgrounds,shapes.geometric,calc}
+\usepackage[hidelinks]{hyperref}
+
+\setlength{\parskip}{0.5em}
+\setlength{\parindent}{0pt}
+\setlist{itemsep=0.15em,topsep=0.3em}
+\captionsetup{font=small,labelfont=bf}
+\renewcommand{\arraystretch}{1.25}
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}
+\newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
+\setlength{\emergencystretch}{3em}
+
+\titleformat{\section}{\large\bfseries}{\thesection.}{0.6em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{0.6em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small INPT -- Smart ICT}
+\rhead{\small IA agentique pour le RIC en O-RAN}
+\cfoot{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% repère d'une hypothèse ajoutée (voir section « Hypothèses ajoutées »)
+\newcommand{\hyp}[1]{\textsuperscript{\textbf{[H#1]}}}
+\newcommand{\tool}[1]{\texttt{#1}}
+
+\tikzset{
+  box/.style={draw, rounded corners=2pt, align=left, inner sep=5pt, font=\small},
+  cbox/.style={draw, rounded corners=2pt, align=center, inner sep=5pt, font=\small},
+  arr/.style={-{Stealth[length=2.2mm]}, thick},
+  lbl/.style={font=\footnotesize\itshape, inner sep=2pt},
+  zone/.style={draw, dashed, rounded corners=3pt, fill=gray!6},
+  zlbl/.style={font=\footnotesize\itshape, anchor=north west},
+}
+
+\begin{document}
+
+%----------------------------------------------------------------- en-tête
+\thispagestyle{plain}
+\begin{center}
+  {\small Institut National des Postes et Télécommunications (INPT), Rabat\\
+  Filière Smart ICT -- 3\textsuperscript{e} année}\\[1.2em]
+  {\LARGE\bfseries IA agentique pour le RIC en O-RAN}\\[0.4em]
+  {\large Proposition d'implémentation -- version révisée}\\[1.2em]
+  \begin{tabular}{@{}l@{\hspace{3em}}l@{}}
+    \textit{Réalisé par :} & \textit{Encadré par :}\\
+    Souhail Bourhim & Pr. Mustapha Benjillali\\
+    Ghita Boulmani & \\
+  \end{tabular}\\[1em]
+  {\small Octobre 2026}
+\end{center}
+\vspace{0.5em}
+\hrule
+\vspace{0.8em}
+
+\textbf{Résumé.} Ce document présente ce que nous proposons de réaliser concrètement
+dans le cadre du projet, au-delà de l'étude bibliographique. L'idée est de construire,
+sur une plateforme 5G open source, un contrôleur dans lequel un agent basé sur un LLM
+traduit l'objectif de l'opérateur en consignes pour un contrôleur par apprentissage par
+renforcement (RL), avec une couche de vérification entre les deux. Nous comparerons
+ensuite cette approche à des solutions plus simples sur les mêmes scénarios.
+
+Le projet s'appuie sur les trois articles de référence : l'architecture hiérarchique
+« le LLM guide, le RL exécute » de Bao et al. (LLM-hRIC), le problème d'allocation de
+ressources entre slices étudié par Wu et al., et l'approche multi-agents DRL de
+Rezazadeh et al., qui servira de référence côté RL. L'ensemble tourne sur une seule
+machine Linux, sans matériel radio.
+
+Cette version ajoute Hermes Agent, un agent open source existant, comme simple
+\emph{interface opérateur}. Hermes transmet les intentions à une passerelle qui n'expose
+que trois outils (\tool{submit\_intent}, \tool{get\_kpis}, \tool{get\_status}). Il ne remplace
+ni LangGraph, ni le vérificateur déterministe, ni la xApp RL ; il n'a aucun accès aux
+commandes E2 ni au partage des PRB, et il reste hors de la boucle temps réel. Ce n'est
+pas une intégration O-RAN native. Les hypothèses ajoutées sont repérées dans le texte par
+\hyp{1} à \hyp{8} et listées en section~\ref{sec:hyp}.
+
+%----------------------------------------------------------------- 1
+\section{Contexte et problématique}
+
+Une cellule 5G dispose d'une capacité radio limitée, mesurée en blocs de ressources
+physiques (PRB). Cette capacité est partagée entre plusieurs \emph{slices}, chacun ayant
+des besoins différents (figure~\ref{fig:slices}). La demande varie au cours de la
+journée, donc la répartition des PRB entre slices doit être ajustée en continu.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=4mm]
+  \node[cbox, fill=gray!15, minimum width=5.2cm, minimum height=7mm] (e) {\textbf{Slice eMBB}};
+  \node[cbox, fill=gray!15, minimum width=4cm, minimum height=7mm, right=2mm of e] (u) {\textbf{Slice URLLC}};
+  \node[cbox, fill=gray!15, minimum width=3.6cm, minimum height=7mm, right=2mm of u] (b) {\textbf{Best effort}};
+  \node[font=\small, above=1mm of u] {Capacité radio d'une cellule (PRB)};
+  \node[box, below=5mm of e, text width=4.8cm] (e2) {Vidéo, téléchargements\\\footnotesize Débit élevé, grande part des PRB};
+  \node[box, below=5mm of u, text width=3.6cm] (u2) {Robots, contrôle à distance\\\footnotesize Latence très faible, fiabilité};
+  \node[box, below=5mm of b, text width=3.2cm] (b2) {Smartphones classiques\\\footnotesize Utilise le reste};
+  \draw (e) -- (e2); \draw (u) -- (u2); \draw (b) -- (b2);
+\end{tikzpicture}
+\caption{Une cellule, trois slices aux besoins différents, une répartition à ajuster en permanence.}
+\label{fig:slices}
+\end{figure}
+
+Dans l'architecture O-RAN, cette décision est prise dans le RAN Intelligent Controller
+(RIC). Le RIC héberge des applications de contrôle : les xApps dans le Near-RT RIC
+(boucles de 10~ms à 1~s) et les rApps dans le Non-RT RIC (au-delà d'une seconde).
+
+Côté opérateur, l'objectif est de pouvoir exprimer une intention en langage naturel,
+par exemple « garantir 10~Mb/s au slice URLLC entre 18h et 19h », et de laisser le
+réseau s'en charger. La question à laquelle nous voulons répondre est donc la suivante :
+
+\begin{quote}
+\itshape Comment permettre à un opérateur de piloter le RAN en langage naturel, tout en
+gardant des décisions rapides et en empêchant l'IA de prendre des actions dangereuses ?
+\end{quote}
+
+%----------------------------------------------------------------- 2
+\section{Limites des approches existantes}
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\textwidth}{@{}P{2.8cm}LLL@{}}
+\toprule
+Approche & Principe & Avantage & Limite\\
+\midrule
+Règles fixes & Répartition statique, modifiée manuellement & Simple, prévisible & Trop lente et rigide face à une demande variable\\
+RL seul & Une politique entraînée associe les KPI à une répartition des PRB & Rapide (ms), efficace en optimisation & Ne connaît que l'objectif appris ; un nouvel objectif impose un nouvel entraînement\\
+LLM seul & Le LLM lit l'objectif et fixe lui-même la répartition & Comprend le langage naturel, explique ses choix & Trop lent pour les boucles rapides ($\sim$1~s ou plus) ; peut proposer des actions erronées\\
+\bottomrule
+\end{tabularx}
+\caption{Comparaison des approches existantes.}
+\end{table}
+
+Le terme « agent » a deux sens dans les articles étudiés. Un agent RL est une politique
+entraînée qui associe un état à une action, sans raisonnement. Un système d'IA agentique
+est un LLM qui planifie, appelle des outils, observe le résultat et se corrige. Notre
+proposition combine les deux.
+
+%----------------------------------------------------------------- 3
+\section{Solution proposée}
+
+Nous séparons les rôles selon l'échelle de temps et selon le niveau de confiance.
+L'opérateur s'exprime dans Hermes Agent, qui sert d'interface (section~\ref{sec:hermes}).
+Le service LangGraph, placé dans le Non-RT RIC, interprète l'intention et propose un
+objectif. Un vérificateur déterministe contrôle les limites et la sécurité de cet objectif
+avant toute modification de l'objectif du RL. La xApp RL, dans le Near-RT RIC, reste seule
+responsable des décisions rapides d'allocation des PRB. Hermes et les LLM restent hors de
+la boucle temps réel (figure~\ref{fig:archi}).
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm]
+  % zones
+  \draw[zone] (0,1.35) rectangle (15.45,-0.95);
+  \node[zlbl] at (0.1,1.3) {Interface opérateur (hors RIC, hors boucle temps réel)};
+  \draw[zone] (5.75,-1.95) rectangle (15.4,-4.4);
+  \node[zlbl] at (5.85,-2.0) {Non-RT RIC / SMO};
+  \draw[zone] (5.75,-5.15) rectangle (15.4,-7.45);
+  \node[zlbl] at (8.1,-5.2) {Near-RT RIC (FlexRIC)};
+
+  % ligne 0 : interface
+  \node[box, text width=2.0cm] (op) at (1.35,0) {\textbf{Opérateur}\\\footnotesize langage naturel};
+  \node[box, text width=3.0cm] (he) at (5.9,0) {\textbf{Hermes Agent}\\\footnotesize interface de chat,\\\footnotesize client MCP};
+  \node[box, text width=4.6cm] (gw) at (12.7,0) {\textbf{Passerelle MCP / plugin}\\\footnotesize\tool{submit\_intent}, \tool{get\_kpis},\\\footnotesize\tool{get\_status}};
+
+  % ligne 1 : Non-RT RIC
+  \node[box, text width=4.0cm, fill=gray!12] (lg) at (12.9,-3.3) {\textbf{Service LangGraph}\\\footnotesize interprète l'intention,\\\footnotesize propose un objectif RL};
+  \node[box, text width=3.2cm] (vf) at (7.7,-3.3) {\textbf{Vérificateur}\\\footnotesize déterministe : limites,\\\footnotesize sécurité, journal};
+  \node[box, dashed, text width=2.9cm] (cf) at (2.6,-3.3) {\textbf{Confirmation opérateur}\\\footnotesize démo uniquement\\\footnotesize console séparée};
+
+  % ligne 2 : Near-RT RIC
+  \node[box, text width=3.4cm] (rl) at (7.7,-6.5) {\textbf{xApp RL (DDPG)}\\\footnotesize décide seule de la\\\footnotesize répartition des PRB};
+  \node[box, text width=4.0cm] (kp) at (12.9,-6.5) {\textbf{xApp KPM}\\\footnotesize supervision : débit, PRB,\\\footnotesize latence par slice};
+  \node[box, dashed, text width=4.3cm] (nb) at (2.65,-6.5) {\textbf{Aucun accès pour Hermes} aux commandes E2, au contrôle radio ni à la modification brute du partage des PRB};
+
+  % RAN
+  \node[box, text width=9.0cm] (ran) at (10.55,-9.3) {\textbf{RAN et c\oe ur 5G open source}\\\footnotesize gNB OAI + UE simulés (rfsim) + c\oe ur OAI CN5G ; slices eMBB, URLLC, best effort};
+
+  % flèches
+  \draw[arr] (op) -- node[lbl,above]{intention} (he);
+  \draw[arr] (he) -- node[lbl,above]{MCP / plugin} (gw);
+  \draw[arr] (11.5,0 |- gw.south) -- node[lbl,left]{\tool{submit\_intent}} (11.5,0 |- lg.north);
+  \draw[arr, dashed] (14.0,0 |- lg.north) -- node[lbl,right,align=left]{\tool{get\_kpis,}\\\tool{get\_status}} (14.0,0 |- gw.south);
+  \draw[arr] (lg.west) -- (vf.east);
+  \draw[arr, <->] (vf.west) -- node[lbl,above]{démo} (cf.east);
+  \draw[arr] (vf.south) -- node[lbl,right]{politique A1} (rl.north);
+  \draw[arr] (kp.north) -- node[lbl,right]{KPI} (lg.south);
+  \draw[arr] (kp.west) -- (rl.east);
+  \draw[arr] (rl.south) -- node[lbl,right]{contrôle E2} (rl.south |- ran.north);
+  \draw[arr] (kp.south |- ran.north) -- node[lbl,right]{rapports E2} (kp.south);
+\end{tikzpicture}
+\caption{Architecture révisée. Hermes Agent est une couche d'interface sans accès au RIC ;
+LangGraph, le vérificateur déterministe et la xApp RL gardent leur rôle. Traits pleins :
+demandes et actions ; trait discontinu : lecture seule.}
+\label{fig:archi}
+\end{figure}
+
+Notre contribution porte sur cinq points :
+\begin{enumerate}
+  \item un contrôle hiérarchique LLM + RL, inspiré de Bao et al., appliqué au problème
+        d'allocation entre slices de Wu et al. ; le LLM n'intervient jamais dans la boucle rapide ;
+  \item une couche de sécurité déterministe qui vérifie chaque objectif proposé par le LLM
+        et compte les actions bloquées ;
+  \item une mise en \oe uvre sur une vraie pile open source (OpenAirInterface + FlexRIC),
+        alors que la plupart des travaux du domaine restent en simulation ;
+  \item une interface opérateur volontairement étroite (Hermes Agent derrière une passerelle
+        à trois outils), évaluée séparément du contrôle ;
+  \item une évaluation comparative de quatre contrôleurs sur les mêmes scénarios (section~\ref{sec:eval}).
+\end{enumerate}
+
+%----------------------------------------------------------------- 4
+\section{Fonctionnement du service LangGraph}
+
+Nous utilisons un seul agent, développé avec LangGraph et exposé comme un petit service
+HTTP. Il suit une boucle planification -- action -- observation (approche ReAct), avec une
+vérification systématique avant chaque action (figure~\ref{fig:boucle}).
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=7mm and 7mm, every node/.style={font=\small}]
+  \node[cbox, minimum width=2.4cm] (p) {Analyse\\\footnotesize intention $\to$ JSON};
+  \node[cbox, minimum width=2.4cm, right=of p] (pl) {Planification\\\footnotesize choix de l'action};
+  \node[cbox, minimum width=2.4cm, right=of pl] (a) {Action\\\footnotesize appel d'un outil};
+  \node[cbox, minimum width=2.4cm, right=of a, fill=gray!15] (v) {Vérification\\\footnotesize règles fixes};
+  \node[cbox, minimum width=2.4cm, below=12mm of v] (ap) {Application\\\footnotesize envoi au RIC};
+  \node[cbox, minimum width=2.4cm, below=12mm of a] (o) {Observation\\\footnotesize lecture des KPI};
+  \node[cbox, minimum width=2.4cm, below=12mm of pl] (r) {Évaluation\\\footnotesize objectif atteint ?};
+  \node[cbox, minimum width=2.4cm, below=12mm of p, fill=gray!15] (f) {Fin\\\footnotesize mémorisation};
+  \node[lbl, above=5mm of p, align=center] (in) {intention reçue\\de la passerelle};
+  \draw[arr] (in) -- (p);
+  \draw[arr] (p) -- (pl); \draw[arr] (pl) -- (a); \draw[arr] (a) -- (v);
+  \draw[arr] (v) -- node[lbl,right,align=left]{valide\\(+ confirmation\\en démo)} (ap);
+  \draw[arr] (ap) -- (o); \draw[arr] (o) -- (r);
+  \draw[arr] (r) -- node[lbl,above]{oui} (f);
+  \draw[arr] (r) -- node[lbl,right]{non} (pl);
+  \draw[arr] (v.north) -- ++(0,5mm) -| node[lbl,above,pos=0.25]{action bloquée : replanifier} ([xshift=3mm]pl.north);
+\end{tikzpicture}
+\caption{Boucle de décision du service LangGraph.}
+\label{fig:boucle}
+\end{figure}
+
+Le service n'agit jamais directement sur le réseau : il ne peut qu'appeler les outils
+internes ci-dessous, et tout appel qui modifie la configuration passe par le vérificateur.
+Ces outils internes ne sont pas ceux que voit Hermes (section~\ref{sec:hermes}).
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\textwidth}{@{}P{5.6cm}L@{}}
+\toprule
+Outil interne & Rôle\\
+\midrule
+\tool{get\_kpis(slice, fenetre)} & Lit le débit, l'usage des PRB et la latence récents\\
+\tool{set\_rl\_objective(poids, contraintes)} & Modifie l'objectif optimisé par la xApp RL (levier principal)\\
+\tool{set\_slice\_share(parts)} & Fixe directement la répartition des PRB. Désactivé dans le contrôleur proposé ; utilisé seulement pour le contrôleur « LLM seul » de l'évaluation, toujours derrière le vérificateur\hyp{6}\\
+\tool{wait\_and\_observe(secondes)} & Laisse le réseau se stabiliser avant la vérification suivante\\
+\bottomrule
+\end{tabularx}
+\caption{Outils internes du service LangGraph.}
+\end{table}
+
+Pour le modèle, nous prévoyons un LLM local via Ollama (un modèle ouvert d'environ
+8 milliards de paramètres avec appel d'outils, par exemple Qwen). Il est gratuit,
+fonctionne hors ligne et reste réaliste pour un déploiement en périphérie du réseau.
+Nous testerons aussi un modèle plus grand accessible par API (Claude ou GPT) sur les
+mêmes scénarios, afin de mesurer le gain en précision, en latence et en coût.
+
+Certains travaux récents (MX-AI, AgentRAN) utilisent plusieurs agents. Pour un projet
+d'un semestre à deux, nous préférons un seul agent, plus simple à mettre au point. Si le
+temps le permet, nous ajouterons un agent « analyste » en lecture seule, chargé
+d'expliquer les anomalies observées dans les KPI.
+
+%----------------------------------------------------------------- 5
+\section{Interface opérateur : Hermes Agent}
+\label{sec:hermes}
+
+Pour que l'opérateur formule ses intentions dans une interface de conversation existante,
+nous plaçons Hermes Agent en amont du service LangGraph. Hermes Agent est un agent open
+source (licence MIT) développé par Nous Research, qui se connecte à des outils externes
+par le protocole MCP ou par des plugins\hyp{1}. Ce n'est pas un composant O-RAN et il n'a
+aucun support natif du RIC : du point de vue du réseau, c'est un client MCP ordinaire. Il
+ne remplace ni LangGraph, ni le vérificateur déterministe, ni la xApp RL, et le rôle du
+contrôleur RL ne change pas.
+
+\subsection{Chaîne de traitement}
+
+\begin{enumerate}
+  \item L'opérateur formule une intention dans Hermes.
+  \item Hermes la transmet à la passerelle (serveur MCP ou plugin Hermes personnalisé)
+        avec l'outil \tool{submit\_intent}.
+  \item La passerelle transmet l'intention au service LangGraph, qui l'interprète et propose un objectif\hyp{5}.
+  \item Le vérificateur déterministe contrôle les limites et la sécurité de l'objectif
+        proposé. Un objectif rejeté n'atteint jamais la xApp RL.
+  \item Dans le scénario de démonstration, l'opérateur confirme dans une console séparée
+        avant l'application\hyp{4}.
+  \item L'objectif validé est transmis à la xApp RL par une politique A1. La xApp RL reste
+        seule responsable des décisions rapides d'allocation des PRB dans le Near-RT RIC.
+  \item L'opérateur suit l'avancement dans Hermes avec \tool{get\_status} et \tool{get\_kpis}.
+\end{enumerate}
+
+Hermes et les LLM ne font donc jamais partie de la boucle temps réel.
+
+\subsection{Outils exposés par la passerelle}
+
+La passerelle expose exactement trois outils, et aucun autre.
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\textwidth}{@{}P{3.8cm}LL@{}}
+\toprule
+Outil & Rôle & Effet sur le réseau\\
+\midrule
+\tool{submit\_intent(texte)} & Transmet au service LangGraph le texte de l'intention, tel qu'écrit par l'opérateur\hyp{2} ; renvoie un identifiant et l'état initial & Crée une demande. Rien n'est appliqué sans validation du vérificateur (et confirmation en démo)\\
+\tool{get\_kpis(slice, fenetre)} & Renvoie les KPI récents (débit, PRB, latence) & Lecture seule\\
+\tool{get\_status(id)} & Renvoie l'état de l'intention (reçue, interprétée, rejetée avec motif, en attente de confirmation, appliquée, expirée) et l'objectif RL en vigueur & Lecture seule\\
+\bottomrule
+\end{tabularx}
+\caption{Outils exposés à Hermes par la passerelle.}
+\end{table}
+
+\subsection{Ce que Hermes ne peut pas faire}
+
+\begin{itemize}
+  \item Hermes ne reçoit \textbf{aucun accès direct} aux commandes E2, au contrôle radio ni à
+        la modification brute du partage des PRB.
+  \item Aucun outil exposé ne modifie la configuration : \tool{submit\_intent} ne fait que
+        soumettre une demande.
+  \item Toute action qui modifie la configuration passe par le service de vérification.
+  \item La confirmation opérateur ne passe pas par Hermes : sinon le LLM pourrait se
+        l'accorder lui-même\hyp{4}.
+\end{itemize}
+
+La configuration MCP de Hermes permet de n'enregistrer, pour chaque serveur, qu'une liste
+blanche d'outils (clé \tool{include}) ; nous y déclarons les trois outils de la passerelle.
+Ces garanties ne reposent pas seulement sur la liste d'outils. D'après sa documentation,
+Hermes est un agent généraliste qui peut aussi disposer d'outils comme un terminal, des
+fichiers ou le web\hyp{3}. Pour ce projet, nous désactivons ces outils et nous exécutons
+Hermes dans un conteneur dédié dont le seul accès réseau est le port de la passerelle. La
+passerelle n'a elle-même qu'un interlocuteur, le service LangGraph, sans route vers FlexRIC
+ni vers OAI\hyp{5}.
+
+\subsection{Prototype minimal}
+
+Le prototype montre le circuit complet avec un périmètre réduit. Il est d'abord réalisé
+contre le simulateur (le service LangGraph s'appuie alors sur l'environnement gym), puis
+contre la plateforme OAI + FlexRIC si elle est prête\hyp{8}.
+
+\begin{enumerate}
+  \item Un serveur MCP en Python implémente les trois outils et appelle l'API HTTP du service LangGraph.
+  \item Hermes est configuré avec ce serveur comme seule source d'outils.
+  \item Scénario de démonstration : l'opérateur écrit « garantir 10~Mb/s au slice URLLC
+        pendant 10 minutes ». Hermes appelle \tool{submit\_intent} ; la passerelle renvoie
+        l'état « en attente de confirmation » ; l'opérateur confirme dans la console
+        séparée ; l'objectif est appliqué ; l'opérateur demande où en est le réseau et Hermes
+        affiche l'état et les KPI par slice avec \tool{get\_status} et \tool{get\_kpis}.
+  \item Cas de rejet : une intention hors limites (par exemple un débit irréaliste) est
+        refusée par le vérificateur, et le motif apparaît dans \tool{get\_status}.
+  \item Test négatif : une demande hors périmètre (« fixe le partage des PRB à 90/5/5 »)
+        ne doit produire aucun changement d'état, car aucun outil ne le permet.
+\end{enumerate}
+
+Le prototype est réussi si ces trois cas se déroulent comme prévu et si le journal de la
+passerelle ne contient que les trois outils exposés.
+
+%----------------------------------------------------------------- 6
+\section{Plateforme expérimentale}
+
+La plateforme tourne sur un ordinateur portable (Ryzen~9, 16 c\oe urs, 32~Go de RAM,
+GPU RTX~5070 de 8~Go) sous Ubuntu dans WSL2, avec Docker. Le lien radio est simulé,
+aucun matériel SDR n'est nécessaire. Le module SCTP, nécessaire aux interfaces du c\oe ur
+OAI, se charge correctement dans WSL2.
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\textwidth}{@{}P{3.6cm}LP{2.6cm}@{}}
+\toprule
+Composant & Outil & Réutilisé / développé\\
+\midrule
+Station de base et UE & gNB et nrUE OpenAirInterface, mode rfsim, 2 à 3 UE & Réutilisé\\
+C\oe ur 5G & OAI CN5G avec 2 à 3 slices & Réutilisé\\
+Near-RT RIC & FlexRIC & Réutilisé\\
+Trafic & iperf3 sur chaque UE, charge variable & Scénarios à écrire\\
+xApp de supervision & Modèle de service KPM de FlexRIC + stockage des mesures & Développé\\
+xApp de contrôle & Modèle de service de contrôle des slices de FlexRIC & Développé\\
+Politique RL & DDPG, entraîné dans un simulateur Python (gym) puis déployé & Développé\\
+Service LangGraph et vérificateur & LangGraph, Ollama, API HTTP & Développé\\
+Interface opérateur & Hermes Agent, dans un conteneur isolé, outils généralistes désactivés\hyp{1}\hyp{3} & Réutilisé, configuré\\
+Passerelle & Serveur MCP en Python (ou plugin Hermes), trois outils & Développé\\
+Console de confirmation & Ligne de commande ou petite page web du service de vérification\hyp{4} & Développé (minimal)\\
+\bottomrule
+\end{tabularx}
+\caption{Composants de la plateforme.}
+\end{table}
+
+Nous associons FlexRIC à OAI plutôt qu'à srsRAN, car le contrôle des slices dans
+FlexRIC est mieux supporté avec OAI ; c'est aussi la combinaison utilisée dans MX-AI.
+L'entraînement du RL se fait d'abord en simulation, car il serait trop lent sur la
+plateforme émulée.
+
+%----------------------------------------------------------------- 7
+\section{Méthode d'évaluation}
+\label{sec:eval}
+
+Nous menons deux évaluations séparées. La première mesure le contrôle du réseau ; la
+seconde mesure l'interface. Ainsi, la performance de l'interface n'est pas confondue avec
+celle du contrôle RL, ni l'inverse.
+
+\subsection{Évaluation du contrôle : quatre contrôleurs}
+
+Les mêmes scénarios de trafic sont exécutés avec quatre contrôleurs. Hermes n'intervient
+dans aucun d'eux : les intentions sont injectées directement dans le service LangGraph, et
+seules les intentions correctement extraites (vérifiées au préalable) sont retenues pour
+cette comparaison\hyp{7}.
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\textwidth}{@{}P{5cm}L@{}}
+\toprule
+Contrôleur & Ce qu'il représente\\
+\midrule
+Répartition statique égale & Référence sans intelligence\\
+RL seul & Approche de type Rezazadeh et al. / Wu et al.\\
+LLM seul, action directe & Approche agentique naïve\\
+\textbf{LLM (objectifs) + RL (exécution)} & \textbf{Notre proposition}, d'après Bao et al.\\
+\bottomrule
+\end{tabularx}
+\caption{Contrôleurs comparés.}
+\end{table}
+
+\textbf{Scénarios}, tous générés avec iperf3 pour que chaque contrôleur voie le même trafic :
+\begin{enumerate}
+  \item charge stable, puis pic soudain sur un slice ;
+  \item nouvelle intention en cours d'exécution (« protéger URLLC pendant 10 minutes ») ;
+  \item deux intentions contradictoires.
+\end{enumerate}
+
+\textbf{Métriques :}
+\begin{itemize}
+  \item proportion du temps où l'intention de chaque slice est respectée ;
+  \item débit et latence par slice ;
+  \item temps de réaction après un pic de charge ou une nouvelle intention ;
+  \item nombre d'actions dangereuses proposées puis bloquées par le vérificateur ;
+  \item latence et coût du LLM du service LangGraph (modèle local vs modèle distant).
+\end{itemize}
+
+\subsection{Évaluation de l'interface : Hermes et passerelle}
+
+Cette évaluation s'arrête à la décision du vérificateur : elle n'utilise ni le débit ni la
+latence radio, et ses résultats ne servent pas à classer les contrôleurs. Elle reprend le
+scénario des intentions ambiguës ou mal formulées, auparavant dans la comparaison des
+contrôleurs\hyp{7}.
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\textwidth}{@{}P{2.9cm}LL@{}}
+\toprule
+Mesure & Définition & Source des données\\
+\midrule
+Latence de l'interface & Temps entre l'envoi du message de l'opérateur et l'arrivée de \tool{submit\_intent} à la passerelle, puis entre la réponse de la passerelle et son affichage ; médiane et 95\textsuperscript{e} centile sur des répétitions. Le temps de décision du service LangGraph est exclu & Horodatages de la passerelle et journal de Hermes\\
+Fidélité de transmission & Part des intentions arrivées à \tool{submit\_intent} sans reformulation par le LLM de Hermes\hyp{2} & Texte saisi comparé au texte reçu par la passerelle\\
+Qualité d'extraction de l'intention & Sur un jeu d'intentions annotées à la main\hyp{8} : exactitude par champ (slice, métrique, valeur cible, fenêtre de temps), part des intentions entièrement correctes, détection des cas ambigus & Sortie structurée du service LangGraph comparée aux annotations\\
+Appels d'outils & Par outil : appels réussis, rejetés par la passerelle (arguments invalides), rejetés par le vérificateur (hors limites), en erreur & Journaux de la passerelle et du vérificateur\\
+Tentatives hors périmètre & Demandes d'une action non exposée (par exemple fixer directement le partage des PRB) : aucun changement d'état attendu & Journal et état du RIC avant et après\\
+\bottomrule
+\end{tabularx}
+\caption{Mesures de l'interface, indépendantes du contrôle RL.}
+\end{table}
+
+%----------------------------------------------------------------- 8
+\section{Plan de travail}
+
+Le travail est organisé en cinq phases et deux axes menés en parallèle, avec un point de
+validation à la fin de chaque phase (figure~\ref{fig:plan}). L'axe B n'attend pas la
+plateforme : le simulateur permet de commencer le RL et l'agent dès la première phase. La
+phase 4 (interface) ne démarre que lorsque le service LangGraph et son vérificateur
+fonctionnent ; elle peut se réduire à un client en ligne de commande si le temps manque
+(section~\ref{sec:risques}). La répartition des axes entre nous deux reste à fixer.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm]
+  \node[font=\small\bfseries] at (6.0,0.5) {Axe A : plateforme, xApps};
+  \node[font=\small\bfseries] at (12.2,0.5) {Axe B : RL, agent, interface};
+
+  \node[align=left, anchor=west, font=\small] at (0,-0.7) {\textbf{Phase 1}\\\footnotesize Fondations};
+  \node[cbox, text width=5.5cm, minimum height=1.1cm] at (6.0,-0.7) {\footnotesize Installer OAI, c\oe ur, FlexRIC ;\\\footnotesize xApp de supervision (KPM)};
+  \node[cbox, text width=5.5cm, minimum height=1.1cm] at (12.2,-0.7) {\footnotesize Simulateur gym des 3 slices};
+  \node[font=\footnotesize\itshape, anchor=west] at (3.1,-1.575) {$\blacklozenge$ KPI en direct};
+
+  \node[align=left, anchor=west, font=\small] at (0,-2.45) {\textbf{Phase 2}\\\footnotesize Contrôle};
+  \node[cbox, text width=5.5cm, minimum height=1.1cm] at (6.0,-2.45) {\footnotesize xApp de contrôle des slices};
+  \node[cbox, text width=5.5cm, minimum height=1.1cm] at (12.2,-2.45) {\footnotesize Entraînement DDPG\\\footnotesize en simulation};
+  \node[font=\footnotesize\itshape, anchor=west] at (3.1,-3.325) {$\blacklozenge$ Le RL modifie la répartition des PRB};
+
+  \node[align=left, anchor=west, font=\small] at (0,-4.2) {\textbf{Phase 3}\\\footnotesize Agent};
+  \node[cbox, text width=5.5cm, minimum height=1.1cm] at (6.0,-4.2) {\footnotesize Relier l'agent au RIC\\\footnotesize (politique A1, données KPM)};
+  \node[cbox, text width=5.5cm, minimum height=1.1cm] at (12.2,-4.2) {\footnotesize Service LangGraph, vérificateur,\\\footnotesize console de confirmation};
+  \node[font=\footnotesize\itshape, anchor=west] at (3.1,-5.075) {$\blacklozenge$ Intention satisfaite de bout en bout (sans Hermes)};
+
+  \node[align=left, anchor=west, font=\small] at (0,-5.95) {\textbf{Phase 4}\\\footnotesize Interface};
+  \node[cbox, text width=5.5cm, minimum height=1.1cm] at (6.0,-5.95) {\footnotesize Passerelle MCP à 3 outils ;\\\footnotesize tests de refus (hors périmètre)};
+  \node[cbox, text width=5.5cm, minimum height=1.1cm] at (12.2,-5.95) {\footnotesize Configurer Hermes ; intentions\\\footnotesize annotées ; mesures d'interface};
+  \node[font=\footnotesize\itshape, anchor=west] at (3.1,-6.825) {$\blacklozenge$ Hermes soumet une intention et affiche l'état et les KPI};
+
+  \node[align=left, anchor=west, font=\small] at (0,-7.7) {\textbf{Phase 5}\\\footnotesize Résultats};
+  \node[cbox, fill=gray!12, text width=11.6cm, minimum height=1.1cm] at (9.1,-7.7) {\footnotesize Évaluation du contrôle (4 contrôleurs) et de l'interface ;\\\footnotesize analyse, rapport, préparation de la soutenance (en commun)};
+\end{tikzpicture}
+\caption{Phases du projet. Les losanges marquent les points de validation.}
+\label{fig:plan}
+\end{figure}
+
+%----------------------------------------------------------------- 9
+\section{Risques et solutions de repli}
+\label{sec:risques}
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\textwidth}{@{}LL@{}}
+\toprule
+Risque & Solution de repli\\
+\midrule
+Le contrôle des slices OAI + FlexRIC ne fonctionne pas de façon fiable & Garder la supervision KPM sur la plateforme réelle et faire tourner la boucle de contrôle en simulation (ns-O-RAN ou notre simulateur)\\
+Machine trop limitée pour la plateforme et un LLM local & Utiliser le LLM via API ou sur une seconde machine\\
+La politique RL entraînée en simulation se comporte mal sur la plateforme & Court ré-entraînement sur la plateforme, ou exécutant à règles simples sous le LLM\\
+LLM trop lent ou peu fiable dans l'appel d'outils & Prompts plus courts, schéma JSON imposé, ou modèle plus grand\\
+Hermes difficile à installer ou instable (version, environnement) & La même passerelle est pilotée par un petit client en ligne de commande ; le contrôle et son évaluation n'en dépendent pas\\
+Le LLM de Hermes appelle mal les outils ou reformule l'intention & Texte transmis tel quel, validation de schéma à la passerelle, modèle plus grand ; mesuré dans l'évaluation de l'interface\\
+Hermes contourne la passerelle avec ses outils généralistes & Outils désactivés, conteneur isolé sans route vers FlexRIC ni OAI, tests négatifs du prototype\\
+Dérive du périmètre (mémoire, compétences, messageries de Hermes) & N'utiliser que le chat et MCP ; limiter la phase 4 dans le temps ; abandon possible au profit du client en ligne de commande\\
+Deux LLM en chaîne ajoutent de la latence et des erreurs & Interface hors boucle temps réel ; latence mesurée à part ; bascule vers le client direct si nécessaire\\
+\bottomrule
+\end{tabularx}
+\caption{Principaux risques identifiés.}
+\end{table}
+
+%----------------------------------------------------------------- 10
+\section{Hypothèses ajoutées dans cette version}
+\label{sec:hyp}
+
+Les points suivants ont été ajoutés ou choisis pour intégrer Hermes Agent. Ils ne viennent
+pas de la version précédente et restent à valider avec l'encadrant ou par des essais.
+
+\begin{description}[leftmargin=2.6em,labelwidth=2.2em,labelsep=0.4em,font=\bfseries]
+  \item[H1] Hermes Agent (Nous Research, open source, licence MIT) sert uniquement
+        d'interface de conversation et de client MCP. D'après sa documentation, il prend en
+        charge les serveurs MCP et les plugins ; nous n'avons pas encore testé son
+        installation sur notre machine (WSL2) et la version à utiliser reste à figer.
+  \item[H2] Le modèle utilisé par Hermes est configurable ; nous supposons qu'il peut s'agir
+        du modèle local (Ollama) ou d'un modèle distant, ce qui reste à vérifier. En local, Hermes
+        et le service LangGraph partageraient le même modèle servi par Ollama, car le GPU
+        (8~Go, dont une partie utilisée par Windows) ne peut pas en charger deux. Hermes
+        transmet le texte de l'opérateur tel quel à \tool{submit\_intent} ; l'extraction
+        structurée est faite par LangGraph, ce qui permet de la mesurer à part.
+  \item[H3] Hermes est isolé : conteneur dédié, outils généralistes désactivés, accès réseau
+        limité à la passerelle. La possibilité de désactiver ces outils par configuration
+        est à confirmer dans la version utilisée.
+  \item[H4] La confirmation opérateur se fait dans une console séparée du service de
+        vérification (ligne de commande ou petite page web), pas par un outil Hermes. Une
+        demande non confirmée expire après un délai configurable (valeur à fixer). Les
+        exécutions d'évaluation automatisées n'utilisent pas la confirmation ; seule la
+        démonstration l'exige.
+  \item[H5] La passerelle n'a qu'un interlocuteur, l'API HTTP du service LangGraph ;
+        \tool{get\_kpis} et \tool{get\_status} y sont servis en lecture seule (les KPI viennent
+        du stockage de la xApp de supervision).
+  \item[H6] L'outil interne \tool{set\_slice\_share} n'est plus un moyen de secours du
+        contrôleur proposé : il est désactivé pour celui-ci et sert seulement au contrôleur
+        « LLM seul », derrière le vérificateur. Il n'est jamais exposé à Hermes.
+  \item[H7] Pour comparer les quatre contrôleurs, les intentions sont injectées sans Hermes et
+        seules les intentions correctement extraites sont retenues. Le scénario des intentions
+        ambiguës passe dans l'évaluation de l'interface.
+  \item[H8] Le jeu d'évaluation de l'extraction compte de l'ordre de 40 intentions annotées à
+        la main (français et anglais, dont des cas ambigus) ; ce dimensionnement est une
+        estimation à ajuster. Les mesures d'interface se font d'abord sur le simulateur, puis
+        sur la plateforme si elle est prête.
+\end{description}
+
+%----------------------------------------------------------------- 11
+\section{Points à discuter avec l'encadrant}
+
+\begin{itemize}
+  \item Disposons-nous d'un serveur ou d'un GPU au laboratoire, ou faut-il prévoir un PC personnel ?
+  \item Un budget API est-il envisageable pour la comparaison avec un modèle distant ?
+  \item Le périmètre de l'évaluation (quatre contrôleurs, trois scénarios, plus l'évaluation de l'interface) vous paraît-il adapté ?
+  \item Hermes Agent est-il acceptable comme composant d'interface dans le périmètre du projet, ou préférez-vous un client plus simple ?
+  \item Quelles sont les échéances à respecter (point d'avancement, rapport, soutenance) ?
+\end{itemize}
+
+%----------------------------------------------------------------- refs
+\section*{Références}
+\small
+\begin{enumerate}[label={[\arabic*]}]
+  \item Rezazadeh et al., apprentissage par renforcement profond multi-agents pour le slicing du RAN.
+  \item Wu et al., IA agentique pilotée par LLM pour la résilience en O-RAN.
+  \item Bao et al., LLM-hRIC : contrôle hiérarchique LLM + RL dans le RIC.
+  \item MX-AI, agents LLM sur OAI + FlexRIC, arXiv:2508.09197.
+  \item AgentRAN, hiérarchie d'agents auto-organisée pour l'Open RAN, arXiv:2508.17778.
+  \item xTRUCE, arbitrage sûr entre xApps pilotées par LLM, arXiv:2608.28532.
+  \item OpenAirInterface (\url{https://openairinterface.org}), FlexRIC (\url{https://gitlab.eurecom.fr/mosaic5g/flexric}), LangGraph, Ollama.
+  \item Hermes Agent, Nous Research, open source, licence MIT (\url{https://hermes-agent.nousresearch.com} ; dépôt \url{https://github.com/NousResearch/hermes-agent} ;
+        configuration MCP : \url{https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp}).
+  \item Model Context Protocol (MCP) (\url{https://modelcontextprotocol.io}).
+\end{enumerate}
+
+\end{document}
