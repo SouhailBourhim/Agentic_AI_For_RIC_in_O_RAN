@@ -12,4 +12,30 @@ behind an MCP gateway that exposes three tools. Testbed: OpenAirInterface (rfsim
 - Build order, one prompt per checkpoint: [`PROMPTS.md`](PROMPTS.md)
 - Learning notes, one per checkpoint: `docs/learn/` (written as the project progresses)
 
-Status: design done, implementation starts at checkpoint M00.
+## Quickstart
+
+Requires [uv](https://docs.astral.sh/uv/) (it installs the right Python by itself).
+
+```bash
+uv sync          # create .venv and install the locked dependencies
+uv run pytest    # run the tests
+```
+
+## Layout
+
+| Folder | What goes there |
+|---|---|
+| `sim/` | gymnasium environment: one cell, three slices |
+| `rl/` | DDPG training and the goal-conditioned policy |
+| `verifier/` | objective schema and deterministic checks (no LLM) |
+| `agent/` | LangGraph service (FastAPI): intent → RL objective |
+| `gateway/` | MCP server with exactly 3 tools: `submit_intent`, `get_kpis`, `get_status` |
+| `console/` | operator confirmation console (demo mode) |
+| `backends/` | one interface, two backends: simulator and FlexRIC |
+| `xapps/` | FlexRIC xApps: KPM monitoring, slice control |
+| `testbed/` | Docker/configs for OAI CN5G, gNB, nrUE (rfsim), FlexRIC |
+| `eval/` | scenarios, controller comparison, interface metrics, plots |
+| `tests/` | pytest |
+| `docs/` | design, [`DECISIONS.md`](docs/DECISIONS.md), learning notes in `docs/learn/` |
+
+Status: M00 (repository skeleton) done.
