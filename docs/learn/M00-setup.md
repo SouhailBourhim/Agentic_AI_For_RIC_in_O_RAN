@@ -46,8 +46,8 @@ Keeping one folder per box makes the safety rules easy to check later. For examp
    this machine it chose its own managed CPython 3.12.14 rather than Ubuntu's `/usr/bin/python3`
    (3.12.3), so an `apt upgrade` can't change our interpreter.
 6. **`uv.lock`** is written by `uv sync`. It records the exact version and hash of every
-   package, including indirect ones such as `pluggy` and `iniconfig`. It is committed, so you
-   both install exactly the same versions.
+   package, including indirect ones such as `pluggy` and `iniconfig`. It is committed, so
+   every machine installs exactly the same versions.
 7. **`sim/__init__.py` … `eval/__init__.py`** contain only a docstring. A folder with an
    `__init__.py` is a regular Python package and can be imported.
 8. **`tests/test_skeleton.py:12-29`** has a list of package names and one test function.
@@ -126,7 +126,7 @@ uv add --dev ruff           # adds a dev-only tool
 
 All of these are logged in `docs/DECISIONS.md`.
 
-## 7. Five questions the supervisor could ask
+## 7. Five questions to check understanding
 
 1. **What do `uv`, `pyproject.toml` and `pytest` each do, in one sentence?**
    `uv` manages Python, the virtual environment and dependencies and runs commands inside that
@@ -136,7 +136,7 @@ All of these are logged in `docs/DECISIONS.md`.
 
 2. **What is `uv.lock` and why commit it?**
    It pins the exact version and hash of every package, including indirect ones. Committing it
-   means both of us, and the evaluation machine, run the same code. That makes results
+   means every machine, including the evaluation runs, uses the same code. That makes results
    reproducible.
 
 3. **Why is there a test when there is no code yet?**

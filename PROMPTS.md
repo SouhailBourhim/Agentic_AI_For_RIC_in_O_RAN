@@ -3,7 +3,7 @@
 Paste one prompt at a time, in order. Each one asks for a plan first. Approve or correct the plan,
 let it build, then read the learning note it writes before moving on.
 
-After each checkpoint, do the "Understand it" step yourself. That is the part that prepares the defence.
+After each checkpoint, do the "Understand it" step yourself. That is the part that makes sure you really understand it.
 
 ---
 
@@ -39,7 +39,7 @@ an overloaded slice shows rising latency.
 Then write docs/learn/M01-simulator.md.
 ```
 
-Understand it: explain the observation, the action and the reward to Ghita without notes.
+Understand it: explain the observation, the action and the reward out loud, without notes.
 
 ---
 

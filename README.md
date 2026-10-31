@@ -1,6 +1,6 @@
 # Agentic AI for the RIC in O-RAN
 
-INPT Smart ICT semester project — Souhail Bourhim, Ghita Boulmani. Supervisor: Pr. Mustapha Benjillali.
+Personal project by Souhail Bourhim.
 
 An operator states a goal in plain language. An LLM agent (LangGraph) turns it into an objective for a
 goal-conditioned RL xApp (DDPG) that allocates PRBs between slices in the Near-RT RIC. A deterministic

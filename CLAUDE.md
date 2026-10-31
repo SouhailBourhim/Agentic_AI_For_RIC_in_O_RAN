@@ -1,19 +1,19 @@
 # Agentic AI for the RIC in O-RAN — project guide for Claude Code
 
-INPT Smart ICT semester project (Souhail Bourhim, Ghita Boulmani; supervisor Pr. Mustapha Benjillali).
+Personal project by Souhail Bourhim.
 The reference design is `docs/Proposition_IA_agentique_RIC_ORAN_v2.pdf` (French). Read it before planning anything.
 
-## The most important rule: the students must understand everything
+## The most important rule: I must understand everything
 
-The code is written with AI help, which the supervisor allows. The students must still be able to
-explain and defend every part of it orally. So:
+The code is written with AI help. I must still be able to explain every part of it without notes.
+So:
 
 - Prefer simple, readable code over clever code. No unnecessary abstractions, no frameworks the
   task does not need. Short functions, explicit names, type hints, docstrings that say *why*.
 - Before writing code for a checkpoint, present a short plan in plain words and wait for approval.
 - After each checkpoint, write `docs/learn/MXX-<name>.md` (format below). A checkpoint is not done
   until that note exists.
-- When asked "explain <file or concept>", walk through it step by step for a student who knows
+- When asked "explain <file or concept>", walk through it step by step for someone who knows
   Python, telecom basics (LTE/5G, PRB, slicing) and classic ML, but not this specific library.
 - When you make a non-obvious choice (library, parameter, simplification), say so in the note,
   with the alternative you rejected and why.
@@ -26,7 +26,7 @@ explain and defend every part of it orally. So:
 4. A small Mermaid diagram if there is a flow or a loop.
 5. How to run it and how to check it works (exact commands, expected output).
 6. Choices and simplifications we made, and what a real system would do differently.
-7. Five questions the supervisor could ask, each with a short correct answer.
+7. Five questions to check understanding, each with a short correct answer.
 
 ## Architecture (do not change without asking)
 
