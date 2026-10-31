@@ -1,0 +1,21 @@
+[project]
+name = "agentic-ric-oran"
+version = "0.1.0"
+description = "LLM agent (LangGraph) steering a goal-conditioned RL xApp (DDPG) for RAN slicing, behind a deterministic verifier."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.uv]
+# This repo is an application, not a library we publish: uv manages the
+# virtual environment and dependencies but does not build/install our code.
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Flat layout: our packages (sim/, rl/, ...) live at the repo root, so we put
+# the root on sys.path for the tests instead of installing the project.
+pythonpath = ["."]
