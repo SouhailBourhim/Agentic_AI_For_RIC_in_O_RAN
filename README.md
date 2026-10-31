@@ -9,6 +9,7 @@ behind an MCP gateway that exposes three tools. Testbed: OpenAirInterface (rfsim
 
 - Design: [`docs/Proposition_IA_agentique_RIC_ORAN_v2.pdf`](docs/Proposition_IA_agentique_RIC_ORAN_v2.pdf) (French)
 - Rules for the coding agent: [`CLAUDE.md`](CLAUDE.md)
+- Overall plan (checkpoints, order, interfaces, risks): [`docs/PLAN.md`](docs/PLAN.md)
 - Build order, one prompt per checkpoint: [`PROMPTS.md`](PROMPTS.md)
 - Learning notes, one per checkpoint: `docs/learn/` (written as the project progresses)
 
@@ -38,4 +39,4 @@ uv run pytest    # run the tests
 | `tests/` | pytest |
 | `docs/` | design, [`DECISIONS.md`](docs/DECISIONS.md), learning notes in `docs/learn/` |
 
-Status: M00 (repository skeleton) done.
+Status: M00 (repository skeleton) done; overall plan in `docs/PLAN.md`. Next: M01 (simulator).
