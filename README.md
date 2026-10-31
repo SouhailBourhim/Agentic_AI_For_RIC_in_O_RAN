@@ -36,6 +36,8 @@ uv run pytest    # run the tests
 | `xapps/` | FlexRIC xApps: KPM monitoring, slice control |
 | `testbed/` | Docker/configs for OAI CN5G, gNB, nrUE (rfsim), FlexRIC |
 | `eval/` | scenarios, controller comparison, interface metrics, plots |
+| `monitoring/` | Prometheus exporter + Grafana dashboards (from M04a) |
+| `notebooks/` | marimo notebooks to explore each checkpoint (`uv run marimo edit notebooks/<file>.py`) |
 | `tests/` | pytest |
 | `docs/` | design, [`DECISIONS.md`](docs/DECISIONS.md), learning notes in `docs/learn/` |
 

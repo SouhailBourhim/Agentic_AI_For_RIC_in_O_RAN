@@ -172,3 +172,20 @@ policy). This is not O-RAN A1: FlexRIC has no Non-RT RIC.
 | OAI slice control through FlexRIC is unreliable | KPM on the testbed, control loop on the sim (meeting point #1 only); proposal §9 |
 | rfsim throughput low, noisy or CPU heavy | Smaller bandwidth config; calibrate sim capacity to the measured value; normalised observations keep the policy usable |
 | RAM (23 GB in WSL): CN5G + gNB + 3 UE + FlexRIC | Minimal CN5G profile; measure in M06. Ollama runs on Windows, outside the WSL memory limit, but competes for the same physical RAM |
+
+## 6. Visualization per checkpoint
+
+Every checkpoint ships at least one visualization, shown in section 5 of its learning note
+(rule in CLAUDE.md). Slice colours are fixed everywhere: eMBB blue `#2a78d6`, URLLC orange
+`#eb6834`, BE aqua `#1baf7a` (defined in `sim/plot.py`).
+
+| Checkpoint | What to see | Tool |
+|---|---|---|
+| M01 | Model curves; a scenario under fixed splits (throughput vs load, latency, shares, reward) | matplotlib → `docs/learn/img/`; marimo notebook with sliders |
+| M02 | Live training curves (episode reward, actor/critic loss); one policy under 2 objectives vs equal split | TensorBoard (SB3 `tensorboard_log`, logs in `runs/`); matplotlib comparison; marimo notebook to pick objectives |
+| M03 | Where the verifier accepts or rejects, and why | matplotlib feasibility map (two targets on the axes, coloured by decision/reason) + printed decision table |
+| M06-spike, M06 | Control-plane and user-plane messages; container load | Wireshark on pcaps captured on the Docker networks (NGAP on N2, GTP-U on N3); `docker stats` |
+| M04a | Live per-slice KPIs, PRB split, active `a1_policy`, intent states, verifier decisions | **Prometheus + Grafana**: `monitoring/` exporter reads `var/ric.db` and exposes `/metrics`; provisioned Grafana dashboard. Live wall-clock runs only; fast sim runs for evaluation use matplotlib |
+| M04b, M05a/b | Same dashboard, plus agent/gateway events (intent latency, tool calls, rejections) | Grafana panels on the same exporter; JSONL logs |
+| M07a, M07b | Same dashboard on testbed data, unchanged; E2 messages | Grafana (same KPI record); Wireshark with the E2AP dissector |
+| M08a/b/c | Spread over repeated runs, controllers × scenarios, interface metrics | matplotlib box plots and time series with spread bands → PNG + CSV in `eval/results/` |

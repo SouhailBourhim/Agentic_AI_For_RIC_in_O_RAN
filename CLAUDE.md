@@ -24,7 +24,9 @@ So:
 2. Why it exists in the architecture (which box of the proposal's figure 2 it is).
 3. How it works, as a numbered walk through the main code path, with file:line references.
 4. A small Mermaid diagram if there is a flow or a loop.
-5. How to run it and how to check it works (exact commands, expected output).
+5. How to run it and how to check it works (exact commands, expected output), and at least
+   one visualization of the result (figure embedded in the note, dashboard, notebook or
+   packet capture; see `docs/PLAN.md` §6) with the command that produces it and how to read it.
 6. Choices and simplifications we made, and what a real system would do differently.
 7. Five questions to check understanding, each with a short correct answer.
 
@@ -86,6 +88,8 @@ backends/       Backend interface + SimBackend + FlexRICBackend
 xapps/          KPM monitoring xApp, slice-control xApp (FlexRIC)
 testbed/        docker-compose and configs for OAI CN5G, gNB, nrUE, FlexRIC; traffic scripts
 eval/           scenarios, controller runners, interface metrics, plots
+monitoring/     Prometheus exporter (reads var/ric.db) + Prometheus/Grafana compose and dashboards
+notebooks/      marimo notebooks (plain .py) to explore each checkpoint interactively
 tests/          pytest; one test per hard invariant at least
 docs/learn/     learning notes, one per checkpoint
 ```
@@ -97,6 +101,9 @@ docs/learn/     learning notes, one per checkpoint
 - LangGraph for the agent. LLM via Ollama (local, ~8B model with tool calling, e.g. Qwen), behind a
   small client so a cloud API model can be swapped in for comparison.
 - Official MCP Python SDK for the gateway.
+- Visualization: matplotlib (object API) for figures, TensorBoard for RL training curves,
+  marimo for interactive notebooks, Prometheus + Grafana for live monitoring (from M04a),
+  Wireshark on pcaps for the testbed interfaces.
 - OAI and FlexRIC via their official docs and Docker images where possible.
 
 ## Environment

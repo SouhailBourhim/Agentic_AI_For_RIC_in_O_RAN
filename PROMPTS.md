@@ -8,6 +8,9 @@ After each checkpoint, do the "Understand it" step yourself. That is the part th
 The order below follows [`docs/PLAN.md`](docs/PLAN.md), which also gives the interfaces
 (Backend, KPI record, RL objective, `a1_policy`) that every checkpoint must respect.
 
+Every checkpoint also delivers the visualization listed for it in `docs/PLAN.md` §6, shown in
+section 5 of its learning note.
+
 Working order: M00 → M01 → M02 → M03 → M06-spike → M04a → M04b → M05a → M06 → M07a → M05b →
 M07b → M08a → M08b → M08c.
 
@@ -56,7 +59,9 @@ Understand it: explain the observation, the action and the reward out loud, with
 ```
 Checkpoint M02: train a DDPG policy with stable-baselines3 on the M01 simulator, on CPU.
 During training, sample a new random objective at each episode so the policy learns to follow
-whatever objective it is given. Log training curves to a file and save the model outside git.
+whatever objective it is given. Log training curves to TensorBoard (runs/) and save the model
+outside git. Add matplotlib figures of the comparison, and a marimo notebook to pick an
+objective and watch the policy's PRB split.
 Add a small evaluation script that shows the same policy behaving differently under two
 different objectives (for example "protect URLLC" vs "maximise eMBB").
 Compare against a static equal split on the same traffic.
@@ -81,6 +86,7 @@ objectives together must stay feasible, otherwise the newer one is rejected.
 No LLM, no randomness, no network calls in this package; add a test that checks this
 (hard invariant 3).
 Write table-driven tests with accepted and rejected cases, including tricky edge cases.
+Add a feasibility map figure (two targets on the axes, coloured by decision and reason).
 Plan first. Then write docs/learn/M03-verifier.md.
 ```
 
@@ -124,6 +130,9 @@ Checkpoint M04a: build the plumbing with no LLM, following the interfaces in doc
 - console/: a small CLI that lists pending objectives and confirms or refuses them; pending
   objectives expire after a configurable timeout; evaluation mode skips confirmation.
 - One JSONL event log format for agent and verifier decisions.
+- monitoring/: a Prometheus exporter that reads var/ric.db and exposes /metrics, plus a
+  docker-compose with Prometheus and Grafana and a provisioned dashboard (per-slice KPIs,
+  PRB split, active a1_policy, intent states, verifier decisions).
 Tests: hard invariant 5 (the runner never waits on an LLM or the agent), hard invariant 6
 (expiry, eval mode skips confirmation), an intent that the verifier rejects never reaches
 a1_policy.
