@@ -10,18 +10,12 @@ spike the queue drains and latency comes back down.
 import numpy as np
 
 from sim.env import SlicingEnv
-from sim.traffic import TrafficPattern, default_traffic
-from verifier.objective import SLICES, RLObjective, SliceValues
+from sim.scenarios import urllc_spike
+from verifier.objective import SLICES
 
 
 def main() -> None:
-    traffic = default_traffic()
-    traffic["urllc"] = TrafficPattern("spike", base_mbps=10.0, peak_mbps=40.0, start_s=10.0, end_s=20.0)
-    objective = RLObjective(
-        weights=SliceValues(embb=0.3, urllc=0.5, be=0.2),
-        min_thr_mbps=SliceValues(urllc=10.0),
-        max_latency_ms=20.0,
-    )
+    traffic, objective = urllc_spike()
     env = SlicingEnv(episode_steps=30)
     env.reset(seed=0, options={"objective": objective, "traffic": traffic})
     equal_split = np.ones(len(SLICES), dtype=np.float32)

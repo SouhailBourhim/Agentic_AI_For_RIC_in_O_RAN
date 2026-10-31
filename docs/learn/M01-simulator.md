@@ -160,8 +160,9 @@ uv sync
 uv run pytest -q
 ```
 
-Expected: `73 passed`. That is the 9 smoke tests, plus `test_objective.py`, `test_cell.py`,
-`test_traffic.py` and `test_env.py`.
+Expected: `75 passed`. That is the 9 smoke tests, plus `test_objective.py`, `test_cell.py`,
+`test_traffic.py`, `test_env.py`, and `test_plot.py` (the figures build and the marimo notebook
+runs top to bottom).
 
 ```bash
 uv run python -c "from sim.env import SlicingEnv; e=SlicingEnv(); print(e.observation_space, e.action_space)"
@@ -199,6 +200,59 @@ How to read it:
 - **eMBB** offers about 50 Mb/s against 33.3 for the whole run, so it sits at a full buffer
   (1700 ms). The equal split is simply bad here, which is what M02's policy should fix.
 
+### Figures
+
+```bash
+uv run python -m sim.plot     # writes docs/learn/img/M01-model.png and M01-spike.png
+```
+
+**The model itself**, the two formulas drawn:
+
+![Latency vs utilisation and throughput vs PRB share](img/M01-model.png)
+
+- **Left:** latency = base / (1 − ρ) with an empty queue, one curve per slice. Each curve only
+  doubles between ρ = 0 and ρ = 0.5 (2 × base), then bends up hard: 5 × base at 0.8, 10 × base
+  at 0.9. They stop rising at the ρ = 0.95 cap (dotted line), where the latency is 20 × base.
+  Beyond that point, only a growing backlog can raise latency further.
+- **Right:** throughput grows linearly with the PRB share until it reaches the offered load
+  (40 Mb/s at share 0.4), then stays flat. PRBs past that point are wasted on this slice.
+
+**The spike scenario under two fixed splits**: equal (left) and URLLC-protecting
+0.40 / 0.42 / 0.18 (right). The shaded band is the spike.
+
+![URLLC spike under two fixed PRB splits](img/M01-spike.png)
+
+- **Row 1, throughput (solid) vs offered load (dashed).** Where the two lines meet, the slice
+  is fully served. Where the solid line is below the dashed one, it is starved. With the equal
+  split, URLLC is capped at 33.3 during the spike. With the protecting split, URLLC follows
+  its load, but BE is now capped at 18 and eMBB at 40.
+- **Row 2, latency (log scale).**
+  - Equal split: URLLC goes from about 3 ms to 1.5 s during the spike.
+  - Protecting split: URLLC stays at 35–80 ms. Its capacity (42 Mb/s) is just above its load
+    (~40), so ρ ≈ 0.95 and the M/M/1 term alone is 2 / 0.05 = 40 ms. That is still above the
+    20 ms bound.
+  - Protecting split: BE now has the worst latency, because it is overloaded all the time.
+- **Row 3, PRB shares.** Constant, since these are fixed splits. M02's policy will make this
+  row move.
+- **Row 4, reward.**
+  - Equal split: −0.67 for the whole spike, the full latency penalty.
+  - Protecting split: about −0.64, with two jumps up to 0.35 at t = 14 s and t = 20 s. At those
+    steps, noise pushed URLLC's load slightly down, its latency dipped under 20 ms, and the
+    penalty vanished. The reward really is that sensitive to the bound.
+- **The lesson:** no fixed split is good in every phase. The protecting split wastes 32 Mb/s of
+  URLLC capacity outside the spike and starves BE the whole time. A controller that changes
+  the split when the traffic changes is needed. That is the RL policy of M02.
+
+**Interactive version** (marimo notebook: sliders for the split and the spike size):
+
+```bash
+uv run marimo edit notebooks/M01_simulator.py
+```
+
+It opens in the browser (marimo prints the URL; with WSL mirrored networking it works from
+Windows directly). Moving a slider re-runs only the cells that depend on it and redraws the
+figure. A table under the figure gives the mean reward and peak URLLC latency of each split.
+
 ## 6. Choices and simplifications
 
 - **1 s per step.** This is the RL decision period: inside the Near-RT range (10 ms–1 s) and
@@ -218,6 +272,16 @@ How to read it:
   change it after M06 without changing the policy's input.
 - **`sim` imports the schema from `verifier.objective`.** The objective is shared by sim,
   verifier, agent and policy. Rejected: a new `common/` package that isn't in the planned layout.
+- **Figures with matplotlib's object API** (`Figure`, not `pyplot`), in
+  [sim/plot.py](../../sim/plot.py). There is no global "current figure" state, so the same
+  functions work in the script, the tests and the notebook. Slice colours are fixed across the
+  project (eMBB blue, URLLC orange, BE aqua). They are the first three slots of a colour-blind-safe
+  reference palette. The palette validator needs Node.js, which isn't installed, so we rely on
+  the palette's documented validation.
+- **marimo notebooks, not Jupyter.** A marimo notebook is a plain `.py` file: git diffs are
+  readable, and cells re-run in dependency order, so there is no hidden state from cells run out
+  of order. A test runs it top to bottom. Rejected Jupyter: JSON files with embedded outputs make
+  noisy diffs, and running cells out of order can show results that don't match the code.
 - **The env ignores `valid_from` / `valid_until`.** Applying an objective at the right time is
   the RL runner's job (M04a), not the simulator's.
 

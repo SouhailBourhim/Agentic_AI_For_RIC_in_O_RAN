@@ -31,3 +31,6 @@ eval/results/
 .DS_Store
 .vscode/
 .idea/
+
+# marimo session cache
+__marimo__/
