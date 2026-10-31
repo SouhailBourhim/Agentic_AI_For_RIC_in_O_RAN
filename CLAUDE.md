@@ -112,6 +112,8 @@ docs/learn/     learning notes, one per checkpoint
 - One checkpoint at a time, in the order of `PROMPTS.md`. Plan first, then build, then test, then
   write the learning note, then stop and summarise.
 - Small commits with clear messages. Do not commit secrets, model weights or large logs.
+- Never mention Claude as a co-author in any commit: no `Co-Authored-By: Claude ...` trailer and
+  no other Claude attribution line in commit messages or PR descriptions.
 - Ask before: any `sudo` command, installing system packages, changing WSL/Docker/network settings,
   deleting files outside the repo, or anything that changes the design above.
 - When something fails, show the real error and your diagnosis. Do not hide failures, do not fake
