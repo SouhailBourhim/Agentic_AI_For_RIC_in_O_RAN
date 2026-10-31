@@ -11,7 +11,7 @@ The order below follows [`docs/PLAN.md`](docs/PLAN.md), which also gives the int
 Every checkpoint also delivers the visualization listed for it in `docs/PLAN.md` §6, shown in
 section 5 of its learning note.
 
-Working order: M00 → M01 → M02 → M03 → M06-spike → M04a → M04b → M05a → M06 → M07a → M05b →
+Working order: M00 → M01 → M06-spike → M02 → M03 → M04a → M04b → M05a → M06 → M07a → M05b →
 M07b → M08a → M08b → M08c.
 
 ---
@@ -54,6 +54,28 @@ Understand it: explain the observation, the action and the reward out loud, with
 
 ---
 
+## M06-spike — Testbed reconnaissance (timeboxed, 1–2 days)
+
+```
+Checkpoint M06-spike: a timeboxed reconnaissance of the testbed, right after M01 and before
+M04a freezes the interfaces. OAI and FlexRIC now live on GitHub (duranta-project); follow the
+official v3.0.0 docs and Docker images (Docker Desktop, WSL2, SCTP loaded):
+1) bring up OAI CN5G + gNB (E2 agent) + FlexRIC + 3 nrUE in rfsim; each UE pings through the core;
+2) measure the rfsim downlink capacity with iperf (one UE alone, then 3 together) and calibrate
+   the M01 simulator to it;
+3) find out which KPM measurements the OAI gNB reports (throughput, PRB use, delay; per UE or
+   per slice), and which slice-control path exists.
+Ask me before any sudo command or system change. Show real logs when something fails.
+Plan first, telling me which OAI and FlexRIC versions you follow.
+Output: docs/learn/M06-spike.md with findings, a throughput figure and the protocol message
+sequence, and the changes to the KPI record, Backend interface and capacity in docs/PLAN.md.
+Stop when the timebox ends, even if not everything works.
+```
+
+Understand it: say what the spike changed in the plan, and why it had to come before M04a.
+
+---
+
 ## M02 — Goal-conditioned DDPG policy
 
 ```
@@ -91,25 +113,6 @@ Plan first. Then write docs/learn/M03-verifier.md.
 ```
 
 Understand it: explain each check and why a verifier must not be an LLM.
-
----
-
-## M06-spike — Testbed reconnaissance (timeboxed, 1–2 days)
-
-```
-Checkpoint M06-spike: a timeboxed reconnaissance of the testbed, before M04a freezes the
-interfaces. Using the official OAI docs and Docker images (Docker Desktop, WSL2, SCTP loaded):
-1) bring up a minimal OAI CN5G + gNB + 1 nrUE in rfsim and get a ping through the core;
-2) find out, without building everything, whether the official gNB image has the E2 agent,
-   which FlexRIC version matches it, which KPM measurements the OAI gNB reports (throughput,
-   PRB use, delay; per UE or per slice), and which slice-control service model it supports.
-Ask me before any sudo command or system change. Show real logs when something fails.
-Plan first, telling me which OAI and FlexRIC documentation versions you follow.
-Output: docs/learn/M06-spike.md with findings, and a list of changes (if any) to the KPI record
-or Backend interface in docs/PLAN.md. Stop when the timebox ends, even if not everything works.
-```
-
-Understand it: say what the spike changed in the plan, and why it had to come before M04a.
 
 ---
 

@@ -33,7 +33,7 @@ RAM in WSL, RTX 5070 Laptop with 8151 MiB VRAM, about 1.5 GB of it used by Windo
 | M01 Simulator | gym env: 1 cell, 3 slices, traffic patterns (steady, spike, ramp); action = PRB shares; obs = KPIs + objective. Also the pydantic `RLObjective` schema | M00 | 2–3 | Models too simple or badly scaled, so the RL learns something trivial |
 | M02 DDPG | goal-conditioned policy trained on random objectives, curves, eval with 2 objectives vs equal split | M01 | 3–5 | DDPG is unstable; reward shaping and tuning can take days |
 | M03 Verifier | `verify(objective, state)` + conflict rule + table tests | M01 (schema) | 1–2 | Low. "Feasible given the PRB budget" depends on a capacity model that changes on the testbed |
-| M06-spike | 1–2 days timeboxed: CN5G + gNB + 1 UE ping; which KPM measures and which slice-control SM the OAI gNB really offers | Docker, SCTP | 1–2 | Answers may force a change to the KPI record before it is frozen |
+| M06-spike | 1–2 days timeboxed, right after M01: CN5G + gNB + UEs ping, rfsim capacity; which KPM measures and which slice-control SM the OAI gNB really offers | Docker, SCTP | 1–2 | Answers may force a change to the KPI record before it is frozen |
 | M04a Plumbing | Backend interface, SimBackend, KPI store, `a1_policy`, RL runner, FastAPI with intent state machine, console; rule-based parser, no LLM | M01–M03 | 3–4 | Getting process boundaries and the clock right |
 | M04b Agent | LLM client (Ollama, swappable), LangGraph graph, parsing prompt, annotated-intent template | M04a | 3–4 | 8B model tool calling and JSON output are unreliable |
 | M05a Gateway | MCP server with exactly 3 tools, calling only the agent HTTP API; 3-case demo with a CLI client | M04b | 1–2 | Low |
@@ -76,16 +76,18 @@ Why these changes from the original M01–M08:
 ## 2. Order of work
 
 ```text
-Sim path:      M01 → M02 → M03 → M04a → M04b → M05a ───────→ M05b → M08a → M08b
-Testbed path:                M06-spike ........ M06 → M07a ───────→ M07b → M08c
+Sim path:      M01 ──────────→ M02 → M03 → M04a → M04b → M05a ───────→ M05b → M08a → M08b
+Testbed path:     M06-spike ─(capacity)─↗ ........... M06 → M07a ───────→ M07b → M08c
                                                       ↑ meet #1       ↑ meet #2
 ```
 
-Working order (one person): **M01 → M02 → M03 → M06-spike → M04a → M04b → M05a → M06 → M07a →
+Working order (one person): **M01 → M06-spike → M02 → M03 → M04a → M04b → M05a → M06 → M07a →
 M05b → M07b → M08a → M08b → M08c.**
 
-- **The spike comes before M04a** because M04a freezes the KPI record and the Backend interface.
-  The spike tells us what the real gNB can report and control.
+- **The spike comes right after M01** (moved there on 2026-11-01). It must come before M04a,
+  which freezes the KPI record and the Backend interface, because it tells us what the real gNB
+  can report and control. Running it before M02 also gives a measured rfsim capacity, so the
+  policy is trained on a calibrated simulator, and it tests the riskiest part of the project first.
 - **Meeting point #1, M07a:** real KPM data lands in the same KPI store with the same record
   format. `get_kpis` shows testbed data while control still runs on the sim. This is also the
   fallback if testbed control fails (proposal §9).

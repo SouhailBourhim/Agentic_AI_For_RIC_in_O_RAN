@@ -41,4 +41,4 @@ uv run pytest    # run the tests
 | `tests/` | pytest |
 | `docs/` | design, [`DECISIONS.md`](docs/DECISIONS.md), learning notes in `docs/learn/` |
 
-Status: M00 (skeleton) and M01 (simulator + objective schema) done; overall plan in `docs/PLAN.md`. Next: M02 (DDPG policy).
+Status: M00 (skeleton) and M01 (simulator + objective schema) done; overall plan in `docs/PLAN.md`. Next: M06-spike (OAI + FlexRIC reconnaissance), then M02.
