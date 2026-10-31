@@ -39,4 +39,4 @@ uv run pytest    # run the tests
 | `tests/` | pytest |
 | `docs/` | design, [`DECISIONS.md`](docs/DECISIONS.md), learning notes in `docs/learn/` |
 
-Status: M00 (repository skeleton) done; overall plan in `docs/PLAN.md`. Next: M01 (simulator).
+Status: M00 (skeleton) and M01 (simulator + objective schema) done; overall plan in `docs/PLAN.md`. Next: M02 (DDPG policy).
