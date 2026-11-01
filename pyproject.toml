@@ -9,12 +9,15 @@ dependencies = [
     "matplotlib>=3.11.2",
     "numpy>=2.4.6",
     "pydantic>=2.14.2",
+    "stable-baselines3>=2.9.2",
+    "torch>=2.15.0",
 ]
 
 [dependency-groups]
 dev = [
     "marimo>=0.25.2",
     "pytest>=8",
+    "tensorboard>=2.21.0",
 ]
 
 [tool.uv]
@@ -27,3 +30,13 @@ testpaths = ["tests"]
 # Flat layout: our packages (sim/, rl/, ...) live at the repo root, so we put
 # the root on sys.path for the tests instead of installing the project.
 pythonpath = ["."]
+
+# torch from the CPU-only index: ~200 MB instead of a multi-GB CUDA build. DDPG's small
+# networks train fast on 32 CPU threads, and the GPU stays free for Ollama (DECISIONS.md).
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]

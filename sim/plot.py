@@ -9,6 +9,7 @@ We use matplotlib's object API (Figure, not pyplot): no global state, and the sa
 functions work in a script, in tests and in the marimo notebook.
 """
 
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import numpy as np
@@ -41,22 +42,27 @@ FIXED_SPLITS = {
 DEFAULT_OUT_DIR = Path("docs/learn/img")
 
 
-def run_fixed_split(
-    shares: np.ndarray,
+Controller = Callable[[np.ndarray], np.ndarray]  # observation -> action (3 numbers)
+
+
+def run_episode(
+    controller: Controller,
     traffic: dict[str, TrafficPattern],
     objective: RLObjective,
     steps: int = 30,
     seed: int = 0,
 ) -> dict[str, np.ndarray]:
-    """Run the env with the same PRB split at every step; return one array per quantity.
+    """Run one episode where `controller` picks the action from each observation.
 
+    Any controller fits: a fixed split, a heuristic, or the trained RL policy, so they all
+    produce the same arrays and the same plots.
     Keys: "time", "reward", and "<quantity>_<slice>" for load, thr, lat, share.
     """
     env = SlicingEnv(episode_steps=steps)
-    env.reset(seed=seed, options={"objective": objective, "traffic": traffic})
+    obs, _ = env.reset(seed=seed, options={"objective": objective, "traffic": traffic})
     rows: dict[str, list[float]] = {"time": [], "reward": []}
     for _ in range(steps):
-        _, reward, _, _, info = env.step(shares.astype(np.float32))
+        obs, reward, _, _, info = env.step(np.asarray(controller(obs), dtype=np.float32))
         rows["time"].append(info["time_s"])
         rows["reward"].append(reward)
         for s in SLICES:
@@ -65,6 +71,17 @@ def run_fixed_split(
             rows.setdefault(f"lat_{s}", []).append(info["latency_ms"][s])
             rows.setdefault(f"share_{s}", []).append(info["shares"][s])
     return {k: np.array(v) for k, v in rows.items()}
+
+
+def run_fixed_split(
+    shares: np.ndarray,
+    traffic: dict[str, TrafficPattern],
+    objective: RLObjective,
+    steps: int = 30,
+    seed: int = 0,
+) -> dict[str, np.ndarray]:
+    """Run the env with the same PRB split at every step (a controller that ignores obs)."""
+    return run_episode(lambda _obs: shares, traffic, objective, steps, seed)
 
 
 def _style(ax: Axes, ylabel: str) -> None:
@@ -102,9 +119,16 @@ def _shade_spike(ax: Axes) -> None:
 
 
 def plot_spike_comparison(
-    runs: dict[str, dict[str, np.ndarray]], objective: RLObjective, urllc: TrafficPattern
+    runs: dict[str, dict[str, np.ndarray]],
+    objective: RLObjective | Mapping[str, RLObjective],
+    urllc: TrafficPattern,
+    what: str = "under two fixed PRB splits",
 ) -> Figure:
-    """One column per run, four rows: throughput vs load, latency, PRB shares, reward."""
+    """One column per run, four rows: throughput vs load, latency, PRB shares, reward.
+
+    `objective` is either one objective for all runs, or one per run name (then each column
+    draws its own URLLC latency bound).
+    """
     fig = Figure(figsize=(12, 10), facecolor=SURFACE, layout="constrained")
     axes = fig.subplots(4, len(runs), sharex=True, sharey="row", squeeze=False)
 
@@ -120,10 +144,11 @@ def plot_spike_comparison(
             ax_lat.plot(t, run[f"lat_{s}"], color=colour, linewidth=LINE_WIDTH)
         _label_line_ends(ax_thr, t[-1], {s: run[f"thr_{s}"][-1] for s in SLICES})
 
-        if objective.max_latency_ms is not None:
-            ax_lat.axhline(objective.max_latency_ms, color=TEXT_MUTED, linewidth=1.0, linestyle=":")
+        obj = objective[name] if isinstance(objective, Mapping) else objective
+        if obj.max_latency_ms is not None:
+            ax_lat.axhline(obj.max_latency_ms, color=TEXT_MUTED, linewidth=1.0, linestyle=":")
             ax_lat.annotate(
-                f"URLLC bound {objective.max_latency_ms:.0f} ms", (t[0], objective.max_latency_ms),
+                f"URLLC bound {obj.max_latency_ms:.0f} ms", (t[0], obj.max_latency_ms),
                 xytext=(0, 3), textcoords="offset points", fontsize=8, color=TEXT_MUTED,
             )
         ax_lat.set_yscale("log")
@@ -154,7 +179,7 @@ def plot_spike_comparison(
     handles, labels = axes[0, 0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="outside upper right", ncols=3, frameon=False, fontsize=9)
     fig.suptitle(
-        f"URLLC spike (shaded, {urllc.base_mbps:.1f} → {urllc.peak_mbps:.1f} Mb/s) under two fixed PRB splits",
+        f"URLLC spike (shaded, {urllc.base_mbps:.1f} → {urllc.peak_mbps:.1f} Mb/s) {what}",
         color=TEXT, fontsize=12, x=0.01, ha="left",
     )
     return fig

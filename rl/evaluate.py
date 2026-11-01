@@ -1,0 +1,154 @@
+"""Evaluate the trained policies against the baselines, and test goal conditioning.
+
+Run with:  uv run python -m rl.evaluate        (after training; reads models/m02/*.zip)
+Writes runs/m02/eval.json and prints two tables plus the pass/fail of both criteria.
+
+1. Goal conditioning: the same URLLC-spike traffic under two objectives ("protect URLLC" vs
+   "maximise eMBB"). A goal-conditioned policy must split the PRBs differently.
+   Criterion: the mean URLLC share differs by at least 0.10, for every trained seed.
+2. Random episodes: 100 episodes with a random objective and random traffic (env seeds
+   1000-1099). Every controller sees exactly the same episodes (paired comparison).
+   Criterion: the policy's mean reward beats the equal split, for every trained seed.
+Both criteria were fixed in the M02 plan before any result existed.
+"""
+
+import json
+from collections.abc import Callable
+from pathlib import Path
+
+import numpy as np
+
+from rl.baselines import equal_split, proportional_to_load
+from rl.policy import SlicePolicy
+from sim.cell import CellConfig
+from sim.env import SlicingEnv
+from sim.plot import run_episode
+from sim.scenarios import urllc_spike
+from verifier.objective import SLICES, RLObjective, SliceValues
+
+MODEL_DIR = Path("models/m02")
+OUT_PATH = Path("runs/m02/eval.json")
+EVAL_SEEDS = range(1000, 1100)
+EPISODE_STEPS = 200
+SPIKE_STEPS = 40  # the URLLC-spike scenario: spike at 10-20 s, then 20 s of recovery
+SHARE_GAP_CRITERION = 0.10
+TARGET_TOLERANCE = 0.99  # a target counts as met at >= 99 % of it (float noise)
+
+CAPACITY = CellConfig().capacity_mbps
+OBJECTIVES = {
+    "protect URLLC": RLObjective(
+        weights=SliceValues(embb=0.2, urllc=0.6, be=0.2),
+        min_thr_mbps=SliceValues(urllc=0.30 * CAPACITY),
+        max_latency_ms=10.0,
+    ),
+    "maximise eMBB": RLObjective(weights=SliceValues(embb=0.8, urllc=0.1, be=0.1)),
+}
+
+Controller = Callable[[np.ndarray], np.ndarray]
+
+
+def episode_metrics(controller: Controller, seed: int, steps: int = EPISODE_STEPS) -> dict[str, float]:
+    """Run one random episode and summarise it.
+
+    - reward: mean reward per step
+    - target_met: share of (step, slice) pairs with a minimum target where
+      throughput >= min(target, offered load). NaN if the objective has no target.
+    - latency_met: share of steps with URLLC latency <= bound. NaN if there is no bound.
+    """
+    env = SlicingEnv(episode_steps=steps)
+    obs, _ = env.reset(seed=seed)
+    objective = env.objective
+    targets = dict(zip(SLICES, objective.min_thr_mbps.as_list()))
+    rewards, target_hits, latency_hits = [], [], []
+    for _ in range(steps):
+        obs, reward, _, _, info = env.step(np.asarray(controller(obs), dtype=np.float32))
+        rewards.append(reward)
+        for s in SLICES:
+            if targets[s] > 0:
+                needed = min(targets[s], info["load_mbps"][s])
+                target_hits.append(info["throughput_mbps"][s] >= TARGET_TOLERANCE * needed)
+        if objective.max_latency_ms is not None:
+            latency_hits.append(info["latency_ms"]["urllc"] <= objective.max_latency_ms)
+    return {
+        "reward": float(np.mean(rewards)),
+        "target_met": float(np.mean(target_hits)) if target_hits else float("nan"),
+        "latency_met": float(np.mean(latency_hits)) if latency_hits else float("nan"),
+    }
+
+
+def evaluate_random(controller: Controller) -> dict[str, list[float]]:
+    """All metrics, one value per evaluation episode, in EVAL_SEEDS order."""
+    per_episode = [episode_metrics(controller, seed) for seed in EVAL_SEEDS]
+    return {key: [m[key] for m in per_episode] for key in per_episode[0]}
+
+
+def goal_conditioning(policy: SlicePolicy) -> dict[str, dict[str, float]]:
+    """Mean PRB share per slice, URLLC throughput and latency under each objective."""
+    traffic, _ = urllc_spike()
+    out = {}
+    for name, objective in OBJECTIVES.items():
+        run = run_episode(policy.action, traffic, objective, steps=SPIKE_STEPS)
+        summary = {f"share_{s}": float(run[f"share_{s}"].mean()) for s in SLICES}
+        summary["urllc_thr_mbps"] = float(run["thr_urllc"].mean())
+        summary["urllc_lat_ms_median"] = float(np.median(run["lat_urllc"]))
+        out[name] = summary
+    return out
+
+
+def summarise(values: list[float]) -> str:
+    arr = np.array(values, dtype=float)
+    arr = arr[~np.isnan(arr)]
+    return f"{arr.mean():7.3f} ± {arr.std():.3f}" if arr.size else "    n/a"
+
+
+def main() -> None:
+    model_paths = sorted(MODEL_DIR.glob("ddpg_seed*.zip"))
+    if not model_paths:
+        raise SystemExit(f"no models in {MODEL_DIR}; train first (uv run python -m rl.train)")
+    policies = {p.stem: SlicePolicy.load(p) for p in model_paths}
+
+    results: dict = {"eval_seeds": [EVAL_SEEDS.start, EVAL_SEEDS.stop], "goal_conditioning": {}, "random": {}}
+
+    print("1) Goal conditioning: URLLC-spike traffic, mean over", SPIKE_STEPS, "s")
+    print(f"{'policy':<16}{'objective':<16}{'eMBB':>7}{'URLLC':>7}{'BE':>7}{'URLLC Mb/s':>12}{'URLLC lat ms (median)':>23}")
+    gaps = {}
+    for name, policy in policies.items():
+        gc = goal_conditioning(policy)
+        results["goal_conditioning"][name] = gc
+        for obj_name, row in gc.items():
+            print(f"{name:<16}{obj_name:<16}{row['share_embb']:7.2f}{row['share_urllc']:7.2f}"
+                  f"{row['share_be']:7.2f}{row['urllc_thr_mbps']:12.1f}{row['urllc_lat_ms_median']:23.1f}")
+        gaps[name] = gc["protect URLLC"]["share_urllc"] - gc["maximise eMBB"]["share_urllc"]
+    gc_pass = all(g >= SHARE_GAP_CRITERION for g in gaps.values())
+    print("URLLC share gap (protect - maximise eMBB):", {k: round(v, 3) for k, v in gaps.items()},
+          f"-> criterion >= {SHARE_GAP_CRITERION}:", "PASS" if gc_pass else "FAIL")
+
+    print(f"\n2) {len(EVAL_SEEDS)} random episodes (objective + traffic), same episodes for every controller")
+    controllers: dict[str, Controller] = {
+        "equal split": equal_split,
+        "proportional to load": proportional_to_load,
+        **{name: policy.action for name, policy in policies.items()},
+    }
+    print(f"{'controller':<22}{'reward/step':>18}{'targets met':>18}{'URLLC latency met':>20}")
+    for name, controller in controllers.items():
+        metrics = evaluate_random(controller)
+        results["random"][name] = metrics
+        print(f"{name:<22}{summarise(metrics['reward']):>18}{summarise(metrics['target_met']):>18}"
+              f"{summarise(metrics['latency_met']):>20}")
+    equal_mean = np.mean(results["random"]["equal split"]["reward"])
+    beats = {name: float(np.mean(results["random"][name]["reward"]) - equal_mean) for name in policies}
+    rand_pass = all(d > 0 for d in beats.values())
+    print("mean reward minus equal split:", {k: round(v, 4) for k, v in beats.items()},
+          "-> criterion > 0:", "PASS" if rand_pass else "FAIL")
+
+    results["criteria"] = {
+        "goal_conditioning_share_gap": {"gaps": gaps, "threshold": SHARE_GAP_CRITERION, "pass": gc_pass},
+        "beats_equal_split": {"differences": beats, "pass": rand_pass},
+    }
+    OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    OUT_PATH.write_text(json.dumps(results, indent=2))
+    print(f"\nwrote {OUT_PATH}")
+
+
+if __name__ == "__main__":
+    main()
