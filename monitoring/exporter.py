@@ -15,6 +15,7 @@ Metrics (all gauges, current values; Prometheus keeps the history):
   ric_served_model_info{version}         1, labelled with the served policy version
   ric_intents{state}                     number of intents per state
   ric_verifier_decisions{check}          intents per deciding verifier check ('ok' = accepted)
+  ric_exporter_db_errors_total           scrapes that served the previous snapshot (database busy)
 """
 
 import argparse
@@ -26,7 +27,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from prometheus_client import start_http_server
-from prometheus_client.core import REGISTRY, GaugeMetricFamily
+from prometheus_client.core import REGISTRY, CounterMetricFamily, GaugeMetricFamily
 from prometheus_client.registry import Collector
 
 from store.db import db_path
@@ -45,24 +46,39 @@ CHECKS = ("ok", "schema", "window", "latency_physics", "budget", "floor", "train
 
 
 class RicCollector(Collector):
-    """Builds every metric from the database at scrape time (nothing cached in between)."""
+    """Builds every metric from the database at scrape time.
+
+    A scrape must answer well within Prometheus' 1 s timeout. If it does not, Prometheus marks
+    every series stale for that moment, and Grafana shows a hole (seen in the M04a live demo:
+    a few reads waited the full 1 s lock timeout). So the database gets DB_TIMEOUT_S at most,
+    and if a read fails the last good snapshot is served again, counted in
+    ric_exporter_db_errors_total so it stays visible.
+    """
+
+    DB_TIMEOUT_S = 0.2
 
     def __init__(self, path: Path) -> None:
         self.path = path
+        self.last_good: list[GaugeMetricFamily] = []
+        self.db_errors = 0
 
-    def collect(self) -> Iterator[GaugeMetricFamily]:
+    def collect(self) -> Iterator[GaugeMetricFamily | CounterMetricFamily]:
         if not self.path.exists():
             return  # no run yet: an empty scrape, not an error
-        conn = sqlite3.connect(f"file:{self.path}?mode=ro", uri=True, timeout=1.0)
-        conn.row_factory = sqlite3.Row
         try:
-            yield from self.slice_metrics(conn)
-            yield from self.policy_metrics(conn)
-            yield from self.intent_metrics(conn)
-        except sqlite3.OperationalError:
-            return  # tables not created yet, or the runner is clearing them: skip this scrape
-        finally:
-            conn.close()
+            conn = sqlite3.connect(f"file:{self.path}?mode=ro", uri=True, timeout=self.DB_TIMEOUT_S)
+            conn.row_factory = sqlite3.Row
+            try:
+                families = [*self.slice_metrics(conn), *self.policy_metrics(conn), *self.intent_metrics(conn)]
+            finally:
+                conn.close()
+            self.last_good = families
+        except sqlite3.Error:
+            self.db_errors += 1  # busy, or tables being created or cleared: serve the last snapshot
+            families = self.last_good
+        yield from families
+        yield CounterMetricFamily("ric_exporter_db_errors", "Scrapes that could not read var/ric.db and served"
+                                  " the previous snapshot", value=self.db_errors)
 
     def slice_metrics(self, conn: sqlite3.Connection) -> Iterator[GaugeMetricFamily]:
         ts = conn.execute("SELECT MAX(ts) FROM kpi").fetchone()[0]

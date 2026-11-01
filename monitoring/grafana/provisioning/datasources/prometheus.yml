@@ -6,3 +6,5 @@ datasources:
     access: proxy
     url: http://prometheus:9090
     isDefault: true
+    jsonData:
+      timeInterval: 1s   # = the scrape interval; Grafana's default (15 s) drew one point per 15 s

@@ -293,6 +293,24 @@ How to read it:
   5.2 ms). And training and deployment now run the same rule: v3 was running under a floor it
   had never seen.
 
+**The same live, with v7** (your second demo run; compare with the "before" screenshot above):
+
+![Grafana during the live demo with v7 and the floor](img/M04a-grafana-after.png)
+
+- The intent ("20 Mb/s URLLC within 10 ms, 5 minutes") was submitted and confirmed at backend
+  t = 273 s, which is 22:00 on this screenshot's axis.
+- From then on, URLLC gets about 78 % of the PRBs and stays at about 5 ms, under the dotted
+  bound. Best effort sits **exactly on the 5 % floor** with about 10 s of latency, where the
+  "before" run had about 1 % and 30–60 s.
+- The top panels already read "policy 0" and "bound none": the screenshot was taken at
+  t = 579 s, **6 s after the intent ended** (t = 573 s). The time series' last points are a few
+  seconds older, so they still show the intent.
+- **The short hole around 22:03:30 is not missing data.** The KPI table has every tick; two
+  Prometheus scrapes timed out because the exporter waited up to 1 s for a busy database. Since
+  then, the exporter waits at most 0.2 s and serves its last good snapshot if a read fails
+  (counted in `ric_exporter_db_errors_total`). Grafana now uses a 1 s step instead of its 15 s
+  default, so one failed scrape no longer erases a whole 15 s point.
+
 ## 6. Choices and simplifications
 
 - **One SQLite file as the message bus.** Simple, inspectable, survives restarts, no server.

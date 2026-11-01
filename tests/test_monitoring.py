@@ -41,3 +41,22 @@ def test_exporter_is_read_only_and_quiet_without_a_run(tmp_path: Path) -> None:
     missing = tmp_path / "nothing.db"
     assert "ric_" not in scrape(missing)
     assert not missing.exists()  # it did not create the database
+
+
+def test_exporter_serves_last_snapshot_when_the_database_is_busy(ric_db, tiny_policy_file, monkeypatch) -> None:
+    """A failed read must not leave a hole in Prometheus: the previous values are served, counted."""
+    import sqlite3
+
+    start_cell(ric_db, tiny_policy_file).run(5)
+    registry = CollectorRegistry()
+    registry.register(RicCollector(db_path()))
+    first = generate_latest(registry).decode()
+    assert "ric_backend_clock_seconds 5.0" in first and "ric_exporter_db_errors_total 0.0" in first
+
+    def busy(*args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(sqlite3, "connect", busy)
+    second = generate_latest(registry).decode()
+    assert "ric_backend_clock_seconds 5.0" in second  # the last good snapshot, not an empty scrape
+    assert "ric_exporter_db_errors_total 1.0" in second
