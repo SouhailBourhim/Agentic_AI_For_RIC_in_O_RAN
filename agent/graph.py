@@ -58,6 +58,20 @@ class AgentState(TypedDict, total=False):
     reason: str
 
 
+def llm_parse(llm, text: str) -> tuple[ParsedIntent | None, float, int]:
+    """The parse step with an LLM: (facts or None, total latency, attempts). One retry on an
+    invalid reply. Shared by the graph and the extraction score (eval/extraction.py)."""
+    latency = 0.0
+    for attempt in (1, 2):
+        reply = llm.chat(parse_messages(text), schema=ParsedIntent.model_json_schema())
+        latency += reply.latency_s
+        try:
+            return ParsedIntent.model_validate_json(reply.content), latency, attempt
+        except ValidationError:
+            continue
+    return None, latency, 2
+
+
 def run_intent(ctx: AgentContext, intent_id: str) -> AgentState:
     """Run the loop for one intent (already claimed by the worker, state 'processing')."""
     record = intents.get(ctx.conn, intent_id)
@@ -94,18 +108,10 @@ def build_graph(ctx: AgentContext):  # noqa: C901 (one closure per node, kept to
 
     # ------------------------------------------------------------------ parse
     def parse(state: AgentState) -> dict:
-        facts, latency, attempts = None, 0.0, 0
         if ctx.llm is None:
-            facts = parse_facts(state["text"])
+            facts, latency, attempts = parse_facts(state["text"]), 0.0, 0
         else:
-            for attempts in (1, 2):  # one retry on an invalid reply
-                reply = ctx.llm.chat(parse_messages(state["text"]), schema=ParsedIntent.model_json_schema())
-                latency += reply.latency_s
-                try:
-                    facts = ParsedIntent.model_validate_json(reply.content)
-                    break
-                except ValidationError:
-                    continue
+            facts, latency, attempts = llm_parse(ctx.llm, state["text"])
         step(state, "parse", prompt=PARSE_VERSION, latency_s=round(latency, 2), attempts=attempts,
              facts=facts.model_dump() if facts else None)
         if facts is None:
