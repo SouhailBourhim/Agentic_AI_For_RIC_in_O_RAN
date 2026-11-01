@@ -85,6 +85,7 @@ agent/          LangGraph service (FastAPI), internal tools, intent parsing
 gateway/        MCP server with the 3 tools; Hermes config example
 console/        operator confirmation console (CLI)
 backends/       Backend interface + SimBackend + FlexRICBackend
+store/          shared state: var/ric.db (kpi, a1_policy, intents) + JSONL event log
 xapps/          KPM monitoring xApp, slice-control xApp (FlexRIC)
 testbed/        docker-compose and configs for OAI CN5G, gNB, nrUE, FlexRIC; traffic scripts
 eval/           scenarios, controller runners, interface metrics, plots

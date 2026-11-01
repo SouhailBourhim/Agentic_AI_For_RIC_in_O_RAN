@@ -119,7 +119,12 @@ M05b → M07b → M08a → M08b → M08c.**
 - `latency_ms` (nullable): queue delay in the sim, RLC SDU delay from KPM on the testbed
 - `offered_load_mbps` (nullable): known in the sim, the iperf3 target on the testbed
 - `buffer_bytes` (nullable)
+- `policy_id` (nullable, added in M04a): the `a1_policy` row in force during the tick (NULL =
+  default objective). Every switch, including the ones caused by an expiry, is visible in the data
 - Read API: `get_kpis(slice, window_s)` → mean / p95 / last per field
+- Table `backend_info` (one row, written by the runner at startup): cell id, source, slices,
+  n_prb, capacity, URLLC base latency, served model version. With the latest `kpi.ts` (the backend
+  clock) it is how the other processes learn about the cell without touching the Backend
 - **Testbed mapping, confirmed in the M06 spike.** OAI KPM reports are per UE, about every
   1 s per subscription; each UE is mapped to its slice, then:
   - `dl_thr_mbps` = Σ `DRB.UEThpDl` (kbps) / 1000
@@ -136,31 +141,39 @@ M05b → M07b → M08a → M08b → M08c.**
 - Policy input = KPI features + 3 weights + 3 normalised minimums + 1 normalised latency bound
 - A **default objective** applies when nothing is active
 
-**`a1_policy`, an emulation of A1** (SQLite table `a1_policy`, append-only, one row per applied
-policy). This is not O-RAN A1: FlexRIC has no Non-RT RIC.
-- `policy_id` (increasing), `objective` (JSON above), `mode` (`rl` | `direct_share`)
+**`a1_policy`, an emulation of A1** (SQLite tables `a1_schedule` and `a1_policy`, append-only).
+This is not O-RAN A1: FlexRIC has no Non-RT RIC.
+- **A timetable (M04a).** Each apply or cancel writes a new schedule (`a1_schedule`: id, time,
+  reason) with one `a1_policy` row per merge segment from now on (`valid_from`, `expires_at`).
+  The newest schedule is in force; an expiry is the clock moving into the next segment, so no
+  process has to wake up and fast runs see no gap. An empty schedule = default objective.
+- `policy_id` (increasing), `schedule_id`, `objective` (JSON above), `mode` (`rl` | `direct_share`)
 - `shares`: only in `direct_share` mode, used by the LLM-only baseline
 - `intent_ids` (list): every intent merged into this objective (M03, see below);
   `verifier_decision` (accept + reason), `confirmed_by` (`console` | `auto-eval`), `issued_at`,
-  `expires_at`
+  `valid_from`, `expires_at`
 - **The objective is the merge of the active intents** (`verifier.merge.merge`, decided in M03):
   per slice the highest minimum throughput, the tightest URLLC latency bound, the weights of the
   newest still-active intent (default weights if none). The verifier checks
   `merge(active + new)`, so what is verified is exactly what runs. The merge is recomputed and
-  re-verified (`verifier.verify.reverify_after_removal`) whenever the active set changes (new
-  accept, expiry, cancellation), and a new row is written. An expiry only loosens the merge;
-  it is logged anyway. `get_status` of an older intent shows it is still applied as part of the
-  merged objective.
-- **Writer:** only the agent's "apply" step, after the verifier accepts (and the operator confirms
-  in demo mode).
-- **Reader:** the RL runner polls the latest unexpired row each tick, never blocks, and falls back
-  to the default objective. In `direct_share` mode it applies the given shares. That way the
+  re-verified (`verifier.verify.reverify_after_removal`) whenever the active set changes; with
+  the timetable, expiries are verified ahead, when the schedule is written. The runner logs
+  every `policy_switch`, expiries included. "Newest" = most recently *applied* (confirmation
+  time), so the verifier and the timetable agree on whose weights run. `get_status` of an older
+  intent shows it is still applied as part of the merged objective (`in_effect`, `merged_with`).
+- **Writer:** only `agent/apply.py`, after the verifier accepts. The agent service calls it in
+  eval mode; the operator console calls it in demo mode, re-verifying at confirmation time.
+  Reading the applied set and writing the schedule happen in one transaction.
+- **Reader:** the RL runner reads the segment of the newest schedule covering "now" each tick,
+  never blocks (zero busy-timeout; on error it keeps the last segment until it expires), and
+  falls back to the default objective. In `direct_share` mode it applies the given shares. That way the
   runner stays the only process that calls `apply_prb_split` (invariant 4).
 
 **Also frozen in M04a**
 - The intent record: `intent_id`, verbatim text, state (received, interpreted, rejected,
-  awaiting_confirmation, applied, expired), parsed fields, proposed objective, verifier result,
-  timestamp per state.
+  awaiting_confirmation, applied, expired, cancelled), parsed fields, proposed objective,
+  verifier result, reason, `confirmed_by`, `issued_backend`, `applied_backend`,
+  `confirm_deadline` (wall clock), timestamp per state.
 - One JSONL event log format for the gateway, agent and verifier. M08b computes its metrics from
   these logs.
 

@@ -9,6 +9,7 @@ Throughputs and targets are divided by the cell capacity, so the policy sees fra
 and keeps working when the capacity is recalibrated to the testbed.
 """
 
+from collections.abc import Mapping
 from typing import Any
 
 import gymnasium as gym
@@ -55,6 +56,35 @@ def objective_arrays(objective: RLObjective) -> tuple[np.ndarray, np.ndarray, np
 def objective_to_vector(objective: RLObjective, cfg: CellConfig) -> np.ndarray:
     """The objective as 7 numbers for the policy input."""
     return objective_vectors(*objective_arrays(objective), cfg)[0]
+
+
+def build_observation(
+    loads_mbps: Mapping[str, float],
+    throughput_mbps: Mapping[str, float],
+    latency_ms: Mapping[str, float],
+    shares: Mapping[str, float],
+    prb_used: Mapping[str, float],
+    objective: RLObjective,
+    cfg: CellConfig,
+) -> np.ndarray:
+    """The policy input: 5 KPI features per slice (SLICES order), then the 7 objective features.
+
+    Per slice: load / C, throughput / C, latency / 100 ms, PRB share, PRB use. A pure function,
+    shared by SlicingEnv (training) and the RL runner (rl/runner.py, deployment), so the policy
+    sees exactly the same vector in both places; a test checks it.
+    """
+    capacity = cfg.capacity_mbps
+    kpis = []
+    for s in SLICES:
+        kpis += [
+            loads_mbps[s] / capacity,
+            throughput_mbps[s] / capacity,
+            latency_ms[s] / LATENCY_SCALE_MS,
+            shares[s],
+            prb_used[s],
+        ]
+    obs = np.concatenate([np.array(kpis), objective_to_vector(objective, cfg)])
+    return np.clip(obs, 0.0, OBS_CLIP).astype(np.float32)
 
 
 def sample_objective(rng: np.random.Generator, cfg: CellConfig) -> RLObjective:
@@ -194,19 +224,16 @@ class SlicingEnv(gym.Env):
         self.objective = objective
 
     def _observation(self) -> np.ndarray:
-        """5 KPI features per slice, then the 7 objective features."""
-        capacity = self.cfg.capacity_mbps
-        kpis = []
-        for i, s in enumerate(SLICES):
-            kpis += [
-                self.loads[s] / capacity,
-                self.last[s].throughput_mbps / capacity,
-                self.last[s].latency_ms / LATENCY_SCALE_MS,
-                self.shares[i],
-                self.last[s].prb_used,
-            ]
-        obs = np.concatenate([np.array(kpis), objective_to_vector(self.objective, self.cfg)])
-        return np.clip(obs, 0.0, OBS_CLIP).astype(np.float32)
+        """5 KPI features per slice, then the 7 objective features (see build_observation)."""
+        return build_observation(
+            loads_mbps=self.loads,
+            throughput_mbps={s: self.last[s].throughput_mbps for s in SLICES},
+            latency_ms={s: self.last[s].latency_ms for s in SLICES},
+            shares=dict(zip(SLICES, map(float, self.shares))),
+            prb_used={s: self.last[s].prb_used for s in SLICES},
+            objective=self.objective,
+            cfg=self.cfg,
+        )
 
     def _info(self) -> dict[str, Any]:
         """Raw values in real units, for logs, the demo and the KPI store later."""

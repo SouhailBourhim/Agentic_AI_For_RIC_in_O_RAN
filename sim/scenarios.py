@@ -35,3 +35,22 @@ def urllc_spike(
         max_latency_ms=20.0,
     )
     return traffic, objective
+
+
+DEMO_SURGE_START_S = 120.0
+DEMO_SURGE_END_S = 600.0
+
+
+def demo_traffic(capacity_mbps: float = CellConfig().capacity_mbps) -> dict[str, TrafficPattern]:
+    """The live demo (M04a): like urllc_spike, but URLLC surges from 10 % to 40 % of capacity
+    between t=120 s and t=600 s, so an operator has time to submit and confirm an intent
+    before and during the surge."""
+    traffic, _ = urllc_spike(capacity_mbps)
+    traffic["urllc"] = TrafficPattern(
+        "spike",
+        base_mbps=0.10 * capacity_mbps,
+        peak_mbps=0.40 * capacity_mbps,
+        start_s=DEMO_SURGE_START_S,
+        end_s=DEMO_SURGE_END_S,
+    )
+    return traffic

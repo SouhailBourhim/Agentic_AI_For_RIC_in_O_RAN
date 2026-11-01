@@ -164,7 +164,7 @@ The decision table (`uv run python -m verifier.plot`) shows one example per chec
 
 ```
 case                                    decision  check            reason
-protect URLLC 10 Mb/s / 10 ms / 10 min  ACCEPT    ok               accepted; the RL xApp follows the merge of new
+protect URLLC 10 Mb/s / 10 ms / 10 min  ACCEPT    ok               accepted; once applied, the RL xApp follows the merge of new
 weights sum to 1.1                      reject    schema           invalid objective: weights must sum to 1, got sum=1.100000
 no end time                             reject    window           the objective has no end (valid_until); every intent must expire
 lasts 5 s                               reject    window           the objective lasts 5 s, less than the minimum 10 s the policy needs to act
@@ -174,7 +174,7 @@ URLLC 30 Mb/s within 3 ms               reject    budget           the minimum t
 eMBB 30 + URLLC 26 within 5 ms          reject    floor            the minimum targets need 98% of the PRBs (embb 40%, urllc 58%), which leaves 2.2% for be, below the floor of 5% per slice
 URLLC bound 60 ms                       reject    training_range   URLLC latency bound 60 ms is outside 5-50 ms, the range the policy was trained on
 eMBB 30 + URLLC 22, BE 20 active        reject    conflict         together with active intent(s) be20 at t=100 s, the minimum targets need 103% of the PRBs (embb 40%, urllc 37%, be 27%), more than the cell has
-eMBB 20, BE 20 active                   ACCEPT    ok               accepted; the RL xApp follows the merge of be20, new
+eMBB 20, BE 20 active                   ACCEPT    ok               accepted; once applied, the RL xApp follows the merge of be20, new
 URLLC weight 0.3 -> 0.81                reject    step             urllc weight would change by 0.51 (0.30 -> 0.81), more than the maximum step 0.50
 ```
 

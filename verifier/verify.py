@@ -334,4 +334,4 @@ def reverify_after_removal(state: VerifierState, config: VerifierConfig = DEFAUL
 def _accept_reason(merged: MergedObjective) -> str:
     if not merged.intent_ids:
         return "no intent active: default objective"
-    return f"accepted; the RL xApp follows the merge of {', '.join(merged.intent_ids)}"
+    return f"accepted; once applied, the RL xApp follows the merge of {', '.join(merged.intent_ids)}"
