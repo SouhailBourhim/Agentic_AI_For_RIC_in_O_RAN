@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from verifier.merge import ActiveIntent, MergedObjective, merge
 from verifier.objective import (
+    MIN_SLICE_SHARE,
     SLICES,
     TRAINED_LATENCY_BOUND_MS,
     TRAINED_MAX_TARGET_FRACTION,
@@ -43,7 +44,7 @@ class VerifierConfig(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    min_share_floor: float = Field(default=0.05, ge=0.0, le=1.0 / len(SLICES))  # ~5 of 106 PRBs
+    min_share_floor: float = Field(default=MIN_SLICE_SHARE, ge=0.0, le=1.0 / len(SLICES))  # same as the runner
     max_weight_step: float = Field(default=0.5, gt=0.0)  # per slice, between two merged objectives
     max_target_step_fraction: float = Field(default=0.3, gt=0.0)  # per slice, fraction of capacity
     min_duration_s: float = Field(default=10.0, gt=0.0)  # the policy needs ~10-20 steps to act

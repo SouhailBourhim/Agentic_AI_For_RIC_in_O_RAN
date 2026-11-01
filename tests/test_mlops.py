@@ -12,6 +12,7 @@ from mlops import backfill, registry, tracking
 from rl import train as train_module
 from rl.train import TrackingCallback, make_model
 from sim.env import SlicingEnv
+from verifier.objective import MIN_SLICE_SHARE
 
 
 @pytest.fixture(autouse=True)
@@ -105,25 +106,40 @@ def test_registered_model_enforces_the_observation_signature(tmp_path: Path) -> 
 
 
 def test_gate_needs_a_held_out_pass_and_rollback_restores(tmp_path: Path) -> None:
+    floor = str(MIN_SLICE_SHARE)
     v1 = registry.register(_tiny_td3(tmp_path / "td3_old_seed0.zip"), {"promotion_basis": "bootstrap"})
     registry.client().set_registered_model_alias(registry.MODEL_NAME, registry.CHAMPION, v1)
     path = _tiny_td3(tmp_path / "td3_new_seed1_best.zip", seed=1)
-    v2 = registry.register(path, {"validation_t1b": "0.7", "validation_reward": "0.26"})
+    v2 = registry.register(path, {"validation_t1b": "0.7", "validation_reward": "0.26", "min_share": floor})
 
     assert registry.promote() is False  # no held-out goal test recorded yet
     assert str(registry.alias_version(registry.CHAMPION).version) == v1
 
     tracking.log_evaluation("goal-test", "td3_new_seed1_best", {"t1b_captured": 0.8, "pass": False},
-                            {"split": "test", "final": "true", "recipe_all_pass": "False"})
+                            {"split": "test", "final": "true", "recipe_all_pass": "False", "min_share": floor})
     assert registry.promote() is False  # recorded, but FAIL
 
     tracking.log_evaluation("goal-test", "td3_new_seed1_best", {"t1b_captured": 0.8, "pass": True},
-                            {"split": "test", "final": "true", "recipe_all_pass": "True"})
+                            {"split": "test", "final": "true", "recipe_all_pass": "True", "min_share": floor})
     assert registry.promote() is True
     assert str(registry.alias_version(registry.CHAMPION).version) == v2
 
     assert registry.rollback() is True
     assert str(registry.alias_version(registry.CHAMPION).version) == v1
+
+
+def test_gate_refuses_a_version_trained_without_the_floor(tmp_path: Path) -> None:
+    """A version that passed everything but was trained (and tested) without the per-slice floor
+    the runner now enforces cannot be promoted (M04a); it can still be a rollback target."""
+    old = _tiny_td3(tmp_path / "td3_nofloor_seed2_best.zip", seed=2)
+    (tmp_path / "td3_nofloor_seed2.json").write_text(json.dumps({"min_share": None}))
+    v = registry.register(old, {"validation_t1b": "0.99", "validation_reward": "0.3"})
+    assert registry.versions()[-1].tags["min_share"] == "None"
+    tracking.log_evaluation("goal-test", "td3_nofloor_seed2_best", {"t1b_captured": 0.9, "pass": True},
+                            {"split": "test", "final": "true", "recipe_all_pass": "True", "min_share": "None"})
+    chosen, reasons = registry.gate(registry.versions())
+    assert chosen is None and "not trained with the deployed per-slice floor" in reasons[0]
+    assert v == str(registry.versions()[-1].version)  # still registered: a rollback target
 
 
 def test_champion_is_none_without_a_store(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

@@ -15,7 +15,7 @@ from typing import Any
 import gymnasium as gym
 import numpy as np
 
-from sim.cell import CellConfig, SliceStep, shares_from_action, smooth_split, step_slice
+from sim.cell import CellConfig, SliceStep, apply_min_share, shares_from_action, smooth_split, step_slice
 from sim.reward import DEFAULT_REWARD_VERSION, RewardVersion, compute_reward
 from sim.traffic import DEFAULT_SURGE_RANGE, TrafficPattern, sample_traffic
 from verifier.objective import (
@@ -138,6 +138,7 @@ class SlicingEnv(gym.Env):
         surge_range: tuple[float, float] = DEFAULT_SURGE_RANGE,
         action_filter_alpha: float | None = None,
         reward_version: RewardVersion = DEFAULT_REWARD_VERSION,
+        min_share: float | None = None,
     ) -> None:
         """Training options (all off by default, so evaluation episodes and scripted
         scenarios are unchanged):
@@ -150,6 +151,9 @@ class SlicingEnv(gym.Env):
           the policy trains with the actuator lag it will have when deployed (M02b). Do not
           combine it with a smoothed SlicePolicy, or the split would be filtered twice.
         reward_version picks the reward formula (sim/reward.py); "v2" is the default.
+        min_share applies the per-slice PRB floor (sim.cell.apply_min_share) after the filter, as
+        the RL runner does when deployed (M04a). None = no floor, the M01-M02b behaviour, so the
+        recorded evaluations of earlier policies reproduce exactly.
         """
         self.cfg = cfg or CellConfig()
         self.episode_steps = episode_steps
@@ -158,6 +162,7 @@ class SlicingEnv(gym.Env):
         self.surge_range = surge_range
         self.action_filter_alpha = action_filter_alpha
         self.reward_version = reward_version
+        self.min_share = min_share
         self.action_space = gym.spaces.Box(0.0, 1.0, shape=(len(SLICES),), dtype=np.float32)
         self.observation_space = gym.spaces.Box(0.0, OBS_CLIP, shape=(OBS_SIZE,), dtype=np.float32)
         # Filled by reset():
@@ -165,7 +170,8 @@ class SlicingEnv(gym.Env):
         self.traffic: dict[str, TrafficPattern]
         self.time_s = 0.0
         self.step_count = 0
-        self.shares = np.full(len(SLICES), 1.0 / len(SLICES))
+        self.shares = np.full(len(SLICES), 1.0 / len(SLICES))  # the split applied (after the floor)
+        self._filtered: np.ndarray | None = None  # the filter's memory (before the floor), as in SlicePolicy
         self.loads: dict[str, float] = {}
         self.last: dict[str, SliceStep] = {}
 
@@ -183,6 +189,7 @@ class SlicingEnv(gym.Env):
         self.time_s = 0.0
         self.step_count = 0
         self.shares = np.full(len(SLICES), 1.0 / len(SLICES))
+        self._filtered = None
         # Before the first step nothing has been sent: zero throughput, empty queues.
         self.loads = {s: self.traffic[s].mean_load_at(0.0) for s in SLICES}
         self.last = {
@@ -194,10 +201,14 @@ class SlicingEnv(gym.Env):
         """Apply a PRB split for dt seconds and report what happened."""
         target = shares_from_action(action)
         if self.action_filter_alpha is None:
-            self.shares = target
+            split = target
         else:  # same filter as the deployed policy; nothing to smooth with on the first step
-            previous = None if self.step_count == 0 else self.shares
-            self.shares = smooth_split(previous, target, self.action_filter_alpha)
+            # The filter remembers its own output (before the floor), exactly like SlicePolicy;
+            # without a floor that is the applied split, as before M04a.
+            previous = None if self.step_count == 0 else self._filtered
+            split = smooth_split(previous, target, self.action_filter_alpha)
+        self._filtered = split
+        self.shares = split if self.min_share is None else apply_min_share(split, self.min_share)
         self.loads = {s: self.traffic[s].load_at(self.time_s, self.np_random) for s in SLICES}
         self.last = {
             s: step_slice(

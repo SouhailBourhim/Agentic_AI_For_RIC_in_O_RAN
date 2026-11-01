@@ -4,6 +4,8 @@ Run with:
   uv run python -m rl.goal_test --check                     validity checks, no trained model needed
   uv run python -m rl.goal_test --split validation          development: per model and per recipe
   uv run python -m rl.goal_test --split test --final        the held-out test, run ONCE at the end
+  ... --min-share 0.05                                      same test with the per-slice PRB floor
+                                                            (M04a round; results in runs/m04a_floor/)
 
 Why a new test. M02's test asked for a URLLC share gap >= 0.10 between "protect URLLC" and
 "maximise eMBB" on one scenario. A reward-optimal controller scores anywhere in 0.034-0.120
@@ -29,6 +31,10 @@ objective input is frozen) has advantage 0 in every case, so it fails by constru
 
 Two disjoint case sets: VALIDATION (used to develop: choose checkpoints and the recipe) and
 TEST (held out; used once on the confirmation seeds).
+
+With min_share (M04a), every rollout (policy, oracle, equal split, reward episodes) runs in an env
+that applies the per-slice PRB floor, as the deployed runner does. Everything else (scenarios,
+objectives, seeds, thresholds) is unchanged. The M04a round is the SECOND use of the test set.
 """
 
 import argparse
@@ -58,7 +64,7 @@ EPISODE_STEPS = SPIKE_STEPS  # 40 s per scenario
 TEST_REWARD_SEEDS = range(1000, 1100)  # the M02 random episodes
 VALIDATION_REWARD_SEEDS = range(2000, 2050)
 RESULT_DIR = Path("runs/m02b")
-FINAL_RESULT = RESULT_DIR / "test_result.json"
+FLOOR_RESULT_DIR = Path("runs/m04a_floor")  # the M04a retraining with the per-slice floor
 
 CFG = CellConfig()
 C = CFG.capacity_mbps
@@ -137,9 +143,10 @@ def case_set(split: str) -> CaseSet:
 
 
 def rollout(act: Callable[[SlicingEnv, np.ndarray], np.ndarray], traffic: dict[str, TrafficPattern],
-            told: RLObjective, reset: Callable[[], None] | None = None) -> dict[str, np.ndarray]:
+            told: RLObjective, reset: Callable[[], None] | None = None,
+            min_share: float | None = None) -> dict[str, np.ndarray]:
     """Run one episode with `told` as the objective in the observation; log the KPIs."""
-    env = SlicingEnv(episode_steps=EPISODE_STEPS)
+    env = SlicingEnv(episode_steps=EPISODE_STEPS, min_share=min_share)
     obs, _ = env.reset(seed=0, options={"objective": told, "traffic": traffic})
     if reset is not None:
         reset()
@@ -162,20 +169,21 @@ def score(log: dict[str, np.ndarray], objective: RLObjective) -> float:
     return float(rewards.mean())
 
 
-def controller_rollouts(controller: Controller, cases: CaseSet) -> dict[tuple[str, str], dict[str, np.ndarray]]:
+def controller_rollouts(controller: Controller, cases: CaseSet,
+                        min_share: float | None = None) -> dict[tuple[str, str], dict[str, np.ndarray]]:
     """One rollout per (scenario, objective told) for an obs -> action controller."""
     reset = getattr(controller, "reset", None)
-    return {(sc, told): rollout(lambda _env, obs: controller(obs), traffic, obj, reset)
+    return {(sc, told): rollout(lambda _env, obs: controller(obs), traffic, obj, reset, min_share)
             for sc, traffic in cases.scenarios.items() for told, obj in cases.objectives.items()}
 
 
-def oracle_rollouts(cases: CaseSet) -> dict[tuple[str, str], dict[str, np.ndarray]]:
+def oracle_rollouts(cases: CaseSet, min_share: float | None = None) -> dict[tuple[str, str], dict[str, np.ndarray]]:
     """One rollout per (scenario, objective) of the oracle optimising that objective."""
     out = {}
     for sc, traffic in cases.scenarios.items():
         for told, obj in cases.objectives.items():
-            oracle = GreedyOracle(obj)
-            out[(sc, told)] = rollout(lambda env, _obs: oracle.act(env), traffic, obj, oracle.reset)
+            oracle = GreedyOracle(obj, min_share=min_share)
+            out[(sc, told)] = rollout(lambda env, _obs: oracle.act(env), traffic, obj, oracle.reset, min_share)
     return out
 
 
@@ -202,25 +210,26 @@ def goal_metrics(policy_adv: dict, oracle_adv: dict) -> dict[str, float]:
             "t1b_captured": float(captured)}
 
 
-def mean_reward(controller: Controller, seeds: range) -> float:
-    return float(np.mean([episode_metrics(controller, seed)["reward"] for seed in seeds]))
+def mean_reward(controller: Controller, seeds: range, min_share: float | None = None) -> float:
+    return float(np.mean([episode_metrics(controller, seed, min_share=min_share)["reward"] for seed in seeds]))
 
 
 class GoalTest:
     """Holds a case set and the oracle advantages (computed once), then scores controllers."""
 
-    def __init__(self, split: str) -> None:
+    def __init__(self, split: str, min_share: float | None = None) -> None:
         self.cases = case_set(split)
-        self.oracle_adv = advantages(oracle_rollouts(self.cases), self.cases)
-        self.equal_reward = mean_reward(equal_split, self.cases.reward_seeds)
+        self.min_share = min_share  # None: no floor (M02b); 0.05: the M04a actuator rules
+        self.oracle_adv = advantages(oracle_rollouts(self.cases, min_share), self.cases)
+        self.equal_reward = mean_reward(equal_split, self.cases.reward_seeds, min_share)
 
     def evaluate(self, controller: Controller, with_reward: bool = True) -> dict[str, float | bool]:
-        policy_adv = advantages(controller_rollouts(controller, self.cases), self.cases)
+        policy_adv = advantages(controller_rollouts(controller, self.cases, self.min_share), self.cases)
         m: dict[str, float | bool] = goal_metrics(policy_adv, self.oracle_adv)
         m["t1a_pass"] = m["t1a_share_positive"] >= T1A_MIN_SHARE
         m["t1b_pass"] = m["t1b_captured"] >= T1B_MIN_CAPTURED
         if with_reward:
-            m["reward"] = mean_reward(controller, self.cases.reward_seeds)
+            m["reward"] = mean_reward(controller, self.cases.reward_seeds, self.min_share)
             m["equal_split_reward"] = self.equal_reward
             m["t2_pass"] = m["reward"] > self.equal_reward
             m["pass"] = bool(m["t1a_pass"] and m["t1b_pass"] and m["t2_pass"])
@@ -243,10 +252,10 @@ class FrozenObjective:
         return self.policy(x)
 
 
-def original_criterion(policy: SlicePolicy) -> float:
+def original_criterion(policy: SlicePolicy, min_share: float | None = None) -> float:
     """The M02 measure, still reported: URLLC share gap on the spike, protect - maximise eMBB."""
     traffic = urllc_spike()[0]
-    share = {name: rollout(lambda _env, obs: policy(obs), traffic, obj, policy.reset)["share_urllc"].mean()
+    share = {name: rollout(lambda _env, obs: policy(obs), traffic, obj, policy.reset, min_share)["share_urllc"].mean()
              for name, obj in OBJECTIVES.items()}
     return float(share["protect URLLC"] - share["maximise eMBB"])
 
@@ -258,10 +267,11 @@ def recipe_of(name: str) -> str:
     return name.split("_seed")[0]
 
 
-def check(models: list[Path]) -> None:
-    """Validity of both case sets: enough material cases, blind controllers fail."""
+def check(models: list[Path], min_share: float | None = None) -> None:
+    """Validity of both case sets: enough material cases, blind controllers fail. Uses no trained
+    policy unless models are given (then only with its objective input frozen)."""
     for split in ("validation", "test"):
-        test = GoalTest(split)
+        test = GoalTest(split, min_share)
         print(f"{split}: {len(test.cases.scenarios)} scenarios x {len(test.cases.objectives)} objectives, "
               f"{len(test.oracle_adv)} ordered cases")
         blind: dict[str, Controller] = {"equal split": equal_split, "proportional to load": proportional_to_load}
@@ -274,13 +284,17 @@ def check(models: list[Path]) -> None:
                   f"T1b {m['t1b_captured']:.2f}  -> {'PASS' if m['t1a_pass'] and m['t1b_pass'] else 'fail'}")
 
 
-def run_split(split: str, models: list[Path], final: bool) -> None:
+def run_split(split: str, models: list[Path], final: bool, min_share: float | None = None) -> None:
+    result_dir = RESULT_DIR if min_share is None else FLOOR_RESULT_DIR
+    final_result = result_dir / "test_result.json"
     if split == "test":
         if not final:
             raise SystemExit("the held-out test runs once, on the confirmation seeds: add --final")
-        if FINAL_RESULT.exists():
-            raise SystemExit(f"{FINAL_RESULT} exists: the held-out test has already been run")
-    test = GoalTest(split)
+        if final_result.exists():
+            raise SystemExit(f"{final_result} exists: the held-out test has already been run")
+        if min_share is not None:
+            print("NOTE: second use of the held-out test set (first: M02b, runs/m02b/test_result.json)")
+    test = GoalTest(split, min_share)
     print(f"{split}: material cases {sum(v >= MATERIAL_THRESHOLD for v in test.oracle_adv.values())} "
           f"of {len(test.oracle_adv)}; equal split reward {test.equal_reward:.3f}")
     print(f"{'model':<28}{'T1a':>6}{'T1b':>7}{'reward':>8}{'orig gap':>10}  verdict")
@@ -288,7 +302,7 @@ def run_split(split: str, models: list[Path], final: bool) -> None:
     for path in models:
         policy = SlicePolicy.load(path)
         m = test.evaluate(policy)
-        m["original_gap"] = original_criterion(policy)
+        m["original_gap"] = original_criterion(policy, min_share)
         results[path.stem] = m
         print(f"{path.stem:<28}{m['t1a_share_positive']:6.2f}{m['t1b_captured']:7.2f}{m['reward']:8.3f}"
               f"{m['original_gap']:10.3f}  {'PASS' if m['pass'] else 'FAIL'}")
@@ -302,21 +316,24 @@ def run_split(split: str, models: list[Path], final: bool) -> None:
     for r, s in summary.items():
         print(f"  {r:<26} seeds {s['seeds']}  mean T1b {s['mean_t1b']:.2f}  {'PASS' if s['all_pass'] else 'FAIL'}")
     out = {"split": split, "material_threshold": MATERIAL_THRESHOLD, "t1a_min": T1A_MIN_SHARE,
-           "t1b_min": T1B_MIN_CAPTURED, "models": results, "recipes": summary}
+           "t1b_min": T1B_MIN_CAPTURED, "min_share": min_share, "models": results, "recipes": summary}
+    if split == "test" and min_share is not None:
+        out["test_set_use"] = "second (first: M02b)"
     if split == "validation":
         passing = {r: s for r, s in summary.items() if s["all_pass"]}
         chosen = max(passing, key=lambda r: passing[r]["mean_t1b"]) if passing else None
         out["chosen_recipe"] = chosen
         print("\nchosen recipe (rule: all seeds pass on validation, then highest mean T1b):",
               chosen or "NONE: stop and report before touching the test")
-    path = FINAL_RESULT if split == "test" else RESULT_DIR / f"{split}.json"
+    path = final_result if split == "test" else result_dir / f"{split}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(out, indent=2))
     print(f"wrote {path}")
     # One MLflow evaluation run per model; the registry gate reads the final ones (mlops/registry.py).
     for name, m in results.items():
         tags = {"split": split, "final": str(split == "test").lower(),
-                "recipe_all_pass": str(summary[recipe_of(name)]["all_pass"])}
+                "recipe_all_pass": str(summary[recipe_of(name)]["all_pass"]),
+                "min_share": str(min_share)}
         tracking.log_evaluation("goal-test", name, m, tags, result_file=path)
 
 
@@ -326,18 +343,19 @@ def main() -> None:
     parser.add_argument("--check", action="store_true", help="validity checks of both case sets")
     parser.add_argument("--models", default=None, help="glob of model zips (default depends on --split)")
     parser.add_argument("--final", action="store_true", help="required to run the held-out test")
+    parser.add_argument("--min-share", type=float, default=None, help="per-slice PRB floor (M04a: 0.05)")
     args = parser.parse_args()
     default = {"validation": "models/m02b/dev/*_best.zip", "test": "models/m02b/confirm/*_best.zip"}
     pattern = args.models or default.get(args.split or "", "models/m02/*_seed*.zip")
     models = sorted(Path().glob(pattern))
     if args.check:
-        check(models)
+        check(models, args.min_share)
         return
     if not args.split:
         parser.error("give --split or --check")
     if not models:
         raise SystemExit(f"no models match {pattern}")
-    run_split(args.split, models, args.final)
+    run_split(args.split, models, args.final, args.min_share)
 
 
 if __name__ == "__main__":

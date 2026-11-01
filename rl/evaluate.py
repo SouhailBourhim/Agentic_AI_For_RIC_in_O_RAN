@@ -65,7 +65,8 @@ OBJECTIVES = {
 Controller = Callable[[np.ndarray], np.ndarray]
 
 
-def episode_metrics(controller: Controller, seed: int, steps: int = EPISODE_STEPS) -> dict[str, float]:
+def episode_metrics(controller: Controller, seed: int, steps: int = EPISODE_STEPS,
+                    min_share: float | None = None) -> dict[str, float]:
     """Run one random episode and summarise it.
 
     - reward: mean reward per step
@@ -76,7 +77,7 @@ def episode_metrics(controller: Controller, seed: int, steps: int = EPISODE_STEP
       i.e. the fraction of the cell's PRBs moved each step. Diagnostic added after the M02
       figures showed a policy flipping its split every step.
     """
-    env = SlicingEnv(episode_steps=steps)
+    env = SlicingEnv(episode_steps=steps, min_share=min_share)  # min_share: the M04a per-slice floor
     obs, _ = env.reset(seed=seed)
     if hasattr(controller, "reset"):  # the smoothed policy starts each episode fresh
         controller.reset()

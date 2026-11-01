@@ -14,6 +14,9 @@ or rolling back, is moving that alias: nothing is copied or retrained.
 
 The gate is plain deterministic Python, like the verifier: no judgement call. `promote --auto`
 moves `champion` to a version only if
+  0. it was trained with the actuator rules deployed today: the per-slice PRB floor
+     (tag min_share = MIN_SLICE_SHARE, read from the model's settings at registration; M04a).
+     Older versions stay registered and can still be rolled back to, but not promoted;
   1. the held-out goal test (rl/goal_test.py --split test --final) recorded PASS for it,
   2. that test recorded that its recipe passed on every confirmation seed, and
   3. it is the version the deployment rule picks among those: highest validation T1b, then
@@ -40,6 +43,7 @@ from mlflow.models import ModelSignature
 from mlflow.types import Schema, TensorSpec
 
 from mlops import tracking
+from verifier.objective import MIN_SLICE_SHARE
 
 MODEL_NAME = "slice-policy"
 CHAMPION = "champion"
@@ -90,10 +94,18 @@ def best_validation(model_path: Path) -> dict[str, float]:
             "validation_reward": best["reward"], "validation_step": best["step"]}
 
 
+def trained_min_share(model_path: Path) -> str:
+    """The per-slice floor the model was trained with, from its settings file ('None' = no floor)."""
+    settings = model_path.with_name(f"{model_path.stem.removesuffix('_best')}.json")
+    if not settings.exists():
+        return "None"
+    return str(json.loads(settings.read_text()).get("min_share"))
+
+
 def register(model_path: Path, extra_tags: dict[str, str] | None = None) -> str:
     """Log a model file as a pyfunc model and register it; returns the new version number."""
     model_name = model_path.stem
-    tags = {"model_name": model_name, "source_file": str(model_path),
+    tags = {"model_name": model_name, "source_file": str(model_path), "min_share": trained_min_share(model_path),
             **{k: str(v) for k, v in best_validation(model_path).items()}, **(extra_tags or {})}
     training = tracking.training_run_of(model_name.removesuffix("_best"))
     if training is not None:
@@ -148,8 +160,13 @@ def gate(candidates: list[Any]) -> tuple[Any | None, list[str]]:
     for v in candidates:
         name = v.tags.get("model_name", "?")
         record = final_goal_test(name)
-        if record is None:
+        if v.tags.get("min_share") != str(MIN_SLICE_SHARE):
+            reasons.append(f"v{v.version} {name}: not trained with the deployed per-slice floor "
+                           f"(min_share {v.tags.get('min_share', 'None')}, deployed {MIN_SLICE_SHARE})")
+        elif record is None:
             reasons.append(f"v{v.version} {name}: no held-out goal test recorded")
+        elif record.data.tags.get("min_share") != str(MIN_SLICE_SHARE):
+            reasons.append(f"v{v.version} {name}: its held-out goal test did not run with the per-slice floor")
         elif record.data.tags.get("pass") != "True":
             reasons.append(f"v{v.version} {name}: held-out goal test FAIL")
         elif record.data.tags.get("recipe_all_pass") != "True":
@@ -178,7 +195,8 @@ def promote() -> bool:
     c = client()
     if current is not None:
         c.set_model_version_tag(MODEL_NAME, chosen.version, "previous_champion", str(current.version))
-    c.set_model_version_tag(MODEL_NAME, chosen.version, "promotion_basis", "M02b gate: held-out goal test PASS")
+    c.set_model_version_tag(MODEL_NAME, chosen.version, "promotion_basis",
+                            f"gate: held-out goal test PASS, trained with min_share {MIN_SLICE_SHARE}")
     c.set_registered_model_alias(MODEL_NAME, CHAMPION, chosen.version)
     print(f"gate: champion -> version {chosen.version} ({chosen.tags['model_name']})")
     return True

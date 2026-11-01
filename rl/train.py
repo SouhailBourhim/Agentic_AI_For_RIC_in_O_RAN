@@ -27,6 +27,10 @@ M02b training options (each answers a finding of docs/learn/M02-ddpg.md, part M0
 - --reward v1|v2: the reward version (v2 = uncapped log latency penalty, the default);
 - --val-every N: every N steps, score the policy on the validation cases of rl/goal_test.py
   and keep the best checkpoint as <name>_best.zip (rule in ValidationCheckpoint).
+
+M04a option:
+- --min-share F: the per-slice PRB floor (sim.cell.apply_min_share) in the env after the filter,
+  as the deployed runner applies it; the validation checkpoint is scored with the same floor.
 """
 
 import argparse
@@ -116,14 +120,14 @@ class ValidationCheckpoint(BaseCallback):
     the highest T1b (captured share of the oracle's advantage), then the highest reward.
     """
 
-    def __init__(self, every: int, path: Path, start: int = VALIDATION_START) -> None:
+    def __init__(self, every: int, path: Path, start: int = VALIDATION_START, min_share: float | None = None) -> None:
         super().__init__()
         from rl.goal_test import GoalTest  # imported here: building it computes the oracle once
 
         self.every = every
         self.path = path
         self.start = start
-        self.test = GoalTest("validation")
+        self.test = GoalTest("validation", min_share)  # scored with the same floor as in training
         self.best_key: tuple[float, float] | None = None
         self.history: list[dict] = []
 
@@ -179,6 +183,7 @@ def train(
     val_every: int = 0,
     group: str = DEFAULT_GROUP,
     track: bool = True,
+    min_share: float | None = None,
 ) -> Path:
     """Train one seed and save the model; returns the model path.
 
@@ -200,6 +205,7 @@ def train(
             surge_range=(1.5, surge_max),
             action_filter_alpha=SMOOTHING_ALPHA if filter_in_loop else None,
             reward_version=reward_version,  # type: ignore[arg-type]
+            min_share=min_share,
         ),
         filename=str(run_dir / name / "monitor.csv"),
     )
@@ -209,10 +215,11 @@ def train(
                 "load_scale": load_scale, "objective_switch_prob": objective_switch_prob,
                 "relabel": relabel, "filter_in_loop": filter_in_loop, "surge_max": surge_max,
                 "episode_steps": episode_steps, "reward_version": reward_version, "val_every": val_every,
+                "min_share": min_share,
                 **HYPERPARAMETERS}
     callbacks: list[BaseCallback] = [TrackingCallback()]
     if val_every:
-        callbacks.append(ValidationCheckpoint(val_every, model_path))
+        callbacks.append(ValidationCheckpoint(val_every, model_path, min_share=min_share))
     with tracking.training_run(name, group, settings, enabled=track):
         model.learn(total_timesteps=timesteps, tb_log_name=name, progress_bar=False,
                     callback=CallbackList(callbacks))
@@ -243,10 +250,11 @@ def main() -> None:
     parser.add_argument("--val-every", type=int, default=0, help="validation checkpoint period (0 = off)")
     parser.add_argument("--group", default=DEFAULT_GROUP, help="models/<group>/ and runs/<group>/")
     parser.add_argument("--no-track", action="store_true", help="do not record the run in MLflow")
+    parser.add_argument("--min-share", type=float, default=None, help="per-slice PRB floor in the env (M04a: 0.05)")
     args = parser.parse_args()
     train(args.seed, args.timesteps, args.threads, args.algo, args.load_scale, args.objective_switch_prob,
           args.tag, args.relabel, args.filter_in_loop, args.surge_max, args.episode_steps, args.reward,
-          args.val_every, args.group, track=not args.no_track)
+          args.val_every, args.group, track=not args.no_track, min_share=args.min_share)
 
 
 if __name__ == "__main__":

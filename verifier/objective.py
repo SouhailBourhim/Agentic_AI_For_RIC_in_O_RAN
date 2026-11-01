@@ -23,6 +23,13 @@ WEIGHT_SUM_TOLERANCE = 1e-6
 TRAINED_MAX_TARGET_FRACTION = 0.4  # each minimum target is at most 40 % of the cell capacity
 TRAINED_LATENCY_BOUND_MS = (5.0, 50.0)  # URLLC latency bound, when there is one
 
+# Minimum PRB share of every slice, guaranteed at all times (M04a). The RL runner enforces it as
+# the last step before apply_prb_split (sim.cell.apply_min_share), the training env applies the
+# same function, and the verifier's reserve rule uses the same number. It plays the role of the
+# 3GPP per-slice minimum PRB ratio (rRMPolicyMinRatio, TS 28.541): a share of the PRBs a slice
+# can always count on, whatever the scheduler decides for the rest. 5 % of 106 PRBs is about 5 PRBs.
+MIN_SLICE_SHARE = 0.05
+
 
 class SliceValues(BaseModel):
     """One non-negative number per slice (a weight, or a throughput in Mb/s)."""

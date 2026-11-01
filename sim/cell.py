@@ -74,6 +74,37 @@ def smooth_split(previous: np.ndarray | None, new: np.ndarray, alpha: float) -> 
     return alpha * new + (1.0 - alpha) * np.asarray(previous, dtype=np.float64)
 
 
+def apply_min_share(shares: np.ndarray, floor: float) -> np.ndarray:
+    """Guarantee every slice at least `floor` of the PRBs: the last step before a split is applied.
+
+    Deterministic, and valid for ANY input (a policy can output NaN, negatives or all zeros):
+    1. invalid values (NaN, inf, negative) count as 0; if nothing is left, use an equal split;
+    2. scale to sum 1;
+    3. raise every slice below the floor to exactly the floor, and take the PRBs this needs
+       from the other slices in proportion to how far they are above the floor.
+    A split already respecting the floor is returned unchanged (up to float rounding in step 2),
+    so the floor only acts when it must, like the 3GPP minimum PRB ratio (verifier.objective.MIN_SLICE_SHARE). Step 3 always
+    has enough to take from: the shares sum to 1 and n * floor <= 1, so the slices above the
+    floor hold at least the deficit.
+
+    Works on one split (shape (3,)) or many (shape (n, 3), one split per row: the oracle scores
+    its 861 candidates at once). Used by the training env (sim/env.py), the RL runner
+    (rl/runner.py) and the oracle (rl/oracle.py), so they all apply the same rule.
+    """
+    n = len(SLICES)
+    if not 0.0 <= floor <= 1.0 / n:
+        raise ValueError(f"floor must be in [0, 1/{n}], got {floor}")
+    values = np.array(shares, dtype=np.float64)  # a copy
+    values[~np.isfinite(values) | (values < 0)] = 0.0
+    total = values.sum(axis=-1, keepdims=True)
+    empty = total <= 1e-12
+    values = np.where(empty, 1.0 / n, values / np.where(empty, 1.0, total))
+    deficit = np.maximum(floor - values, 0.0).sum(axis=-1, keepdims=True)
+    excess = np.maximum(values - floor, 0.0)
+    taken = deficit * excess / np.maximum(excess.sum(axis=-1, keepdims=True), 1e-12)
+    return np.where(values < floor, floor, values - taken)
+
+
 def step_slice(
     share: float,
     load_mbps: float,

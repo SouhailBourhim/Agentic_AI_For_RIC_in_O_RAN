@@ -4,8 +4,10 @@ Every tick (1 s of backend time):
 1. read the a1_policy segment in force now (store/a1_policy.py); default objective if none;
 2. build the observation from the last KPI records + that objective, exactly as in training;
 3. ask the policy for a PRB split (or, in direct_share mode, take the row's shares);
-4. apply it through the Backend: THE ONLY CALL TO apply_prb_split IN THE PROJECT (invariant 4);
-5. let one tick pass, then write the KPI records, tagged with the policy_id in force.
+4. enforce the per-slice minimum share (5 %, sim.cell.apply_min_share), the same rule the policy
+   was trained with, so the floor holds exactly whatever the policy outputs;
+5. apply it through the Backend: THE ONLY CALL TO apply_prb_split IN THE PROJECT (invariant 4);
+6. let one tick pass, then write the KPI records, tagged with the policy_id in force.
 
 It never waits on anything else (hard invariant 5): no LLM, no agent, no HTTP, no MLflow in the
 loop. The database is opened with a zero busy-timeout. A read that fails keeps the last
@@ -28,11 +30,11 @@ import numpy as np
 from backends.base import Backend, KpiRecord
 from backends.sim import SimBackend, scenario_traffic
 from rl.policy import SlicePolicy
-from sim.cell import CellConfig
+from sim.cell import CellConfig, apply_min_share
 from sim.env import build_observation
 from store import a1_policy, db, kpi
 from store.events import log_event
-from verifier.objective import DEFAULT_OBJECTIVE, SLICES, RLObjective
+from verifier.objective import DEFAULT_OBJECTIVE, MIN_SLICE_SHARE, SLICES, RLObjective
 
 POLICY_CACHE = Path("var/policy_cache")
 MAX_PENDING_TICKS = 600  # KPI ticks kept in memory while the database is busy (10 min at 1 s)
@@ -132,6 +134,7 @@ class Runner:
         else:
             obs = observation_from_records(self.backend.read_kpis(), objective, self.cfg)
             shares = self.policy.shares(obs)
+        shares = apply_min_share(shares, MIN_SLICE_SHARE)  # always the last step before applying
         self.backend.apply_prb_split([float(x) for x in shares])
         self.backend.sleep(self.dt_s)
 

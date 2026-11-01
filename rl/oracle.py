@@ -19,6 +19,10 @@ Every second it:
    (sim.cell.step_slices_batch) and scores it with the reward of its objective;
 4. applies the best one. Ties go to the split closest to the current one (deterministic).
 
+With min_share (M04a), step 3 scores each candidate after the per-slice floor
+(sim.cell.apply_min_share), exactly as the env will apply it: the oracle plays by the same
+actuator rules as the policy it is compared with. Without it, the M02b oracle is unchanged.
+
 It is greedy (one second ahead), so it is not a perfect optimum: it does not plan queue
 draining over several seconds. The policy can beat it in some cases (the test clips at 1).
 """
@@ -28,7 +32,7 @@ import copy
 import numpy as np
 
 from rl.policy import SMOOTHING_ALPHA
-from sim.cell import CellConfig, smooth_split, step_slices_batch
+from sim.cell import CellConfig, apply_min_share, smooth_split, step_slices_batch
 from sim.env import SlicingEnv, objective_arrays
 from sim.reward import DEFAULT_REWARD_VERSION, RewardVersion, compute_reward_batch
 from verifier.objective import SLICES, RLObjective
@@ -52,8 +56,10 @@ class GreedyOracle:
         objective: RLObjective,
         alpha: float | None = SMOOTHING_ALPHA,
         reward_version: RewardVersion = DEFAULT_REWARD_VERSION,
+        min_share: float | None = None,
     ) -> None:
         self.weights, self.targets, self.bound = objective_arrays(objective)
+        self.min_share = min_share
         self.alpha = alpha
         self.reward_version = reward_version
         self.candidates = split_grid()
@@ -65,8 +71,9 @@ class GreedyOracle:
     def act(self, env: SlicingEnv) -> np.ndarray:
         """The split to apply now (already smoothed), from the env's current state."""
         cfg: CellConfig = env.cfg
-        applied = (self.candidates if self.alpha is None
-                   else smooth_split(self._previous, self.candidates, self.alpha))
+        filtered = (self.candidates if self.alpha is None
+                    else smooth_split(self._previous, self.candidates, self.alpha))
+        applied = filtered if self.min_share is None else apply_min_share(filtered, self.min_share)
         # The loads env.step() is about to draw: same generator state, same order of draws.
         rng = copy.deepcopy(env.np_random)
         loads = np.array([env.traffic[s].load_at(env.time_s, rng) for s in SLICES])
@@ -82,6 +89,6 @@ class GreedyOracle:
         best = rewards.max()
         tied = np.flatnonzero(rewards >= best - TIE_TOLERANCE)
         distance = np.abs(applied[tied] - env.shares).sum(axis=1)
-        choice = applied[tied[np.argmin(distance)]]
-        self._previous = choice
-        return choice
+        best_index = tied[np.argmin(distance)]
+        self._previous = filtered[best_index]  # the filter's memory is before the floor, as in the env
+        return filtered[best_index]  # the env applies the floor itself
