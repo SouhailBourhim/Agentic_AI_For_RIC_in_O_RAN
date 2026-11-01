@@ -75,9 +75,12 @@ def git_state() -> dict[str, str]:
 
 def experiment_for(group: str, name: str) -> str:
     """Experiment name from the training group and model name (one experiment per round)."""
-    if group.startswith("m02b"):
-        return group.replace("/", "-")  # m02b-dev, m02b-confirm
-    return "m02-round2" if "v2" in name else "m02-round1"
+    if group == "m02":  # the M02 rounds shared one folder; the model name tells them apart
+        return "m02-round2" if "v2" in name else "m02-round1"
+    # Every later round has its own group: m02b/dev -> m02b-dev, m04a_floor/confirm -> m04a_floor-confirm.
+    # (Before this fix, groups other than m02b fell back to m02-round1: the five M04a floor runs,
+    # seeds 20-24, are filed there; their params and tags identify them.)
+    return group.replace("/", "-")
 
 
 def run_tags(name: str, settings: dict[str, Any]) -> dict[str, str]:
@@ -141,9 +144,12 @@ def find_run(experiment: str, **tags: str) -> Any:
     return runs[0] if runs else None
 
 
+TRAINING_EXPERIMENTS = ("m04a_floor-confirm", "m02b-confirm", "m02b-dev", "m02-round2", "m02-round1")
+
+
 def training_run_of(model_name: str) -> Any:
     """The training run that produced a model, searched across the training experiments."""
-    for experiment in ("m02b-confirm", "m02b-dev", "m02-round2", "m02-round1"):
+    for experiment in TRAINING_EXPERIMENTS:
         run = find_run(experiment, model_name=model_name)
         if run is not None:
             return run
