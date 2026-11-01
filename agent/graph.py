@@ -49,6 +49,7 @@ class AgentState(TypedDict, total=False):
     rejections: int
     revisions: int
     scratch: list[str]  # tool results and feedback shown to the plan step
+    rejected_calls: list[str]  # proposals the verifier rejected (JSON), never sent again
     pending: dict | None  # the tool call chosen by plan: {"name", "arguments"}
     objective: dict | None  # the applied objective of active_id
     compliance: dict | None
@@ -78,7 +79,7 @@ def run_intent(ctx: AgentContext, intent_id: str) -> AgentState:
     graph = build_graph(ctx)
     limit = 50 if ctx.settings.controller == "proposed" else 2000  # LangGraph's recursion guard
     state = graph.invoke({"intent_id": intent_id, "active_id": None, "waiting_id": None, "text": record.text,
-                          "steps": 0, "rejections": 0, "revisions": 0, "scratch": []},
+                          "steps": 0, "rejections": 0, "revisions": 0, "scratch": [], "rejected_calls": []},
                          {"recursion_limit": limit})
     finish_record(ctx, state)
     return state
@@ -187,14 +188,21 @@ def build_graph(ctx: AgentContext):  # noqa: C901 (one closure per node, kept to
             result = tools.wait_and_observe(ctx, args.get("seconds") or s.observe_s)
             step(state, "act", tool=name, result=result)
             return {"scratch": note(state, f"wait_and_observe -> {json.dumps(result)}"), "route": "plan"}
+        key = json.dumps({"tool": name, **args}, sort_keys=True)
+        if key in state.get("rejected_calls", []):  # the same proposal again: no new information
+            step(state, "act", tool=name, result="identical to a rejected proposal")
+            reason = "the model repeated a proposal the verifier had already rejected"
+            last = next((line for line in reversed(state.get("scratch", [])) if line.startswith("VERIFIER")), "")
+            final = f"{reason}; {last.removeprefix('VERIFIER REJECTED: ')}".rstrip("; ")
+            return done(state, final) if state.get("active_id") else reject(state, final)
         if name == "set_slice_share":
             decision = tools.set_slice_share(ctx, state["intent_id"], args, valid_s=s.observe_s + 5.0)
             step(state, "act", tool=name, arguments=args, verifier=decision_dict(decision))
             if not decision.accepted:
-                return rejected_action(state, decision.reason)
+                return {**rejected_action(state, decision.reason), "rejected_calls": [*state["rejected_calls"], key]}
             return {"active_id": state["intent_id"], "route": "observe",
                     "scratch": note(state, f"set_slice_share accepted: {json.dumps(args)}")}
-        return set_objective(state, args)
+        return set_objective(state, args, key)
 
     def rejected_action(state: AgentState, reason: str) -> dict:
         count = state["rejections"] + 1
@@ -203,14 +211,14 @@ def build_graph(ctx: AgentContext):  # noqa: C901 (one closure per node, kept to
             return done(state, final) if state.get("active_id") else reject(state, final)
         return {"rejections": count, "route": "plan", "scratch": note(state, f"VERIFIER REJECTED: {reason}")}
 
-    def set_objective(state: AgentState, args: dict) -> dict:
+    def set_objective(state: AgentState, args: dict, key: str) -> dict:
         revision_of = state.get("active_id")  # an applied objective exists: this is a revision
         decision, objective = tools.propose_objective(
             ctx, state["intent_id"], revision_of, args.get("importance") or {}, args.get("min_thr_mbps"),
             args.get("max_latency_ms"), args.get("duration_s"))
         step(state, "act", tool="set_rl_objective", arguments=args, verifier=decision_dict(decision))
         if not decision.accepted:
-            return rejected_action(state, decision.reason)
+            return {**rejected_action(state, decision.reason), "rejected_calls": [*state["rejected_calls"], key]}
         now_wall = ctx.now_wall()
         if revision_of is None:
             target = state["intent_id"]

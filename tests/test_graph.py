@@ -74,10 +74,19 @@ def test_verifier_rejection_replans(ric_db, cell) -> None:
 
 
 def test_three_rejections_reject_the_intent(ric_db, cell) -> None:
-    bad = objective_call(urllc=60.0)
-    record, _ = agent(ric_db, cell, [facts(urllc=60), bad, bad, bad])
+    script = [facts(urllc=60), objective_call(urllc=60.0), objective_call(urllc=50.0), objective_call(urllc=40.0)]
+    record, _ = agent(ric_db, cell, script)
     assert record.state == "rejected" and "verifier rejected 3 proposals" in record.reason
     assert a1_policy.current_schedule(ric_db) == []
+
+
+def test_repeating_a_rejected_proposal_ends_at_once(ric_db, cell) -> None:
+    """Seen live with llama3.1: the same rejected objective proposed again. Not re-verified."""
+    bad = objective_call(urllc=60.0)
+    record, llm = agent(ric_db, cell, [facts(urllc=60), bad, bad])
+    assert record.state == "rejected" and "repeated a proposal" in record.reason and "trained on" in record.reason
+    assert len(llm.requests) == 3  # parse + 2 plans: no third plan
+    assert sum(1 for e in read_events() if e["event"] == "agent_step" and e["data"].get("verifier")) == 1
 
 
 def test_invalid_json_is_retried_then_rejected(ric_db, cell) -> None:
