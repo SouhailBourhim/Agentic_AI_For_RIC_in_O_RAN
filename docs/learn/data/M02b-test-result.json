@@ -1,0 +1,75 @@
+{
+  "split": "test",
+  "material_threshold": 0.02,
+  "t1a_min": 0.9,
+  "t1b_min": 0.5,
+  "models": {
+    "td3_noreward_seed10_best": {
+      "material_cases": 30,
+      "t1a_share_positive": 0.9666666666666667,
+      "t1b_captured": 0.8353657147875957,
+      "t1a_pass": true,
+      "t1b_pass": true,
+      "reward": 0.2785796881146831,
+      "equal_split_reward": 0.18332217610263624,
+      "t2_pass": true,
+      "pass": true,
+      "original_gap": 0.33688258121654924
+    },
+    "td3_noreward_seed11_best": {
+      "material_cases": 30,
+      "t1a_share_positive": 0.9666666666666667,
+      "t1b_captured": 0.8369044107890058,
+      "t1a_pass": true,
+      "t1b_pass": true,
+      "reward": 0.2855789026672806,
+      "equal_split_reward": 0.18332217610263624,
+      "t2_pass": true,
+      "pass": true,
+      "original_gap": 0.1779137555980806
+    },
+    "td3_noreward_seed12_best": {
+      "material_cases": 30,
+      "t1a_share_positive": 0.9666666666666667,
+      "t1b_captured": 0.8817039657045458,
+      "t1a_pass": true,
+      "t1b_pass": true,
+      "reward": 0.28321973306327103,
+      "equal_split_reward": 0.18332217610263624,
+      "t2_pass": true,
+      "pass": true,
+      "original_gap": 0.19609129766455755
+    },
+    "td3_noreward_seed13_best": {
+      "material_cases": 30,
+      "t1a_share_positive": 0.9666666666666667,
+      "t1b_captured": 0.8379010699523796,
+      "t1a_pass": true,
+      "t1b_pass": true,
+      "reward": 0.2852256219768179,
+      "equal_split_reward": 0.18332217610263624,
+      "t2_pass": true,
+      "pass": true,
+      "original_gap": 0.22947356272255315
+    },
+    "td3_noreward_seed14_best": {
+      "material_cases": 30,
+      "t1a_share_positive": 0.9666666666666667,
+      "t1b_captured": 0.6990203622835167,
+      "t1a_pass": true,
+      "t1b_pass": true,
+      "reward": 0.2833556871576933,
+      "equal_split_reward": 0.18332217610263624,
+      "t2_pass": true,
+      "pass": true,
+      "original_gap": 0.1470869940554893
+    }
+  },
+  "recipes": {
+    "td3_noreward": {
+      "all_pass": true,
+      "mean_t1b": 0.8181791047034087,
+      "seeds": 5
+    }
+  }
+}
