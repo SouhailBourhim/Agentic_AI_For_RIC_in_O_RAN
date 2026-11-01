@@ -125,3 +125,31 @@ def test_smoothed_action_stays_in_range() -> None:
 def test_invalid_alpha_is_rejected() -> None:
     with pytest.raises(ValueError):
         SlicePolicy(FakeModel(), alpha=0.0)
+
+
+def test_selection_rule_needs_to_beat_equal_split_then_prefers_robust_goal_gap() -> None:
+    from rl.select import select
+
+    candidates = {
+        "a": {"reward": 0.30, "mean_gap": 0.30, "share_gap_ge_0.10": 0.50},
+        "b": {"reward": 0.26, "mean_gap": 0.20, "share_gap_ge_0.10": 0.90},
+        "c": {"reward": 0.20, "mean_gap": 0.40, "share_gap_ge_0.10": 1.00},  # below equal split
+    }
+    assert select(candidates, equal_reward=0.21) == "b"
+
+
+def test_selection_rule_breaks_ties_on_reward() -> None:
+    from rl.select import select
+
+    candidates = {
+        "a": {"reward": 0.25, "mean_gap": 0.2, "share_gap_ge_0.10": 0.8},
+        "b": {"reward": 0.27, "mean_gap": 0.2, "share_gap_ge_0.10": 0.8},
+    }
+    assert select(candidates, equal_reward=0.21) == "b"
+
+
+def test_validation_seeds_are_disjoint_from_test_seeds() -> None:
+    from rl.evaluate import EVAL_SEEDS
+    from rl.select import VALIDATION_REWARD_SEEDS, VALIDATION_TRAFFIC_SEEDS
+
+    assert not set(EVAL_SEEDS) & (set(VALIDATION_REWARD_SEEDS) | set(VALIDATION_TRAFFIC_SEEDS))

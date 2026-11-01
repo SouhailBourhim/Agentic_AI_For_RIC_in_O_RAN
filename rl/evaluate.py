@@ -9,8 +9,10 @@ Writes runs/m02/eval.json and prints two tables plus the pass/fail of both crite
 2. Random episodes: 100 episodes with a random objective and random traffic (env seeds
    1000-1099). Every controller sees exactly the same episodes (paired comparison).
    Criterion: the policy's mean reward beats the equal split, for every trained seed.
-Both criteria were fixed in the M02 plan before any result existed. They are judged per
-algorithm (all DDPG seeds, all TD3 seeds).
+Both criteria were fixed before any result existed, and are judged per training round
+(all seeds of one group). Round 1 (ddpg, td3) registered them on the raw actor; round 2
+(td3v2) on the deployed policy with the smoothing filter. CRITERION_VARIANT records that, so
+each group is judged on the variant fixed for it; the other variant is printed for information.
 
 3. Diagnostic, added after the first DDPG results (not a criterion): over 2 000 real states,
    how much the URLLC share moves when only the objective part of the observation is swapped
@@ -43,6 +45,8 @@ EPISODE_STEPS = 200
 SPIKE_STEPS = 40  # the URLLC-spike scenario: spike at 10-20 s, then 20 s of recovery
 SHARE_GAP_CRITERION = 0.10
 TARGET_TOLERANCE = 0.99  # a target counts as met at >= 99 % of it (float noise)
+# The policy variant each group's criteria were registered on, before its results existed.
+CRITERION_VARIANT = {"ddpg": "raw", "td3": "raw", "td3v2": "filtered"}
 
 CAPACITY = CellConfig().capacity_mbps
 OBJECTIVES = {
@@ -148,6 +152,11 @@ def algo_of(name: str) -> str:
     return name.split("_seed")[0]
 
 
+def judged_name(name: str) -> str:
+    """The evaluation entry a policy's pre-registered criteria are judged on."""
+    return f"{name} raw" if CRITERION_VARIANT.get(algo_of(name), "filtered") == "raw" else name
+
+
 def summarise(values: list[float]) -> str:
     arr = np.array(values, dtype=float)
     arr = arr[~np.isnan(arr)]
@@ -174,11 +183,12 @@ def main() -> None:
                   f"{row['share_be']:7.2f}{row['urllc_thr_mbps']:12.1f}{row['urllc_lat_ms_median']:23.1f}")
         gaps[name] = gc["protect URLLC"]["share_urllc"] - gc["maximise eMBB"]["share_urllc"]
     print("URLLC share gap (protect - maximise eMBB):", {k: round(v, 3) for k, v in gaps.items()})
-    gaps = {name: gaps[name] for name in policies}  # the criterion uses the deployed (filtered) policies
+    gaps = {judged_name(name): gaps[judged_name(name)] for name in policies}
     algos = sorted({algo_of(n) for n in policies})
     gc_pass = {a: all(g >= SHARE_GAP_CRITERION for n, g in gaps.items() if algo_of(n) == a) for a in algos}
     for a in algos:
-        print(f"  {a}: criterion gap >= {SHARE_GAP_CRITERION} on every seed:", "PASS" if gc_pass[a] else "FAIL")
+        print(f"  {a}: criterion gap >= {SHARE_GAP_CRITERION} on every seed "
+              f"(judged {CRITERION_VARIANT.get(a, 'filtered')}):", "PASS" if gc_pass[a] else "FAIL")
 
     print(f"\n2) {len(EVAL_SEEDS)} random episodes (objective + traffic), same episodes for every controller")
     controllers: dict[str, Controller] = {
@@ -194,11 +204,13 @@ def main() -> None:
         print(f"{name:<24}{summarise(metrics['reward']):>18}{summarise(metrics['target_met']):>18}"
               f"{summarise(metrics['latency_met']):>20}{summarise(metrics['split_change']):>20}")
     equal_mean = np.mean(results["random"]["equal split"]["reward"])
-    beats = {name: float(np.mean(results["random"][name]["reward"]) - equal_mean) for name in policies}
+    beats = {judged_name(n): float(np.mean(results["random"][judged_name(n)]["reward"]) - equal_mean)
+             for n in policies}
     print("mean reward minus equal split:", {k: round(v, 4) for k, v in beats.items()})
     rand_pass = {a: all(d > 0 for n, d in beats.items() if algo_of(n) == a) for a in algos}
     for a in algos:
-        print(f"  {a}: criterion beats equal split on every seed:", "PASS" if rand_pass[a] else "FAIL")
+        print(f"  {a}: criterion beats equal split on every seed "
+              f"(judged {CRITERION_VARIANT.get(a, 'filtered')}):", "PASS" if rand_pass[a] else "FAIL")
 
     print("\n3) Diagnostic (added after the first DDPG results, not a criterion):")
     print("   URLLC share gap over 2 000 real states, objective part swapped")
@@ -211,6 +223,7 @@ def main() -> None:
               f"gap >= 0.10 in {sens['share_of_states_gap_ge_0.10']:.0%} of states")
 
     results["criteria"] = {
+        "variant": CRITERION_VARIANT,
         "goal_conditioning_share_gap": {"gaps": gaps, "threshold": SHARE_GAP_CRITERION, "pass": gc_pass},
         "beats_equal_split": {"differences": beats, "pass": rand_pass},
     }
