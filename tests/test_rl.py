@@ -76,3 +76,11 @@ def test_controllers_see_the_same_episode() -> None:
     assert m1 == m2 or all(
         (np.isnan(m1[k]) and np.isnan(m2[k])) or m1[k] == m2[k] for k in m1
     )
+
+
+def test_td3_builds_and_learns() -> None:
+    """TD3 uses the same hyperparameters; a 300-step run proves its training path works."""
+    model = make_model(SlicingEnv(episode_steps=50), seed=0, algo="td3")
+    model.learning_starts = 100
+    model.learn(total_timesteps=300)
+    assert type(model).__name__ == "TD3"

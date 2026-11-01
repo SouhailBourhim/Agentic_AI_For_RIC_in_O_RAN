@@ -9,7 +9,13 @@ Writes runs/m02/eval.json and prints two tables plus the pass/fail of both crite
 2. Random episodes: 100 episodes with a random objective and random traffic (env seeds
    1000-1099). Every controller sees exactly the same episodes (paired comparison).
    Criterion: the policy's mean reward beats the equal split, for every trained seed.
-Both criteria were fixed in the M02 plan before any result existed.
+Both criteria were fixed in the M02 plan before any result existed. They are judged per
+algorithm (all DDPG seeds, all TD3 seeds).
+
+3. Diagnostic, added after the first DDPG results (not a criterion): over 2 000 real states,
+   how much the URLLC share moves when only the objective part of the observation is swapped
+   between the two objectives above. It tells whether a policy ignores the objective in
+   general, or only in the states the spike scenario reaches.
 """
 
 import json
@@ -21,7 +27,7 @@ import numpy as np
 from rl.baselines import equal_split, proportional_to_load
 from rl.policy import SlicePolicy
 from sim.cell import CellConfig
-from sim.env import SlicingEnv
+from sim.env import OBJECTIVE_FEATURES, SlicingEnv, objective_to_vector
 from sim.plot import run_episode
 from sim.scenarios import urllc_spike
 from verifier.objective import SLICES, RLObjective, SliceValues
@@ -95,6 +101,38 @@ def goal_conditioning(policy: SlicePolicy) -> dict[str, dict[str, float]]:
     return out
 
 
+def collect_states(n_episodes: int = 20, steps: int = 100) -> np.ndarray:
+    """Real observations from equal-split episodes on the first evaluation seeds."""
+    states = []
+    for seed in list(EVAL_SEEDS)[:n_episodes]:
+        env = SlicingEnv(episode_steps=steps)
+        obs, _ = env.reset(seed=seed)
+        for _ in range(steps):
+            obs, *_ = env.step(equal_split(obs))
+            states.append(obs.copy())
+    return np.array(states)
+
+
+def objective_sensitivity(policy: SlicePolicy, states: np.ndarray) -> dict[str, float]:
+    """URLLC share under "protect URLLC" minus under "maximise eMBB", same KPIs, per state."""
+    cfg = CellConfig()
+    gaps = []
+    for obs in states:
+        shares = {}
+        for name, objective in OBJECTIVES.items():
+            x = obs.copy()
+            x[-OBJECTIVE_FEATURES:] = objective_to_vector(objective, cfg)
+            shares[name] = policy.shares(x)[1]
+        gaps.append(shares["protect URLLC"] - shares["maximise eMBB"])
+    gaps = np.array(gaps)
+    return {"mean": float(gaps.mean()), "median": float(np.median(gaps)),
+            "share_of_states_gap_ge_0.10": float(np.mean(gaps >= SHARE_GAP_CRITERION))}
+
+
+def algo_of(name: str) -> str:
+    return name.split("_seed")[0]
+
+
 def summarise(values: list[float]) -> str:
     arr = np.array(values, dtype=float)
     arr = arr[~np.isnan(arr)]
@@ -102,7 +140,7 @@ def summarise(values: list[float]) -> str:
 
 
 def main() -> None:
-    model_paths = sorted(MODEL_DIR.glob("ddpg_seed*.zip"))
+    model_paths = sorted(MODEL_DIR.glob("*_seed*.zip"))
     if not model_paths:
         raise SystemExit(f"no models in {MODEL_DIR}; train first (uv run python -m rl.train)")
     policies = {p.stem: SlicePolicy.load(p) for p in model_paths}
@@ -119,9 +157,11 @@ def main() -> None:
             print(f"{name:<16}{obj_name:<16}{row['share_embb']:7.2f}{row['share_urllc']:7.2f}"
                   f"{row['share_be']:7.2f}{row['urllc_thr_mbps']:12.1f}{row['urllc_lat_ms_median']:23.1f}")
         gaps[name] = gc["protect URLLC"]["share_urllc"] - gc["maximise eMBB"]["share_urllc"]
-    gc_pass = all(g >= SHARE_GAP_CRITERION for g in gaps.values())
-    print("URLLC share gap (protect - maximise eMBB):", {k: round(v, 3) for k, v in gaps.items()},
-          f"-> criterion >= {SHARE_GAP_CRITERION}:", "PASS" if gc_pass else "FAIL")
+    print("URLLC share gap (protect - maximise eMBB):", {k: round(v, 3) for k, v in gaps.items()})
+    algos = sorted({algo_of(n) for n in policies})
+    gc_pass = {a: all(g >= SHARE_GAP_CRITERION for n, g in gaps.items() if algo_of(n) == a) for a in algos}
+    for a in algos:
+        print(f"  {a}: criterion gap >= {SHARE_GAP_CRITERION} on every seed:", "PASS" if gc_pass[a] else "FAIL")
 
     print(f"\n2) {len(EVAL_SEEDS)} random episodes (objective + traffic), same episodes for every controller")
     controllers: dict[str, Controller] = {
@@ -137,9 +177,20 @@ def main() -> None:
               f"{summarise(metrics['latency_met']):>20}")
     equal_mean = np.mean(results["random"]["equal split"]["reward"])
     beats = {name: float(np.mean(results["random"][name]["reward"]) - equal_mean) for name in policies}
-    rand_pass = all(d > 0 for d in beats.values())
-    print("mean reward minus equal split:", {k: round(v, 4) for k, v in beats.items()},
-          "-> criterion > 0:", "PASS" if rand_pass else "FAIL")
+    print("mean reward minus equal split:", {k: round(v, 4) for k, v in beats.items()})
+    rand_pass = {a: all(d > 0 for n, d in beats.items() if algo_of(n) == a) for a in algos}
+    for a in algos:
+        print(f"  {a}: criterion beats equal split on every seed:", "PASS" if rand_pass[a] else "FAIL")
+
+    print("\n3) Diagnostic (added after the first DDPG results, not a criterion):")
+    print("   URLLC share gap over 2 000 real states, objective part swapped")
+    states = collect_states()
+    results["objective_sensitivity"] = {}
+    for name, policy in policies.items():
+        sens = objective_sensitivity(policy, states)
+        results["objective_sensitivity"][name] = sens
+        print(f"   {name:<14} mean {sens['mean']:6.3f}  median {sens['median']:6.3f}  "
+              f"gap >= 0.10 in {sens['share_of_states_gap_ge_0.10']:.0%} of states")
 
     results["criteria"] = {
         "goal_conditioning_share_gap": {"gaps": gaps, "threshold": SHARE_GAP_CRITERION, "pass": gc_pass},

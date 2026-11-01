@@ -8,20 +8,22 @@ deterministically (the actor's output, no exploration noise).
 from pathlib import Path
 
 import numpy as np
-from stable_baselines3 import DDPG
+from stable_baselines3 import DDPG, TD3
 
 from sim.cell import shares_from_action
 
 
 class SlicePolicy:
-    """A trained goal-conditioned DDPG actor."""
+    """A trained goal-conditioned actor (DDPG or TD3)."""
 
-    def __init__(self, model: DDPG) -> None:
+    def __init__(self, model: DDPG | TD3) -> None:
         self.model = model
 
     @classmethod
     def load(cls, path: str | Path) -> "SlicePolicy":
-        return cls(DDPG.load(str(path), device="cpu"))
+        """The file name says which algorithm saved it: ddpg_seed0.zip or td3_seed0.zip."""
+        algo = TD3 if Path(path).name.startswith("td3") else DDPG
+        return cls(algo.load(str(path), device="cpu"))
 
     def action(self, obs: np.ndarray) -> np.ndarray:
         """Raw actor output: 3 numbers in [0, 1]. The env divides them by their sum."""
