@@ -41,4 +41,4 @@ uv run pytest    # run the tests
 | `tests/` | pytest |
 | `docs/` | design, [`DECISIONS.md`](docs/DECISIONS.md), learning notes in `docs/learn/` |
 
-Status: M00, M01 (simulator), M06-spike (OAI + FlexRIC testbed reconnaissance, sim calibrated to 75 Mb/s) and M02 (goal-conditioned DDPG/TD3 policy; goal-conditioning criterion failed, limitation documented in `docs/learn/M02-ddpg.md`) done. Next: M03 (verifier). Open decision before M07b: `docs/PLAN.md` §7.
+Status: M00, M01 (simulator), M06-spike (OAI + FlexRIC testbed reconnaissance, sim calibrated to 75 Mb/s) and M02 (goal-conditioned DDPG/TD3 policy; goal-conditioning criterion failed, limitation documented in `docs/learn/M02-ddpg.md`) done. In progress: M02b (making goal conditioning pass a valid test). Next: M03 (verifier). Real PRB-split control (M07b): custom gNB build, `docs/PLAN.md` §7.

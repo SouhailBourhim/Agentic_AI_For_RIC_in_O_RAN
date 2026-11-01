@@ -243,9 +243,10 @@ Understand it: explain why Hermes cannot touch the radio even if its LLM misbeha
 ## M07b — Slice-control xApp and FlexRICBackend
 
 ```
-Checkpoint M07b: first confirm the control path decided in docs/PLAN.md §7 (OAI v3.0.0 has no
-PRB-split control over E2; option 1 is a custom gNB build). Then write the slice-control part in
-xapps/ and implement FlexRICBackend so that
+Checkpoint M07b: the control path is decided in docs/PLAN.md §7: option 1, a custom gNB build
+(OAI v3.0.0 has no PRB-split control over E2) with a slice-aware dl_rb_alloc policy and a real
+SLICE control handler. Fix a timebox in the plan; past it, fall back to option 2 (side channel,
+reported as not E2). Then write the slice-control part in xapps/ and implement FlexRICBackend so that
 Backend.apply_prb_split applies a PRB split on the real gNB and read_kpis reads the KPI store.
 Run the same rl/runner, policy, verifier and agent unchanged on the testbed.
 Check on the testbed that the gateway has no network route to FlexRIC or OAI (hard

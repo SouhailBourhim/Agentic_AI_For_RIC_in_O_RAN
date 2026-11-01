@@ -40,7 +40,7 @@ RAM in WSL, RTX 5070 Laptop with 8151 MiB VRAM, about 1.5 GB of it used by Windo
 | M06 Testbed | 3 S-NSSAIs end to end (core config + database, gNB `snssaiList`, UEs), one UE per slice, traffic scripts, ordered start/stop script | spike | 3–5 | KPM style-4 reports filter on one S-NSSAI, so probably one subscription per slice |
 | M07a KPM | KPM xApp (one long-lived process) writing per-slice records into the KPI store | M06, M04a | 3–5 | E2 state is fragile across xApp/RIC restarts (seen in the spike) |
 | M05b Hermes | Hermes config (3-tool whitelist, general tools off, isolated container), demo through Hermes. Timeboxed; can be cut | M05a | 2–3 | Install/config (H1, H3); VRAM when Hermes and LangGraph share one model |
-| M07b Control | PRB-split control on the real gNB, FlexRICBackend, RL runner on the testbed | M07a, M02 | 5–10 | **No PRB-split control over E2 in OAI v3.0.0** (SLICE is a stub): needs a custom gNB build. Decision pending, see §7 |
+| M07b Control | PRB-split control on the real gNB, FlexRICBackend, RL runner on the testbed | M07a, M02 | 5–10 | **No PRB-split control over E2 in OAI v3.0.0** (SLICE is a stub): needs a custom gNB build: option 1 decided, see §7 |
 | M08a Eval sim | 4 controllers × 3 scenarios on the simulator, repeated runs | M04b, M02 | 3–4 | Runs must be cheap enough to repeat |
 | M08b Eval interface | annotated intents, extraction accuracy, gateway/verifier counts, Hermes latency and fidelity (if kept) | M05 | 2–3 | Annotation effort; small sample |
 | M08c Eval testbed | same controllers and scenarios on the testbed | M07b, M08a | 3–5 | Real-time runs are slow and noisy |
@@ -177,7 +177,7 @@ policy). This is not O-RAN A1: FlexRIC has no Non-RT RIC.
 | RTX 5070 (Blackwell, sm_120) needs PyTorch built with CUDA ≥ 12.8 | Train DDPG on **CPU** by default: small MLPs run fast on 32 threads and the GPU stays free for Ollama. GPU torch (cu128 wheels) only if training is too slow |
 | ~~OAI/FlexRIC documentation targets 22.04, host is 24.04~~ | **Resolved in the spike**: official v3.0.0 images (gNB/nrUE on 24.04, FlexRIC on 22.04 inside its image) run unchanged on this host |
 | ~~Official gNB image lacks the E2 agent~~ | **Resolved in the spike**: built with E2 (E2AP v3, KPM v3.00), same versions as `oai-flexric:v3.0.0` |
-| OAI slice control through FlexRIC | **Confirmed missing in v3.0.0.** Options in §7: custom `dl_rb_alloc` policy + real SLICE control handler (custom gNB build), or a side channel, or KPM-only on the testbed (proposal §9) |
+| OAI slice control through FlexRIC | **Confirmed missing in v3.0.0.** Decided (§7): custom gNB build with a slice-aware `dl_rb_alloc` policy and a real SLICE control handler; fallback to a side channel (option 2) if the E2 handler exceeds the M07b timebox |
 | rfsim throughput low, noisy or CPU heavy | **Measured**: ~75 Mb/s DL, limited by the radio config (MCS 28 64-QAM, TDD 7/2), not CPU (~10 % of 32 threads, ~4 GiB). Sim calibrated to 75 Mb/s |
 | RAM (23 GB in WSL): CN5G + gNB + 3 UE + FlexRIC | Minimal CN5G profile; measure in M06. Ollama runs on Windows, outside the WSL memory limit, but competes for the same physical RAM |
 
@@ -198,7 +198,7 @@ Every checkpoint ships at least one visualization, shown in section 5 of its lea
 | M07a, M07b | Same dashboard on testbed data, unchanged; E2 messages | Grafana (same KPI record); Wireshark with the E2AP dissector |
 | M08a/b/c | Spread over repeated runs, controllers × scenarios, interface metrics | matplotlib box plots and time series with spread bands → PNG + CSV in `eval/results/` |
 
-## 7. Open decision: PRB-split control on the real gNB (before M07b)
+## 7. Decision: PRB-split control on the real gNB (decided 2026-11-01: option 1)
 
 Found in the M06 spike (details in `docs/learn/M06-spike.md` §6). OAI v3.0.0 has no working
 E2 control of the PRB split: the SLICE service model is a stub, and RC only supports bearer
@@ -211,4 +211,8 @@ and every candidate carries its `nssai`.
 | 2 | Same policy, shares sent through a side channel (file or telnet) | No (not E2) | Less C, no E2 encoding |
 | 3 | Real KPM on the testbed; control loop on the simulator only (proposal §9) | Partly | None |
 
-Decide before starting M07b. Until then, M02–M05 are unaffected: they run on the simulator.
+**Decided on 2026-11-01: option 1.** We build our own gNB image with a slice-aware
+`dl_rb_alloc` policy and a real SLICE control handler, so the RL xApp sets the PRB split over
+E2. The M07b plan fixes the timebox. If the E2 SLICE handler cannot be finished within it, the
+fallback is option 2: the same scheduler policy driven through a side channel, reported
+explicitly as not E2. M02–M05 are unaffected: they run on the simulator.
