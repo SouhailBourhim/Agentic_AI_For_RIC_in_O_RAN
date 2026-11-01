@@ -248,3 +248,11 @@ explicitly as not E2. M02–M05 are unaffected: they run on the simulator.
   guarantee the split the policy chooses. A deterministic clamp in the runner (after the policy
   and the smoothing filter) would. If we add it, it must also be in the training environment,
   like the smoothing filter, so the policy trains with the actuator it will have when deployed.
+  **Evidence from M04a** (`uv run python -m rl.plot_runner`, docs/learn/M04a-plumbing.md §5):
+  during the demo URLLC surge, with "20 Mb/s URLLC within 10 ms" in force, the champion gives
+  best effort 2 % of the PRBs (median latency ~41 s) for the whole 5 minutes.
+- **Policy jitter under the default objective (look at in M08a).** M04a measured 6–12 % of the
+  PRBs moved per tick under the default objective (no targets, no bound), against 0.3 % under
+  an explicit objective and ~2 % averaged over random objectives in M02. Options to weigh then:
+  a different default objective, or a smaller filter alpha only for the default.
+

@@ -1,0 +1,7 @@
+global:
+  scrape_interval: 1s     # one RL tick per second at --speed 1
+  evaluation_interval: 15s
+scrape_configs:
+  - job_name: ric
+    static_configs:
+      - targets: ["host.docker.internal:9108"]
