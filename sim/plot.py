@@ -60,6 +60,8 @@ def run_episode(
     """
     env = SlicingEnv(episode_steps=steps)
     obs, _ = env.reset(seed=seed, options={"objective": objective, "traffic": traffic})
+    if hasattr(controller, "reset"):  # e.g. the smoothed RL policy: forget the last episode
+        controller.reset()
     rows: dict[str, list[float]] = {"time": [], "reward": []}
     for _ in range(steps):
         obs, reward, _, _, info = env.step(np.asarray(controller(obs), dtype=np.float32))

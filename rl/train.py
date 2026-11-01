@@ -1,14 +1,15 @@
 """Train the goal-conditioned DDPG (or TD3) policy on the simulator.
 
 Run with:  uv run python -m rl.train --seed 0 [--algo td3] [--timesteps 200000]
+           [--load-scale 1.2 --objective-switch-prob 0.02 --tag v2]
 
 Every episode, SlicingEnv.reset() samples a new random objective and random traffic, so the
 policy learns to follow whatever objective appears in its observation (goal-conditioned).
 
 Outputs (all outside git):
-- models/m02/<algo>_seed<N>.zip    the trained model (actor + critic)
-- models/m02/<algo>_seed<N>.json   the exact settings used
-- runs/m02/<algo>_seed<N>/monitor.csv   one line per episode: reward, length, time
+- models/m02/<algo><tag>_seed<N>.zip    the trained model (actor + critic)
+- models/m02/<algo><tag>_seed<N>.json   the exact settings used
+- runs/m02/<algo><tag>_seed<N>/monitor.csv   one line per episode: reward, length, time
 - runs/m02/tb/                     TensorBoard logs (uv run tensorboard --logdir runs/m02/tb)
 Every hyperparameter is explained in docs/learn/M02-ddpg.md.
 
@@ -80,21 +81,33 @@ def make_model(
     )
 
 
-def train(seed: int, timesteps: int, threads: int, algo: str = "ddpg") -> Path:
+def train(
+    seed: int,
+    timesteps: int,
+    threads: int,
+    algo: str = "ddpg",
+    load_scale: float = 1.0,
+    objective_switch_prob: float = 0.0,
+    tag: str = "",
+) -> Path:
     """Train one seed and save the model; returns the model path."""
     torch.set_num_threads(threads)  # several seeds run side by side on the 32 threads
-    name = f"{algo}_seed{seed}"
+    name = f"{algo}{tag}_seed{seed}"
     run_dir = RUN_DIR / name
     run_dir.mkdir(parents=True, exist_ok=True)
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
-    env = Monitor(SlicingEnv(), filename=str(run_dir / "monitor.csv"))
+    env = Monitor(
+        SlicingEnv(load_scale=load_scale, objective_switch_prob=objective_switch_prob),
+        filename=str(run_dir / "monitor.csv"),
+    )
     model = make_model(env, seed, tensorboard_log=str(RUN_DIR / "tb"), algo=algo)
     model.learn(total_timesteps=timesteps, tb_log_name=name, progress_bar=False)
 
     model_path = MODEL_DIR / f"{name}.zip"
     model.save(model_path)
-    settings = {"algo": algo, "seed": seed, "timesteps": timesteps, "threads": threads, **HYPERPARAMETERS}
+    settings = {"algo": algo, "seed": seed, "timesteps": timesteps, "threads": threads,
+                "load_scale": load_scale, "objective_switch_prob": objective_switch_prob, **HYPERPARAMETERS}
     model_path.with_suffix(".json").write_text(json.dumps(settings, indent=2))
     print(f"saved {model_path}")
     return model_path
@@ -104,10 +117,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--algo", choices=sorted(ALGORITHMS), default="ddpg")
+    parser.add_argument("--load-scale", type=float, default=1.0, help="multiply sampled training traffic")
+    parser.add_argument("--objective-switch-prob", type=float, default=0.0,
+                        help="chance per step of a new random objective mid-episode")
+    parser.add_argument("--tag", default="", help="added to the model name, e.g. v2 -> td3v2_seed0")
     parser.add_argument("--timesteps", type=int, default=200_000)
     parser.add_argument("--threads", type=int, default=2, help="torch CPU threads (2 was as fast as 4 here)")
     args = parser.parse_args()
-    train(args.seed, args.timesteps, args.threads, args.algo)
+    train(args.seed, args.timesteps, args.threads, args.algo,
+          args.load_scale, args.objective_switch_prob, args.tag)
 
 
 if __name__ == "__main__":

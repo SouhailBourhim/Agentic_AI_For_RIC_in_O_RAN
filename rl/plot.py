@@ -6,7 +6,8 @@ Writes into docs/learn/img/:
 - M02-goal-gap.png      mean URLLC share under the two objectives, every policy, vs the criterion
 - M02-objectives.png    one policy on the URLLC-spike traffic under the two objectives
 - M02-eval.png          reward per step over the 100 evaluation episodes, every controller
-Every number comes from those files; nothing is typed in by hand.
+Every number comes from those files; nothing is typed in by hand. The figures show the policies
+as deployed (with the output smoothing filter); eval.json also holds the raw ones.
 """
 
 import json
@@ -29,7 +30,7 @@ EPISODE_STEPS = 200
 SMOOTH_EPISODES = 20
 # Controllers get their own colours (dataviz slots 7 and 6, and greys for baselines), never the
 # slice colours, which keep meaning eMBB / URLLC / BE everywhere in the project.
-ALGO_COLOURS = {"ddpg": "#6250d6", "td3": "#008300"}
+ALGO_COLOURS = {"ddpg": "#6250d6", "td3": "#008300", "td3v2": "#e87ba4"}
 BASELINE_COLOUR = "#8a8984"
 DETAIL_POLICY = "td3_seed0"  # the one shown in detail in M02-objectives.png (said in the note)
 
@@ -75,7 +76,7 @@ def plot_training(eval_results: dict) -> Figure:
 def plot_goal_gap(eval_results: dict) -> Figure:
     """Mean URLLC share under each objective, per policy: the goal-conditioning criterion."""
     gc = eval_results["goal_conditioning"]
-    names = list(gc)
+    names = [n for n in gc if not n.endswith(" raw")]
     fig = Figure(figsize=(11, 4), facecolor=SURFACE, layout="constrained")
     ax = fig.subplots()
     x = np.arange(len(names))
@@ -104,14 +105,14 @@ def plot_objectives(policy_name: str) -> Figure:
     """One policy, same traffic, the two objectives side by side (reuses the M01 layout)."""
     policy = SlicePolicy.load(MODEL_DIR / f"{policy_name}.zip")
     traffic, _ = urllc_spike()
-    runs = {name: run_episode(policy.action, traffic, obj, steps=SPIKE_STEPS) for name, obj in OBJECTIVES.items()}
+    runs = {name: run_episode(policy, traffic, obj, steps=SPIKE_STEPS) for name, obj in OBJECTIVES.items()}
     return plot_spike_comparison(runs, OBJECTIVES, traffic["urllc"], what=f"— {policy_name} under two objectives")
 
 
 def plot_eval(eval_results: dict) -> Figure:
     """Reward per step over the evaluation episodes: one box per controller."""
     random = eval_results["random"]
-    names = list(random)
+    names = [n for n in random if not n.endswith(" raw")]
     fig = Figure(figsize=(11, 4.5), facecolor=SURFACE, layout="constrained")
     ax = fig.subplots()
     data = [random[n]["reward"] for n in names]

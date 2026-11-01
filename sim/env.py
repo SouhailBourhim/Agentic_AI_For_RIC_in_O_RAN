@@ -62,9 +62,24 @@ class SlicingEnv(gym.Env):
 
     metadata = {"render_modes": []}
 
-    def __init__(self, cfg: CellConfig | None = None, episode_steps: int = 200) -> None:
+    def __init__(
+        self,
+        cfg: CellConfig | None = None,
+        episode_steps: int = 200,
+        load_scale: float = 1.0,
+        objective_switch_prob: float = 0.0,
+    ) -> None:
+        """`load_scale` and `objective_switch_prob` are training options (M02, round 2):
+        - load_scale multiplies the randomly sampled traffic, so more steps are in contention,
+          which is where the objective changes the best action;
+        - objective_switch_prob is the chance, each step, of drawing a new random objective in
+          the middle of the episode, as when the LLM changes the goal at run time.
+        Both are off by default, so evaluation episodes and scripted scenarios are unchanged.
+        """
         self.cfg = cfg or CellConfig()
         self.episode_steps = episode_steps
+        self.load_scale = load_scale
+        self.objective_switch_prob = objective_switch_prob
         self.action_space = gym.spaces.Box(0.0, 1.0, shape=(len(SLICES),), dtype=np.float32)
         self.observation_space = gym.spaces.Box(0.0, OBS_CLIP, shape=(OBS_SIZE,), dtype=np.float32)
         # Filled by reset():
@@ -84,7 +99,9 @@ class SlicingEnv(gym.Env):
         options = options or {}
         episode_s = self.episode_steps * self.cfg.dt_s
         self.objective = options.get("objective") or sample_objective(self.np_random, self.cfg)
-        self.traffic = options.get("traffic") or sample_traffic(self.np_random, episode_s, self.cfg.capacity_mbps)
+        self.traffic = options.get("traffic") or sample_traffic(
+            self.np_random, episode_s, self.load_scale * self.cfg.capacity_mbps
+        )
         self.time_s = 0.0
         self.step_count = 0
         self.shares = np.full(len(SLICES), 1.0 / len(SLICES))
@@ -110,6 +127,10 @@ class SlicingEnv(gym.Env):
             for i, s in enumerate(SLICES)
         }
         reward = compute_reward(self.objective, self.last, self.loads, self.cfg)
+        # Only touch the random generator when the option is on, so that with the default the
+        # random stream (hence every evaluation episode) is exactly what it was before.
+        if self.objective_switch_prob > 0 and self.np_random.random() < self.objective_switch_prob:
+            self.objective = sample_objective(self.np_random, self.cfg)  # seen from the next step
         self.time_s += self.cfg.dt_s
         self.step_count += 1
         truncated = self.step_count >= self.episode_steps

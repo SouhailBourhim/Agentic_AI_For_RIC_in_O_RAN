@@ -15,7 +15,11 @@ algorithm (all DDPG seeds, all TD3 seeds).
 3. Diagnostic, added after the first DDPG results (not a criterion): over 2 000 real states,
    how much the URLLC share moves when only the objective part of the observation is swapped
    between the two objectives above. It tells whether a policy ignores the objective in
-   general, or only in the states the spike scenario reaches.
+   general, or only in the states the spike scenario reaches. It uses the raw actor: the
+   smoothing filter works over time and means nothing across unrelated states.
+
+Policies are evaluated as deployed, i.e. with the output smoothing filter of rl/policy.py
+(the criteria use these), and also raw ("<name> raw") for comparison.
 """
 
 import json
@@ -26,7 +30,7 @@ import numpy as np
 
 from rl.baselines import equal_split, proportional_to_load
 from rl.policy import SlicePolicy
-from sim.cell import CellConfig
+from sim.cell import CellConfig, shares_from_action
 from sim.env import OBJECTIVE_FEATURES, SlicingEnv, objective_to_vector
 from sim.plot import run_episode
 from sim.scenarios import urllc_spike
@@ -66,6 +70,8 @@ def episode_metrics(controller: Controller, seed: int, steps: int = EPISODE_STEP
     """
     env = SlicingEnv(episode_steps=steps)
     obs, _ = env.reset(seed=seed)
+    if hasattr(controller, "reset"):  # the smoothed policy starts each episode fresh
+        controller.reset()
     objective = env.objective
     targets = dict(zip(SLICES, objective.min_thr_mbps.as_list()))
     rewards, target_hits, latency_hits, changes = [], [], [], []
@@ -102,7 +108,7 @@ def goal_conditioning(policy: SlicePolicy) -> dict[str, dict[str, float]]:
     traffic, _ = urllc_spike()
     out = {}
     for name, objective in OBJECTIVES.items():
-        run = run_episode(policy.action, traffic, objective, steps=SPIKE_STEPS)
+        run = run_episode(policy, traffic, objective, steps=SPIKE_STEPS)
         summary = {f"share_{s}": float(run[f"share_{s}"].mean()) for s in SLICES}
         summary["urllc_thr_mbps"] = float(run["thr_urllc"].mean())
         summary["urllc_lat_ms_median"] = float(np.median(run["lat_urllc"]))
@@ -131,7 +137,7 @@ def objective_sensitivity(policy: SlicePolicy, states: np.ndarray) -> dict[str, 
         for name, objective in OBJECTIVES.items():
             x = obs.copy()
             x[-OBJECTIVE_FEATURES:] = objective_to_vector(objective, cfg)
-            shares[name] = policy.shares(x)[1]
+            shares[name] = shares_from_action(policy.raw_action(x))[1]
         gaps.append(shares["protect URLLC"] - shares["maximise eMBB"])
     gaps = np.array(gaps)
     return {"mean": float(gaps.mean()), "median": float(np.median(gaps)),
@@ -152,21 +158,23 @@ def main() -> None:
     model_paths = sorted(MODEL_DIR.glob("*_seed*.zip"))
     if not model_paths:
         raise SystemExit(f"no models in {MODEL_DIR}; train first (uv run python -m rl.train)")
-    policies = {p.stem: SlicePolicy.load(p) for p in model_paths}
+    policies = {p.stem: SlicePolicy.load(p) for p in model_paths}  # with the smoothing filter
+    raw_policies = {f"{p.stem} raw": SlicePolicy.load(p, alpha=1.0) for p in model_paths}
 
     results: dict = {"eval_seeds": [EVAL_SEEDS.start, EVAL_SEEDS.stop], "goal_conditioning": {}, "random": {}}
 
     print("1) Goal conditioning: URLLC-spike traffic, mean over", SPIKE_STEPS, "s")
-    print(f"{'policy':<16}{'objective':<16}{'eMBB':>7}{'URLLC':>7}{'BE':>7}{'URLLC Mb/s':>12}{'URLLC lat ms (median)':>23}")
+    print(f"{'policy':<20}{'objective':<16}{'eMBB':>7}{'URLLC':>7}{'BE':>7}{'URLLC Mb/s':>12}{'URLLC lat ms (median)':>23}")
     gaps = {}
-    for name, policy in policies.items():
+    for name, policy in {**policies, **raw_policies}.items():
         gc = goal_conditioning(policy)
         results["goal_conditioning"][name] = gc
         for obj_name, row in gc.items():
-            print(f"{name:<16}{obj_name:<16}{row['share_embb']:7.2f}{row['share_urllc']:7.2f}"
+            print(f"{name:<20}{obj_name:<16}{row['share_embb']:7.2f}{row['share_urllc']:7.2f}"
                   f"{row['share_be']:7.2f}{row['urllc_thr_mbps']:12.1f}{row['urllc_lat_ms_median']:23.1f}")
         gaps[name] = gc["protect URLLC"]["share_urllc"] - gc["maximise eMBB"]["share_urllc"]
     print("URLLC share gap (protect - maximise eMBB):", {k: round(v, 3) for k, v in gaps.items()})
+    gaps = {name: gaps[name] for name in policies}  # the criterion uses the deployed (filtered) policies
     algos = sorted({algo_of(n) for n in policies})
     gc_pass = {a: all(g >= SHARE_GAP_CRITERION for n, g in gaps.items() if algo_of(n) == a) for a in algos}
     for a in algos:
@@ -176,13 +184,14 @@ def main() -> None:
     controllers: dict[str, Controller] = {
         "equal split": equal_split,
         "proportional to load": proportional_to_load,
-        **{name: policy.action for name, policy in policies.items()},
+        **policies,
+        **raw_policies,
     }
-    print(f"{'controller':<22}{'reward/step':>18}{'targets met':>18}{'URLLC latency met':>20}{'split change/step':>20}")
+    print(f"{'controller':<24}{'reward/step':>18}{'targets met':>18}{'URLLC latency met':>20}{'split change/step':>20}")
     for name, controller in controllers.items():
         metrics = evaluate_random(controller)
         results["random"][name] = metrics
-        print(f"{name:<22}{summarise(metrics['reward']):>18}{summarise(metrics['target_met']):>18}"
+        print(f"{name:<24}{summarise(metrics['reward']):>18}{summarise(metrics['target_met']):>18}"
               f"{summarise(metrics['latency_met']):>20}{summarise(metrics['split_change']):>20}")
     equal_mean = np.mean(results["random"]["equal split"]["reward"])
     beats = {name: float(np.mean(results["random"][name]["reward"]) - equal_mean) for name in policies}

@@ -84,3 +84,44 @@ def test_td3_builds_and_learns() -> None:
     model.learning_starts = 100
     model.learn(total_timesteps=300)
     assert type(model).__name__ == "TD3"
+
+
+class FakeModel:
+    """Stands in for an SB3 model: its 'actor' returns the first 3 observation values."""
+
+    def predict(self, obs: np.ndarray, deterministic: bool = True) -> tuple[np.ndarray, None]:
+        return np.asarray(obs[:3], dtype=np.float32), None
+
+
+def test_smoothing_filter_averages_with_the_previous_action() -> None:
+    policy = SlicePolicy(FakeModel(), alpha=0.25)
+    first = policy.action(np.array([1.0, 0.0, 0.0]))
+    assert first == pytest.approx([1.0, 0.0, 0.0])  # nothing to average with yet
+    second = policy.action(np.array([0.0, 1.0, 0.0]))
+    assert second == pytest.approx([0.75, 0.25, 0.0])  # 0.25 * new + 0.75 * previous
+
+
+def test_smoothing_filter_reset_forgets_the_past() -> None:
+    policy = SlicePolicy(FakeModel(), alpha=0.25)
+    policy.action(np.array([1.0, 0.0, 0.0]))
+    policy.reset()
+    assert policy.action(np.array([0.0, 0.0, 1.0])) == pytest.approx([0.0, 0.0, 1.0])
+
+
+def test_alpha_one_turns_the_filter_off() -> None:
+    policy = SlicePolicy(FakeModel(), alpha=1.0)
+    policy.action(np.array([1.0, 0.0, 0.0]))
+    assert policy.action(np.array([0.0, 1.0, 0.0])) == pytest.approx([0.0, 1.0, 0.0])
+
+
+def test_smoothed_action_stays_in_range() -> None:
+    policy = SlicePolicy(FakeModel(), alpha=0.25)
+    rng = np.random.default_rng(0)
+    for _ in range(50):
+        a = policy.action(rng.uniform(0, 1, 3))
+        assert np.all((a >= 0) & (a <= 1))
+
+
+def test_invalid_alpha_is_rejected() -> None:
+    with pytest.raises(ValueError):
+        SlicePolicy(FakeModel(), alpha=0.0)

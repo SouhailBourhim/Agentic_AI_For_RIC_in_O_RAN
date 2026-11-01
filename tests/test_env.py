@@ -87,3 +87,34 @@ def test_episode_is_truncated_after_episode_steps() -> None:
     env.reset(seed=0)
     flags = [env.step(np.ones(3, dtype=np.float32))[3] for _ in range(5)]
     assert flags == [False, False, False, False, True]
+
+
+def test_training_options_are_off_by_default() -> None:
+    """Default env = the env the evaluation episodes were defined with."""
+    env = SlicingEnv()
+    assert env.load_scale == 1.0 and env.objective_switch_prob == 0.0
+
+
+def test_load_scale_scales_the_sampled_traffic() -> None:
+    base, scaled = SlicingEnv(), SlicingEnv(load_scale=1.5)
+    base.reset(seed=11)
+    scaled.reset(seed=11)
+    for s in base.traffic:
+        assert scaled.traffic[s].base_mbps == pytest.approx(1.5 * base.traffic[s].base_mbps)
+
+
+def test_objective_switches_mid_episode_when_enabled() -> None:
+    env = SlicingEnv(objective_switch_prob=1.0)  # switch at every step
+    env.reset(seed=12)
+    first = env.objective
+    env.step(np.ones(3, dtype=np.float32))
+    assert env.objective != first
+
+
+def test_objective_never_switches_by_default() -> None:
+    env = SlicingEnv()
+    env.reset(seed=12)
+    first = env.objective
+    for _ in range(50):
+        env.step(np.ones(3, dtype=np.float32))
+    assert env.objective == first
