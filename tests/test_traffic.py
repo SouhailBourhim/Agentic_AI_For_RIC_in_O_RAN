@@ -36,5 +36,5 @@ def test_noise_is_seeded_and_never_negative() -> None:
 
 
 def test_sample_traffic_covers_every_slice() -> None:
-    traffic = sample_traffic(np.random.default_rng(0), episode_s=200.0)
+    traffic = sample_traffic(np.random.default_rng(0), episode_s=200.0, capacity_mbps=75.0)
     assert set(traffic) == set(SLICES)

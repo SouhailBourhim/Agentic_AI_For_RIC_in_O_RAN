@@ -84,7 +84,7 @@ class SlicingEnv(gym.Env):
         options = options or {}
         episode_s = self.episode_steps * self.cfg.dt_s
         self.objective = options.get("objective") or sample_objective(self.np_random, self.cfg)
-        self.traffic = options.get("traffic") or sample_traffic(self.np_random, episode_s)
+        self.traffic = options.get("traffic") or sample_traffic(self.np_random, episode_s, self.cfg.capacity_mbps)
         self.time_s = 0.0
         self.step_count = 0
         self.shares = np.full(len(SLICES), 1.0 / len(SLICES))

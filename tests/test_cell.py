@@ -5,7 +5,9 @@ import pytest
 
 from sim.cell import CellConfig, shares_from_action, slice_latency_ms, step_slice
 
-CFG = CellConfig()
+# A fixed 100 Mb/s cell, so the arithmetic in these tests stays readable (share 0.1 -> 10 Mb/s)
+# whatever the calibrated default capacity is.
+CFG = CellConfig(capacity_mbps=100.0)
 BASE_MS = 2.0
 
 

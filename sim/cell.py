@@ -17,7 +17,9 @@ class CellConfig:
     """Fixed parameters of the simulated cell."""
 
     n_prb: int = 106  # 40 MHz at 30 kHz SCS, the usual OAI rfsim configuration
-    capacity_mbps: float = 100.0  # placeholder; calibrated to rfsim after M06
+    # Measured on the OAI rfsim testbed in the M06 spike (OAI v3.0.0, 106 PRB, 30 kHz, TDD 7/2):
+    # one UE alone 76 Mb/s, three UEs together 74.8 Mb/s in total. See docs/learn/M06-spike.md.
+    capacity_mbps: float = 75.0
     dt_s: float = 1.0  # one step = one RL decision
     # Service time per slice (ms): the latency of an almost empty slice.
     base_latency_ms: dict[str, float] = field(

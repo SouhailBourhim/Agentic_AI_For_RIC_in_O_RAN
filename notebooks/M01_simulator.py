@@ -42,7 +42,7 @@ def _(mo):
     embb = mo.ui.slider(0.0, 1.0, step=0.01, value=0.40, label="eMBB weight of split")
     urllc = mo.ui.slider(0.0, 1.0, step=0.01, value=0.42, label="URLLC weight of split")
     be = mo.ui.slider(0.0, 1.0, step=0.01, value=0.18, label="BE weight of split")
-    peak = mo.ui.slider(10.0, 80.0, step=1.0, value=40.0, label="URLLC spike peak (Mb/s)")
+    peak = mo.ui.slider(0.1, 1.0, step=0.05, value=0.40, label="URLLC spike peak (fraction of capacity)")
     mo.vstack([embb, urllc, be, peak])
     return be, embb, peak, urllc
 
@@ -53,20 +53,16 @@ def _(be, embb, peak, urllc):
 
     from sim.cell import shares_from_action
     from sim.plot import plot_spike_comparison, run_fixed_split
-    from sim.scenarios import SPIKE_END_S, SPIKE_START_S, urllc_spike
-    from sim.traffic import TrafficPattern
+    from sim.scenarios import urllc_spike
 
-    traffic, objective = urllc_spike()
-    traffic["urllc"] = TrafficPattern(
-        "spike", base_mbps=10.0, peak_mbps=peak.value, start_s=SPIKE_START_S, end_s=SPIKE_END_S
-    )
+    traffic, objective = urllc_spike(spike_fraction=peak.value)
     chosen = shares_from_action(np.array([embb.value, urllc.value, be.value]))
     label = f"Chosen split ({chosen[0]:.2f} / {chosen[1]:.2f} / {chosen[2]:.2f})"
     runs = {
         "Equal split (1/3 each)": run_fixed_split(np.full(3, 1 / 3), traffic, objective),
         label: run_fixed_split(chosen, traffic, objective),
     }
-    fig = plot_spike_comparison(runs, objective)
+    fig = plot_spike_comparison(runs, objective, traffic["urllc"])
     fig
     return (runs,)
 

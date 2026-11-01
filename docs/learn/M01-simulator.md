@@ -39,7 +39,8 @@ reads it in its observation.
 
 2. **The cell parameters**: `CellConfig` in [sim/cell.py:16](../../sim/cell.py#L16).
    - 106 PRBs (40 MHz at 30 kHz SCS, the usual OAI rfsim setup).
-   - 100 Mb/s total capacity. This is a placeholder until M06 measures rfsim.
+   - 75 Mb/s total capacity, measured on the OAI rfsim testbed in the M06 spike (it was a
+     100 Mb/s placeholder before; see [M06-spike.md](M06-spike.md)).
    - 1 s per step.
    - Base latency per slice: eMBB 10 ms, URLLC 2 ms, BE 20 ms.
    - Buffer of 50 Mb per slice.
@@ -57,7 +58,7 @@ reads it in its observation.
 
    | Step | Formula | Meaning |
    |---|---|---|
-   | capacity | `cap = share × C` | Mb/s this slice can send (C = 100 Mb/s) |
+   | capacity | `cap = share × C` | Mb/s this slice can send (C = 75 Mb/s) |
    | arrivals | `A = load × dt` | Mb that arrived during the step |
    | served | `S = min(backlog + A, cap × dt)` | send what is waiting, up to what the PRBs carry |
    | throughput | `thr = S / dt` | Mb/s actually delivered |
@@ -94,7 +95,9 @@ reads it in its observation.
    - `load_at` (line 60) multiplies by `1 + 0.05 × N(0, 1)` noise and never goes below 0.
    - The noise comes from the env's seeded generator, so a run can be repeated exactly.
    - `sample_traffic` (line 71) draws a random shape, level and timing per slice, for training.
-   - Default loads are 50 / 10 / 30 Mb/s, 90 % of the cell, so any spike causes overload.
+   - Loads are fractions of the capacity (`DEFAULT_LOAD_FRACTION`): 50 / 10 / 30 % of the cell,
+     so 37.5 / 7.5 / 22.5 Mb/s at 75 Mb/s. 90 % in total, so any spike causes overload. Using
+     fractions means recalibrating C does not change what a scenario means.
 
 7. **Reward**: `compute_reward` ([sim/reward.py:23](../../sim/reward.py#L23)).
 
@@ -174,31 +177,32 @@ Expected: `Box(0.0, 10.0, (22,), float32) Box(0.0, 1.0, (3,), float32)`
 uv run python -m sim.demo
 ```
 
-The demo applies an **equal split** (33.3 Mb/s per slice) while URLLC spikes from 10 to 40 Mb/s
-between t = 10 s and t = 20 s. The objective is: URLLC weight 0.5, URLLC ≥ 10 Mb/s, URLLC latency
-≤ 20 ms. Real output, excerpt:
+The demo applies an **equal split** (25 Mb/s per slice) while URLLC spikes from 7.5 to 30 Mb/s
+(10 % → 40 % of the cell) between t = 10 s and t = 20 s. The objective is: URLLC weight 0.5,
+URLLC ≥ 7.5 Mb/s (10 % of the cell), URLLC latency ≤ 20 ms. Real output, excerpt:
 
 ```
    t | load Mb/s (eMBB URLLC BE) | thr Mb/s (eMBB URLLC BE) | latency ms (eMBB URLLC BE) | reward
-  10 |          47.7   9.8  30.3 |         33.3   9.8  30.3 |     1700.0     2.8   222.0 |  0.210
-  11 |          47.5  39.6  29.8 |         33.3  33.3  29.8 |     1700.0   227.4   186.6 | -0.674
-  12 |          51.4  40.4  30.5 |         33.3  33.3  30.5 |     1700.0   440.3   238.1 | -0.672
-  13 |          48.4  39.7  31.2 |         33.3  33.3  31.2 |     1700.0   632.6   309.0 | -0.671
-  20 |          51.7  37.6  29.0 |         33.3  33.3  29.0 |     1700.0  1540.0   154.1 | -0.675
-  21 |          48.9   9.4  32.6 |         33.3  33.3  32.6 |     1700.0   785.2   400.0 | -0.668
-  22 |          48.8  10.2  29.6 |         33.3  33.3  29.6 |     1700.0    90.3   179.2 | -0.674
-  23 |          54.0  10.7  31.0 |         33.3  13.6  31.0 |     1700.0     2.9   279.7 |  0.230
+  10 |          35.8   7.3  22.7 |         25.0   7.3  22.7 |     2200.0     2.8   222.0 |  0.210
+  11 |          35.6  29.7  22.3 |         25.0  25.0  22.3 |     2200.0   227.4   186.6 | -0.674
+  12 |          38.5  30.3  22.9 |         25.0  25.0  22.9 |     2200.0   440.3   238.1 | -0.672
+  13 |          36.3  29.8  23.4 |         25.0  25.0  23.4 |     2200.0   632.6   309.0 | -0.671
+  20 |          38.8  28.2  21.8 |         25.0  25.0  21.8 |     2200.0  2040.0   154.1 | -0.675
+  21 |          36.7   7.1  24.5 |         25.0  25.0  24.5 |     2200.0  1285.2   400.0 | -0.668
+  22 |          36.6   7.6  22.2 |         25.0  25.0  22.2 |     2200.0   590.3   179.2 | -0.674
+  23 |          40.5   8.0  23.2 |         25.0  22.7  23.2 |     2200.0     2.9   279.7 |  0.313
 ```
 
 How to read it:
 - **Before the spike**, URLLC is light (ρ ≈ 0.3), so its latency is about 2.8 ms ≈ 2 / (1 − 0.3).
-- **During the spike**, URLLC throughput is capped at 33.3 Mb/s, its share of the cell. Its
-  queue grows by about 7 Mb/s, so latency climbs every step until the buffer is full (1540 ms).
+- **During the spike**, URLLC throughput is capped at 25 Mb/s, its share of the cell. Its
+  queue grows by about 5 Mb per step, so latency climbs every step until the buffer is full:
+  2040 ms = 50 Mb / 25 Mb/s (drain time) + 2 / 0.05 ms (M/M/1 term at the ρ cap).
   The latency term costs the full −1, so the reward drops from ≈ 0.21 to ≈ −0.67.
-- **After the spike**, URLLC still sends at 33.3 Mb/s to drain its queue. By t = 23 it is back
-  to 2.9 ms.
-- **eMBB** offers about 50 Mb/s against 33.3 for the whole run, so it sits at a full buffer
-  (1700 ms). The equal split is simply bad here, which is what M02's policy should fix.
+- **After the spike**, URLLC still sends at 25 Mb/s to drain its queue. By t = 23 it is back
+  to 2.9 ms (and the reward briefly peaks at 0.31, because draining counts as throughput).
+- **eMBB** offers about 37.5 Mb/s against 25 for the whole run, so it sits at a full buffer
+  (2200 ms). The equal split is simply bad here, which is what M02's policy should fix.
 
 ### Figures
 
@@ -215,7 +219,7 @@ uv run python -m sim.plot     # writes docs/learn/img/M01-model.png and M01-spik
   at 0.9. They stop rising at the ρ = 0.95 cap (dotted line), where the latency is 20 × base.
   Beyond that point, only a growing backlog can raise latency further.
 - **Right:** throughput grows linearly with the PRB share until it reaches the offered load
-  (40 Mb/s at share 0.4), then stays flat. PRBs past that point are wasted on this slice.
+  (30 Mb/s, i.e. 40 % of the cell, at share 0.4), then stays flat. PRBs past that point are wasted on this slice.
 
 **The spike scenario under two fixed splits**: equal (left) and URLLC-protecting
 0.40 / 0.42 / 0.18 (right). The shaded band is the spike.
@@ -224,12 +228,12 @@ uv run python -m sim.plot     # writes docs/learn/img/M01-model.png and M01-spik
 
 - **Row 1, throughput (solid) vs offered load (dashed).** Where the two lines meet, the slice
   is fully served. Where the solid line is below the dashed one, it is starved. With the equal
-  split, URLLC is capped at 33.3 during the spike. With the protecting split, URLLC follows
-  its load, but BE is now capped at 18 and eMBB at 40.
+  split, URLLC is capped at 25 during the spike. With the protecting split, URLLC follows
+  its load, but BE is now capped at 13.5 and eMBB at 30.
 - **Row 2, latency (log scale).**
-  - Equal split: URLLC goes from about 3 ms to 1.5 s during the spike.
-  - Protecting split: URLLC stays at 35–80 ms. Its capacity (42 Mb/s) is just above its load
-    (~40), so ρ ≈ 0.95 and the M/M/1 term alone is 2 / 0.05 = 40 ms. That is still above the
+  - Equal split: URLLC goes from about 3 ms to 2 s during the spike.
+  - Protecting split: URLLC stays at 19–77 ms. Its capacity (31.5 Mb/s) is just above its load
+    (~30), so ρ ≈ 0.95 and the M/M/1 term alone is 2 / 0.05 = 40 ms. That is still above the
     20 ms bound.
   - Protecting split: BE now has the worst latency, because it is overloaded all the time.
 - **Row 3, PRB shares.** Constant, since these are fixed splits. M02's policy will make this
@@ -239,7 +243,7 @@ uv run python -m sim.plot     # writes docs/learn/img/M01-model.png and M01-spik
   - Protecting split: about −0.64, with two jumps up to 0.35 at t = 14 s and t = 20 s. At those
     steps, noise pushed URLLC's load slightly down, its latency dipped under 20 ms, and the
     penalty vanished. The reward really is that sensitive to the bound.
-- **The lesson:** no fixed split is good in every phase. The protecting split wastes 32 Mb/s of
+- **The lesson:** no fixed split is good in every phase. The protecting split wastes 24 Mb/s of
   URLLC capacity outside the spike and starves BE the whole time. A controller that changes
   the split when the traffic changes is needed. That is the RL policy of M02.
 
@@ -268,8 +272,11 @@ figure. A table under the figure gives the mean reward and peak URLLC latency of
   "share = my number / total" is easier to explain, and softmax can never give exactly 0.
 - **Reward penalties 2 and 1.** Chosen so missing a target always costs more than the same PRBs
   could earn elsewhere. M02 may retune them, and we will log that if it does.
-- **100 Mb/s capacity is a placeholder.** Everything the policy sees is divided by C, so we can
-  change it after M06 without changing the policy's input.
+- **75 Mb/s capacity, measured in the M06 spike** (one UE alone 76 Mb/s, three together 74.8).
+  Everything the policy sees is divided by C, and loads are fractions of C, so recalibrating
+  changed no formula and no observation. The buffer (`max_backlog_mb` = 50 Mb) was not
+  rescaled: it now holds 2 s at 25 Mb/s. The real gNB buffers far more (RLC delay reached
+  ~12 s in the spike); the latency penalty is clipped, so we keep 50 Mb for now.
 - **`sim` imports the schema from `verifier.objective`.** The objective is shared by sim,
   verifier, agent and policy. Rejected: a new `common/` package that isn't in the planned layout.
 - **Figures with matplotlib's object API** (`Figure`, not `pyplot`), in

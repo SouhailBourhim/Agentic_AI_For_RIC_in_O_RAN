@@ -101,7 +101,9 @@ def _shade_spike(ax: Axes) -> None:
     ax.axvspan(SPIKE_START_S, SPIKE_END_S, color="#efeee9", zorder=0)
 
 
-def plot_spike_comparison(runs: dict[str, dict[str, np.ndarray]], objective: RLObjective) -> Figure:
+def plot_spike_comparison(
+    runs: dict[str, dict[str, np.ndarray]], objective: RLObjective, urllc: TrafficPattern
+) -> Figure:
     """One column per run, four rows: throughput vs load, latency, PRB shares, reward."""
     fig = Figure(figsize=(12, 10), facecolor=SURFACE, layout="constrained")
     axes = fig.subplots(4, len(runs), sharex=True, sharey="row", squeeze=False)
@@ -152,7 +154,7 @@ def plot_spike_comparison(runs: dict[str, dict[str, np.ndarray]], objective: RLO
     handles, labels = axes[0, 0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="outside upper right", ncols=3, frameon=False, fontsize=9)
     fig.suptitle(
-        "URLLC spike (shaded, 10 → 40 Mb/s) under two fixed PRB splits",
+        f"URLLC spike (shaded, {urllc.base_mbps:.1f} → {urllc.peak_mbps:.1f} Mb/s) under two fixed PRB splits",
         color=TEXT, fontsize=12, x=0.01, ha="left",
     )
     return fig
@@ -182,8 +184,8 @@ def plot_model_curves(cfg: CellConfig | None = None) -> Figure:
     ax_lat.set_xlabel("utilisation ρ = load / slice capacity", color=TEXT_MUTED, fontsize=9)
     ax_lat.legend(frameon=False, fontsize=8)
 
-    # Right: throughput vs PRB share for a slice offering 40 Mb/s, empty queue.
-    load = 40.0
+    # Right: throughput vs PRB share for a slice offering 40 % of the cell, empty queue.
+    load = 0.4 * cfg.capacity_mbps
     shares = np.linspace(0.0, 1.0, 101)
     thr = [step_slice(sh, load, 0.0, 2.0, cfg).throughput_mbps for sh in shares]
     ax_thr.plot(shares, thr, color=SLICE_COLOURS["embb"], linewidth=LINE_WIDTH)
@@ -207,7 +209,7 @@ def main(out_dir: Path = DEFAULT_OUT_DIR) -> list[Path]:
     runs = {name: run_fixed_split(shares, traffic, objective) for name, shares in FIXED_SPLITS.items()}
     figures = {
         "M01-model.png": plot_model_curves(),
-        "M01-spike.png": plot_spike_comparison(runs, objective),
+        "M01-spike.png": plot_spike_comparison(runs, objective, traffic["urllc"]),
     }
     paths = []
     for filename, fig in figures.items():

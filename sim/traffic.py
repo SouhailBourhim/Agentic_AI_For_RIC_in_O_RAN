@@ -18,15 +18,16 @@ from verifier.objective import SLICES
 
 PatternKind = Literal["steady", "spike", "ramp"]
 
-# Typical mean load per slice (Mb/s) for a 100 Mb/s cell: about 90 % busy in total,
-# so any spike pushes the cell into overload.
-DEFAULT_BASE_MBPS: dict[str, float] = {"embb": 50.0, "urllc": 10.0, "be": 30.0}
+# Loads are given as fractions of the cell capacity, so the scenarios keep their meaning when
+# the capacity is recalibrated (it was 100 Mb/s before the M06 spike measured 75 Mb/s).
+# Typical mean load per slice: about 90 % busy in total, so any spike causes overload.
+DEFAULT_LOAD_FRACTION: dict[str, float] = {"embb": 0.50, "urllc": 0.10, "be": 0.30}
 
-# Ranges used when sampling random scenarios for training (Mb/s).
-SAMPLE_BASE_RANGE_MBPS: dict[str, tuple[float, float]] = {
-    "embb": (20.0, 60.0),
-    "urllc": (2.0, 15.0),
-    "be": (10.0, 40.0),
+# Ranges used when sampling random scenarios for training (fractions of capacity).
+SAMPLE_LOAD_FRACTION_RANGE: dict[str, tuple[float, float]] = {
+    "embb": (0.20, 0.60),
+    "urllc": (0.02, 0.15),
+    "be": (0.10, 0.40),
 }
 
 
@@ -63,20 +64,23 @@ class TrafficPattern:
         return max(0.0, self.mean_load_at(t) * noise)
 
 
-def default_traffic() -> dict[str, TrafficPattern]:
+def default_traffic(capacity_mbps: float) -> dict[str, TrafficPattern]:
     """Steady load on every slice at the default levels."""
-    return {s: TrafficPattern("steady", DEFAULT_BASE_MBPS[s], DEFAULT_BASE_MBPS[s]) for s in SLICES}
+    loads = {s: DEFAULT_LOAD_FRACTION[s] * capacity_mbps for s in SLICES}
+    return {s: TrafficPattern("steady", loads[s], loads[s]) for s in SLICES}
 
 
-def sample_traffic(rng: np.random.Generator, episode_s: float) -> dict[str, TrafficPattern]:
+def sample_traffic(
+    rng: np.random.Generator, episode_s: float, capacity_mbps: float
+) -> dict[str, TrafficPattern]:
     """A random scenario: each slice gets a random shape, level and timing.
 
     Used in training (M02) so the policy sees many situations, not one scripted scenario.
     """
     traffic = {}
     for s in SLICES:
-        low, high = SAMPLE_BASE_RANGE_MBPS[s]
-        base = float(rng.uniform(low, high))
+        low, high = SAMPLE_LOAD_FRACTION_RANGE[s]
+        base = float(rng.uniform(low, high)) * capacity_mbps
         kind: PatternKind = str(rng.choice(["steady", "spike", "ramp"]))  # type: ignore[assignment]
         peak = base * float(rng.uniform(1.5, 3.0))
         start = float(rng.uniform(0.1, 0.6) * episode_s)
