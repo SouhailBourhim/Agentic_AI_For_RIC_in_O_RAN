@@ -194,6 +194,21 @@ Phase averages printed by `rl.plot_runner`:
 | surge, intent in force (200–440 s) | 0.31 / 2.4 s | 0.68 / **4.9 ms** | **0.02** / **41 s** |
 | surge, after expiry (460–600 s) | 0.50 / 710 ms | 0.40 / 342 ms | 0.10 / 7.5 s |
 
+**The same story live, in Grafana** (your demo run, before the per-slice floor existed; the
+dashboard has been fixed since: the share panel is no longer stacked, and BE is dashed in the
+objective panels so equal values stay visible):
+
+![Grafana during the live demo, before the floor](img/M04a-grafana-before.png)
+
+- Until 20:31 the intent is in force (URLLC weight 0.6, ≥ 20 Mb/s, 10 ms bound): URLLC latency
+  stays at about 5 ms under the dotted bound, and best effort gets about 1 % of the PRBs, with
+  30–60 s of latency.
+- At 20:31 its 5 minutes end. "Policy in force" goes back to 0 and the weights to the default,
+  with no process acting: the timetable's next segment simply begins.
+- From 20:31 to 20:34:40 the surge continues under the default objective: the split jitters
+  and URLLC latency rises to hundreds of ms.
+- At 20:34:40 (t = 600 s) the surge ends and the queues drain.
+
 Two findings from this run, kept as open points:
 1. **Best effort is starved while the intent is in force**: 2 % of the PRBs and about 41 s of
    latency. The surge makes the cell about 120 % loaded, the objective favours URLLC (weight
