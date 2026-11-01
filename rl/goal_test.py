@@ -39,6 +39,7 @@ from pathlib import Path
 
 import numpy as np
 
+from mlops import tracking
 from rl.baselines import equal_split, proportional_to_load
 from rl.evaluate import OBJECTIVES, SPIKE_STEPS, episode_metrics
 from rl.oracle import GreedyOracle
@@ -312,6 +313,11 @@ def run_split(split: str, models: list[Path], final: bool) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(out, indent=2))
     print(f"wrote {path}")
+    # One MLflow evaluation run per model; the registry gate reads the final ones (mlops/registry.py).
+    for name, m in results.items():
+        tags = {"split": split, "final": str(split == "test").lower(),
+                "recipe_all_pass": str(summary[recipe_of(name)]["all_pass"])}
+        tracking.log_evaluation("goal-test", name, m, tags, result_file=path)
 
 
 def main() -> None:

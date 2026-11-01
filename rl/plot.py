@@ -4,10 +4,10 @@ Run with:  uv run python -m rl.plot        (after rl.train and rl.evaluate)
 Writes into docs/learn/img/:
 - M02-training.png      reward per step during training, per algorithm and seed
 - M02-goal-gap.png      mean URLLC share under the two objectives, every policy, vs the criterion
-- M02-objectives.png    the deployed policy (runs/m02/selection.json) on the URLLC-spike traffic
+- M02-objectives.png    the deployed policy (registry alias `champion`, mlops/registry.py) on the URLLC-spike traffic
                         under the two objectives
 - M02-eval.png          reward per step over the 100 evaluation episodes, every controller
-Every number comes from those files (and selection.json); nothing is typed in by hand. The figures show the policies
+Every number comes from those files (and the registry); nothing is typed in by hand. The figures show the policies
 as deployed (with the output smoothing filter); eval.json also holds the raw ones.
 """
 
@@ -24,9 +24,7 @@ from sim.plot import GRID, LINE_WIDTH, SURFACE, TEXT, TEXT_MUTED, _style, plot_s
 from sim.scenarios import urllc_spike
 
 RUN_DIR = Path("runs/m02")
-MODEL_DIR = Path("models/m02")
 EVAL_PATH = RUN_DIR / "eval.json"
-SELECTION_PATH = RUN_DIR / "selection.json"
 OUT_DIR = Path("docs/learn/img")
 EPISODE_STEPS = 200
 SMOOTH_EPISODES = 20
@@ -106,9 +104,9 @@ def plot_goal_gap(eval_results: dict, deployed: str) -> Figure:
     return fig
 
 
-def plot_objectives(policy_name: str) -> Figure:
+def plot_objectives(policy_name: str, policy_path: Path) -> Figure:
     """One policy, same traffic, the two objectives side by side (reuses the M01 layout)."""
-    policy = SlicePolicy.load(MODEL_DIR / f"{policy_name}.zip")
+    policy = SlicePolicy.load(policy_path)
     traffic, _ = urllc_spike()
     runs = {name: run_episode(policy, traffic, obj, steps=SPIKE_STEPS) for name, obj in OBJECTIVES.items()}
     return plot_spike_comparison(runs, OBJECTIVES, traffic["urllc"], what=f"— {policy_name} under two objectives")
@@ -147,14 +145,17 @@ def main() -> None:
     if not EVAL_PATH.exists():
         raise SystemExit(f"{EVAL_PATH} missing; run `uv run python -m rl.evaluate` first")
     results = json.loads(EVAL_PATH.read_text())
-    if not SELECTION_PATH.exists():
-        raise SystemExit(f"{SELECTION_PATH} missing; run `uv run python -m rl.select` first")
-    deployed = json.loads(SELECTION_PATH.read_text())["deployed"]
+    from mlops.registry import champion
+
+    found = champion()
+    if found is None:
+        raise SystemExit("no champion in the registry; run `uv run python -m mlops.registry bootstrap` first")
+    deployed, deployed_path = found
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     figures = {
         "M02-training.png": plot_training(results),
         "M02-goal-gap.png": plot_goal_gap(results, deployed),
-        "M02-objectives.png": plot_objectives(deployed),
+        "M02-objectives.png": plot_objectives(deployed, deployed_path),
         "M02-eval.png": plot_eval(results),
     }
     for filename, fig in figures.items():

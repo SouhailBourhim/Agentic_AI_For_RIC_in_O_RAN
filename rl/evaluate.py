@@ -33,6 +33,7 @@ from pathlib import Path
 
 import numpy as np
 
+from mlops import tracking
 from rl.baselines import equal_split, proportional_to_load
 from rl.policy import SlicePolicy
 from sim.cell import CellConfig, shares_from_action
@@ -233,6 +234,11 @@ def main() -> None:
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     OUT_PATH.write_text(json.dumps(results, indent=2))
     print(f"\nwrote {OUT_PATH}")
+    for name in policies:  # one MLflow evaluation run per policy (mlops/tracking.py)
+        metrics = {f"{k}_mean": float(np.nanmean(v)) for k, v in results["random"][name].items()}
+        metrics["urllc_share_gap"] = float(gaps.get(judged_name(name), np.nan))
+        tracking.log_evaluation("m02-eval", name, metrics, {"split": "m02-eval", "reward_version": "v2",
+                                                            "judged_variant": CRITERION_VARIANT.get(algo_of(name), "filtered")})
 
 
 if __name__ == "__main__":

@@ -42,14 +42,18 @@ def _(mo):
 
 @app.cell
 def _(mo, root):
-    import json
+    from mlops.registry import champion
 
-    model_dir = root / "models" / "m02"
-    names = sorted(p.stem for p in model_dir.glob("*_seed*.zip"))
-    selection = root / "runs" / "m02" / "selection.json"
-    deployed = json.loads(selection.read_text())["deployed"] if selection.exists() else None
-    mo.stop(not names, mo.md("**No trained models in `models/m02/`.** Train first (see the M02 note)."))
-    policy_name = mo.ui.dropdown(names, value=deployed if deployed in names else names[0], label="policy")
+    # Every trained model on disk (M02 rounds, M02b confirmation checkpoints), by name.
+    paths = {p.stem: p for p in sorted((root / "models" / "m02").glob("*_seed*.zip"))}
+    paths.update({p.stem: p for p in sorted((root / "models" / "m02b" / "confirm").glob("*_best.zip"))})
+    deployed = champion()  # (name, file) of the registry's `champion`, None without a registry
+    if deployed is not None:
+        paths.setdefault(deployed[0], deployed[1])
+    names = sorted(paths)
+    mo.stop(not names, mo.md("**No trained models in `models/`.** Train first (see the M02 note)."))
+    default = deployed[0] if deployed is not None else names[0]
+    policy_name = mo.ui.dropdown(names, value=default, label="policy")
     smoothing = mo.ui.checkbox(value=True, label="smoothing filter (alpha = 0.25)")
     w_embb = mo.ui.slider(0.0, 1.0, step=0.05, value=0.2, label="weight eMBB")
     w_urllc = mo.ui.slider(0.0, 1.0, step=0.05, value=0.6, label="weight URLLC")
@@ -59,11 +63,11 @@ def _(mo, root):
     bound_ms = mo.ui.slider(2.0, 50.0, step=1.0, value=10.0, label="bound (ms)")
     peak = mo.ui.slider(0.1, 0.8, step=0.05, value=0.40, label="URLLC spike peak (fraction of capacity)")
     mo.vstack([policy_name, smoothing, w_embb, w_urllc, w_be, urllc_min, mo.hstack([use_bound, bound_ms]), peak])
-    return bound_ms, model_dir, peak, policy_name, smoothing, urllc_min, use_bound, w_be, w_embb, w_urllc
+    return bound_ms, paths, peak, policy_name, smoothing, urllc_min, use_bound, w_be, w_embb, w_urllc
 
 
 @app.cell
-def _(bound_ms, model_dir, peak, policy_name, smoothing, urllc_min, use_bound, w_be, w_embb, w_urllc):
+def _(bound_ms, paths, peak, policy_name, smoothing, urllc_min, use_bound, w_be, w_embb, w_urllc):
     import numpy as np
 
     from rl.baselines import equal_split
@@ -81,7 +85,7 @@ def _(bound_ms, model_dir, peak, policy_name, smoothing, urllc_min, use_bound, w
         min_thr_mbps=SliceValues(urllc=urllc_min.value * CellConfig().capacity_mbps),
         max_latency_ms=bound_ms.value if use_bound.value else None,
     )
-    policy = SlicePolicy.load(model_dir / f"{policy_name.value}.zip",
+    policy = SlicePolicy.load(paths[policy_name.value],
                               alpha=SMOOTHING_ALPHA if smoothing.value else 1.0)
     traffic, _ = urllc_spike(spike_fraction=peak.value)
     runs = {

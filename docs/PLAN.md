@@ -32,6 +32,8 @@ RAM in WSL, RTX 5070 Laptop with 8151 MiB VRAM, about 1.5 GB of it used by Windo
 |---|---|---|---|---|
 | M01 Simulator | gym env: 1 cell, 3 slices, traffic patterns (steady, spike, ramp); action = PRB shares; obs = KPIs + objective. Also the pydantic `RLObjective` schema | M00 | 2–3 | Models too simple or badly scaled, so the RL learns something trivial |
 | M02 DDPG | goal-conditioned policy trained on random objectives, curves, eval with 2 objectives vs equal split | M01 | 3–5 | DDPG is unstable; reward shaping and tuning can take days |
+| M02b Goal conditioning | oracle-validated goal test (`rl/goal_test.py`), reward v2, objective relabeling, filter in the training loop; dev round (ablation) on validation, confirmation on fresh seeds, held-out test run once | M02 | 2–3 | Fails again: then FAIL on record, `td3_seed2` stays deployed |
+| M02c MLOps | local MLflow: tracking of every training/eval run (backfill of earlier runs), registry `slice-policy` with alias `champion` and a deterministic promotion gate, CI (GitHub Actions) | M02b | 1–2 | Heavy dependency; SQLite contention with parallel runs |
 | M03 Verifier | `verify(objective, state)` + conflict rule + table tests | M01 (schema) | 1–2 | Low. "Feasible given the PRB budget" depends on a capacity model that changes on the testbed |
 | M06-spike | 1–2 days timeboxed, right after M01: CN5G + gNB + UEs ping, rfsim capacity; which KPM measures and which slice-control SM the OAI gNB really offers | Docker, SCTP | 1–2 | Answers may force a change to the KPI record before it is frozen |
 | M04a Plumbing | Backend interface, SimBackend, KPI store, `a1_policy`, RL runner, FastAPI with intent state machine, console; rule-based parser, no LLM | M01–M03 | 3–4 | Getting process boundaries and the clock right |
@@ -81,7 +83,7 @@ Testbed path:     M06-spike ─(capacity)─↗ ........... M06 → M07a ──�
                                                       ↑ meet #1       ↑ meet #2
 ```
 
-Working order (one person): **M01 → M06-spike → M02 → M03 → M04a → M04b → M05a → M06 → M07a →
+Working order (one person): **M01 → M06-spike → M02 → M02b → M02c → M03 → M04a → M04b → M05a → M06 → M07a →
 M05b → M07b → M08a → M08b → M08c.**
 
 - **The spike comes right after M01** (moved there on 2026-11-01). It must come before M04a,

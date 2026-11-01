@@ -90,6 +90,7 @@ testbed/        docker-compose and configs for OAI CN5G, gNB, nrUE, FlexRIC; tra
 eval/           scenarios, controller runners, interface metrics, plots
 monitoring/     Prometheus exporter (reads var/ric.db) + Prometheus/Grafana compose and dashboards
 notebooks/      marimo notebooks (plain .py) to explore each checkpoint interactively
+mlops/          MLflow tracking, backfill, model registry and promotion gate (store in var/)
 tests/          pytest; one test per hard invariant at least
 docs/learn/     learning notes, one per checkpoint
 ```
@@ -101,6 +102,7 @@ docs/learn/     learning notes, one per checkpoint
 - LangGraph for the agent. LLM via Ollama (local, ~8B model with tool calling, e.g. Qwen), behind a
   small client so a cloud API model can be swapped in for comparison.
 - Official MCP Python SDK for the gateway.
+- MLOps: local MLflow (tracking, model registry with a promotion gate), GitHub Actions for tests.
 - Visualization: matplotlib (object API) for figures, TensorBoard for RL training curves,
   marimo for interactive notebooks, Prometheus + Grafana for live monitoring (from M04a),
   Wireshark on pcaps for the testbed interfaces.

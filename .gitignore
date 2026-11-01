@@ -37,3 +37,6 @@ __marimo__/
 
 # Testbed packet captures (large, regenerated)
 testbed/captures/
+
+# MLflow store (runs, registry, artifacts) and the planned KPI store
+var/

@@ -11,7 +11,7 @@ The order below follows [`docs/PLAN.md`](docs/PLAN.md), which also gives the int
 Every checkpoint also delivers the visualization listed for it in `docs/PLAN.md` §6, shown in
 section 5 of its learning note.
 
-Working order: M00 → M01 → M06-spike → M02 → M03 → M04a → M04b → M05a → M06 → M07a → M05b →
+Working order: M00 → M01 → M06-spike → M02 → M02b → M02c → M03 → M04a → M04b → M05a → M06 → M07a → M05b →
 M07b → M08a → M08b → M08c.
 
 ---
@@ -96,6 +96,38 @@ Understand it: explain why DDPG and not DDQN, and why the objective is in the ob
 
 ---
 
+## M02b — Make goal conditioning pass a valid test
+
+```
+Checkpoint M02b: the M02 goal-conditioning criterion failed and was shown unable to separate a
+perfect policy from a bad one. Build an oracle-validated goal test (held-out test set used once,
+validation set for development), fix the reward's latency cliff, add objective relabeling, the
+smoothing filter inside the training env and training traffic that covers the operating
+envelope. Fix every threshold before training. Run a development round (full recipe + one-change
+ablations) judged on validation only, then a confirmation round on fresh seeds and the held-out
+test once. Add part M02b to docs/learn/M02-ddpg.md.
+```
+
+Understand it: explain why the old test could fail a perfect policy, and why relabeling is valid.
+
+---
+
+## M02c — MLOps layer: tracking, registry, CI
+
+```
+Checkpoint M02c: add local MLflow (SQLite + artifact folder in var/): every training and
+evaluation run tracked with settings, git commit, curves and files; backfill the earlier runs
+from their files; a registered model slice-policy whose alias champion is the deployed policy,
+moved only by a deterministic promotion gate (held-out goal test PASS) with rollback; CI on
+GitHub running the tests. Tracking must never change or stop training (test it).
+Plan first. Then write docs/learn/M02c-mlops.md.
+```
+
+Understand it: explain what a run, a registered model version and an alias are, and why the
+control loop must never call MLflow.
+
+---
+
 ## M03 — Deterministic verifier
 
 ```
@@ -127,6 +159,9 @@ Checkpoint M04a: build the plumbing with no LLM, following the interfaces in doc
 - rl/runner: the "RL xApp" loop. Every tick: read a1_policy (never block; default objective if
   none), run the M02 policy, call Backend.apply_prb_split, write KPI records. In direct_share
   mode it applies the given shares instead. It is the only caller of apply_prb_split.
+  The policy is the MLflow registry's models:/slice-policy@champion (M02c), loaded once at
+  startup and cached in var/; the loop never calls MLflow (no network on the real-time path).
+  Expose the served model version in the Prometheus metrics.
 - agent/: FastAPI service with endpoints submit_intent, get_status, get_kpis, and the intent
   state machine (received, interpreted, rejected with reason, awaiting_confirmation, applied,
   expired). Use a simple rule-based parser for now; M04b replaces it with the LLM.
@@ -248,7 +283,8 @@ Checkpoint M07b: the control path is decided in docs/PLAN.md §7: option 1, a cu
 SLICE control handler. Fix a timebox in the plan; past it, fall back to option 2 (side channel,
 reported as not E2). Then write the slice-control part in xapps/ and implement FlexRICBackend so that
 Backend.apply_prb_split applies a PRB split on the real gNB and read_kpis reads the KPI store.
-Run the same rl/runner, policy, verifier and agent unchanged on the testbed.
+Run the same rl/runner, policy, verifier and agent unchanged on the testbed. The RL xApp
+container packages the registry's champion policy (M02c) at build time, with its version as a label.
 Check on the testbed that the gateway has no network route to FlexRIC or OAI (hard
 invariant 2).
 Start from the official FlexRIC examples and tell me which ones.

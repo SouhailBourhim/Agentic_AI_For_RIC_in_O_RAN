@@ -36,16 +36,18 @@ from pathlib import Path
 import numpy as np
 import torch
 from stable_baselines3 import DDPG, TD3
-from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.callbacks import BaseCallback, CallbackList
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.noise import NormalActionNoise
 
+from mlops import tracking
 from rl.policy import SMOOTHING_ALPHA, SlicePolicy
 from rl.relabel import RelabelReplayBuffer
 from sim.env import SlicingEnv
 
 DEFAULT_GROUP = "m02"  # models/<group>/ and runs/<group>/
 VALIDATION_START = 50_000  # first validation check (the policy is still warming up before)
+TRACK_EVERY = 25_000  # how often the training reward goes to MLflow
 
 HYPERPARAMETERS = {
     "gamma": 0.95,  # ~20-step horizon: an allocation's effect shows within seconds
@@ -133,11 +135,31 @@ class ValidationCheckpoint(BaseCallback):
         self.history.append(m)
         for key in ("t1a_share_positive", "t1b_captured", "reward"):
             self.logger.record(f"validation/{key}", m[key])
+        tracking.log_metrics({f"validation/{k}": float(m[k]) for k in ("t1a_share_positive", "t1b_captured",
+                                                                        "reward")}, step=self.num_timesteps)
         key = (m["t1b_captured"], m["reward"])
         if m["t2_pass"] and (self.best_key is None or key > self.best_key):
             self.best_key = key
             self.model.save(self.path.with_name(f"{self.path.stem}_best.zip"))
         self.path.with_name(f"{self.path.stem}_validation.json").write_text(json.dumps(self.history, indent=2))
+        return True
+
+
+class TrackingCallback(BaseCallback):
+    """Every `every` steps, send the recent training reward to MLflow (no-op without a run).
+
+    It only reads SB3's buffer of the last 100 finished episodes; it changes nothing.
+    """
+
+    def __init__(self, every: int | None = None) -> None:
+        super().__init__()
+        self.every = every or TRACK_EVERY
+
+    def _on_step(self) -> bool:
+        episodes = self.model.ep_info_buffer
+        if self.num_timesteps % self.every == 0 and episodes:
+            per_step = float(np.mean([e["r"] / e["l"] for e in episodes]))
+            tracking.log_metrics({"train/reward_per_step_last100": per_step}, step=self.num_timesteps)
         return True
 
 
@@ -156,8 +178,13 @@ def train(
     reward_version: str = "v2",
     val_every: int = 0,
     group: str = DEFAULT_GROUP,
+    track: bool = True,
 ) -> Path:
-    """Train one seed and save the model; returns the model path."""
+    """Train one seed and save the model; returns the model path.
+
+    With `track`, the run is recorded in MLflow (mlops/tracking.py): settings, git commit,
+    training and validation curves, and the files below as artifacts.
+    """
     torch.set_num_threads(threads)  # several seeds run side by side on the 32 threads
     name = f"{algo}{tag}_seed{seed}"
     model_dir, run_dir = Path("models") / group, Path("runs") / group
@@ -178,16 +205,22 @@ def train(
     )
     model = make_model(env, seed, tensorboard_log=str(run_dir / "tb"), algo=algo,
                        relabel=relabel, reward_version=reward_version)
-    callback = ValidationCheckpoint(val_every, model_path) if val_every else None
-    model.learn(total_timesteps=timesteps, tb_log_name=name, progress_bar=False, callback=callback)
-
-    model.save(model_path)
     settings = {"algo": algo, "seed": seed, "timesteps": timesteps, "threads": threads,
                 "load_scale": load_scale, "objective_switch_prob": objective_switch_prob,
                 "relabel": relabel, "filter_in_loop": filter_in_loop, "surge_max": surge_max,
                 "episode_steps": episode_steps, "reward_version": reward_version, "val_every": val_every,
                 **HYPERPARAMETERS}
-    model_path.with_suffix(".json").write_text(json.dumps(settings, indent=2))
+    callbacks: list[BaseCallback] = [TrackingCallback()]
+    if val_every:
+        callbacks.append(ValidationCheckpoint(val_every, model_path))
+    with tracking.training_run(name, group, settings, enabled=track):
+        model.learn(total_timesteps=timesteps, tb_log_name=name, progress_bar=False,
+                    callback=CallbackList(callbacks))
+        model.save(model_path)
+        model_path.with_suffix(".json").write_text(json.dumps(settings, indent=2))
+        stem = model_path.with_suffix("")
+        tracking.log_artifacts([model_path, model_path.with_suffix(".json"), run_dir / name / "monitor.csv",
+                                Path(f"{stem}_best.zip"), Path(f"{stem}_validation.json")], subdir="files")
     print(f"saved {model_path}")
     return model_path
 
@@ -209,10 +242,11 @@ def main() -> None:
     parser.add_argument("--reward", choices=["v1", "v2"], default="v2")
     parser.add_argument("--val-every", type=int, default=0, help="validation checkpoint period (0 = off)")
     parser.add_argument("--group", default=DEFAULT_GROUP, help="models/<group>/ and runs/<group>/")
+    parser.add_argument("--no-track", action="store_true", help="do not record the run in MLflow")
     args = parser.parse_args()
     train(args.seed, args.timesteps, args.threads, args.algo, args.load_scale, args.objective_switch_prob,
           args.tag, args.relabel, args.filter_in_loop, args.surge_max, args.episode_steps, args.reward,
-          args.val_every, args.group)
+          args.val_every, args.group, track=not args.no_track)
 
 
 if __name__ == "__main__":
