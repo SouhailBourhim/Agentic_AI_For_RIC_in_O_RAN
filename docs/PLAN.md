@@ -37,10 +37,10 @@ RAM in WSL, RTX 5070 Laptop with 8151 MiB VRAM, about 1.5 GB of it used by Windo
 | M04a Plumbing | Backend interface, SimBackend, KPI store, `a1_policy`, RL runner, FastAPI with intent state machine, console; rule-based parser, no LLM | M01–M03 | 3–4 | Getting process boundaries and the clock right |
 | M04b Agent | LLM client (Ollama, swappable), LangGraph graph, parsing prompt, annotated-intent template | M04a | 3–4 | 8B model tool calling and JSON output are unreliable |
 | M05a Gateway | MCP server with exactly 3 tools, calling only the agent HTTP API; 3-case demo with a CLI client | M04b | 1–2 | Low |
-| M06 Testbed | OAI CN5G + gNB + 3 nrUE (rfsim) in Docker, 3 slices, ping + iperf3 | spike | 3–5 | Slices in CN5G; Docker Desktop networking; rfsim CPU load |
-| M07a KPM | FlexRIC + E2-enabled gNB, KPM xApp writing per-slice records into the KPI store | M06, M04a | 3–5 | gNB image without E2 agent; E2AP/KPM version mismatch |
+| M06 Testbed | 3 S-NSSAIs end to end (core config + database, gNB `snssaiList`, UEs), one UE per slice, traffic scripts, ordered start/stop script | spike | 3–5 | KPM style-4 reports filter on one S-NSSAI, so probably one subscription per slice |
+| M07a KPM | KPM xApp (one long-lived process) writing per-slice records into the KPI store | M06, M04a | 3–5 | E2 state is fragile across xApp/RIC restarts (seen in the spike) |
 | M05b Hermes | Hermes config (3-tool whitelist, general tools off, isolated container), demo through Hermes. Timeboxed; can be cut | M05a | 2–3 | Install/config (H1, H3); VRAM when Hermes and LangGraph share one model |
-| M07b Control | slice-control xApp, FlexRICBackend, RL runner on the real gNB | M07a, M02 | 4–7 | OAI slice control via FlexRIC partial or unreliable |
+| M07b Control | PRB-split control on the real gNB, FlexRICBackend, RL runner on the testbed | M07a, M02 | 5–10 | **No PRB-split control over E2 in OAI v3.0.0** (SLICE is a stub): needs a custom gNB build. Decision pending, see §7 |
 | M08a Eval sim | 4 controllers × 3 scenarios on the simulator, repeated runs | M04b, M02 | 3–4 | Runs must be cheap enough to repeat |
 | M08b Eval interface | annotated intents, extraction accuracy, gateway/verifier counts, Hermes latency and fidelity (if kept) | M05 | 2–3 | Annotation effort; small sample |
 | M08c Eval testbed | same controllers and scenarios on the testbed | M07b, M08a | 3–5 | Real-time runs are slow and noisy |
@@ -114,11 +114,17 @@ M05b → M07b → M08a → M08b → M08c.**
 - `ts` (backend clock, s), `source` (`sim` | `flexric`), `cell_id`, `slice` (`embb` | `urllc` |
   `be`)
 - `dl_thr_mbps`, `prb_share_alloc` (0–1), `prb_used` (0–1), `n_ue`
-- `latency_ms` (nullable): queue delay in the sim, RLC SDU delay from KPM on the testbed if it is
-  reported
+- `latency_ms` (nullable): queue delay in the sim, RLC SDU delay from KPM on the testbed
 - `offered_load_mbps` (nullable): known in the sim, the iperf3 target on the testbed
 - `buffer_bytes` (nullable)
 - Read API: `get_kpis(slice, window_s)` → mean / p95 / last per field
+- **Testbed mapping, confirmed in the M06 spike.** OAI KPM reports are per UE, about every
+  1 s per subscription; each UE is mapped to its slice, then:
+  - `dl_thr_mbps` = Σ `DRB.UEThpDl` (kbps) / 1000
+  - `prb_used` = (Σ `RRU.PrbTotDl` (% of cell) / 100) / `prb_share_alloc`
+  - `latency_ms` = max `DRB.RlcSduDelayDl` (µs) / 1000. It rises clearly under overload.
+  - The first report after each subscription is cumulative and is discarded. RSRP/SINR
+    reports are invalid and unused.
 
 **RL objective** (pydantic; shared by the verifier, agent, runner and policy input)
 - `weights`: {embb, urllc, be}, each in [0, 1], summing to 1
@@ -169,10 +175,10 @@ policy). This is not O-RAN A1: FlexRIC has no Non-RT RIC.
 | 8 GB VRAM (~6.6 usable), one model shared by Hermes and the agent | One Ollama tag, `OLLAMA_MAX_LOADED_MODELS=1`, `num_ctx` capped at 4–8k. Hermes' long system prompt is the danger (KV cache spilling to CPU makes it slow). Fallbacks: smaller model (~4B), CLI client instead of Hermes, cloud model once a key exists |
 | Hermes isolation vs Ollama on Windows | Hermes must reach Ollama (`host.docker.internal:11434`) and the gateway, so H3 becomes "gateway + Ollama only". Check that it cannot reach the FlexRIC/OAI networks |
 | RTX 5070 (Blackwell, sm_120) needs PyTorch built with CUDA ≥ 12.8 | Train DDPG on **CPU** by default: small MLPs run fast on 32 threads and the GPU stays free for Ollama. GPU torch (cu128 wheels) only if training is too slow |
-| OAI/FlexRIC documentation targets 22.04, host is 24.04 | Official OAI Docker images for CN5G/gNB/nrUE, where the host OS doesn't matter. Source builds (FlexRIC, E2-enabled gNB) inside an Ubuntu 22.04 container, with pinned commits from OAI's FlexRIC tutorial. A 22.04 WSL distro is the second option |
-| Official gNB image lacks the E2 agent; E2AP/KPM versions must match FlexRIC | Build gNB and FlexRIC together from the same tutorial and versions. Checked in the spike |
-| OAI slice control through FlexRIC is unreliable | KPM on the testbed, control loop on the sim (meeting point #1 only); proposal §9 |
-| rfsim throughput low, noisy or CPU heavy | Smaller bandwidth config; calibrate sim capacity to the measured value; normalised observations keep the policy usable |
+| ~~OAI/FlexRIC documentation targets 22.04, host is 24.04~~ | **Resolved in the spike**: official v3.0.0 images (gNB/nrUE on 24.04, FlexRIC on 22.04 inside its image) run unchanged on this host |
+| ~~Official gNB image lacks the E2 agent~~ | **Resolved in the spike**: built with E2 (E2AP v3, KPM v3.00), same versions as `oai-flexric:v3.0.0` |
+| OAI slice control through FlexRIC | **Confirmed missing in v3.0.0.** Options in §7: custom `dl_rb_alloc` policy + real SLICE control handler (custom gNB build), or a side channel, or KPM-only on the testbed (proposal §9) |
+| rfsim throughput low, noisy or CPU heavy | **Measured**: ~75 Mb/s DL, limited by the radio config (MCS 28 64-QAM, TDD 7/2), not CPU (~10 % of 32 threads, ~4 GiB). Sim calibrated to 75 Mb/s |
 | RAM (23 GB in WSL): CN5G + gNB + 3 UE + FlexRIC | Minimal CN5G profile; measure in M06. Ollama runs on Windows, outside the WSL memory limit, but competes for the same physical RAM |
 
 ## 6. Visualization per checkpoint
@@ -191,3 +197,18 @@ Every checkpoint ships at least one visualization, shown in section 5 of its lea
 | M04b, M05a/b | Same dashboard, plus agent/gateway events (intent latency, tool calls, rejections) | Grafana panels on the same exporter; JSONL logs |
 | M07a, M07b | Same dashboard on testbed data, unchanged; E2 messages | Grafana (same KPI record); Wireshark with the E2AP dissector |
 | M08a/b/c | Spread over repeated runs, controllers × scenarios, interface metrics | matplotlib box plots and time series with spread bands → PNG + CSV in `eval/results/` |
+
+## 7. Open decision: PRB-split control on the real gNB (before M07b)
+
+Found in the M06 spike (details in `docs/learn/M06-spike.md` §6). OAI v3.0.0 has no working
+E2 control of the PRB split: the SLICE service model is a stub, and RC only supports bearer
+control and handover. The downlink scheduler does call a pluggable `mac->dl_rb_alloc` policy,
+and every candidate carries its `nssai`.
+
+| Option | What | Keeps the "RL xApp controls the RAN over E2" claim? | Cost |
+|---|---|---|---|
+| 1 (recommended, timeboxed) | Custom gNB build: slice-aware `dl_rb_alloc` policy + real SLICE control handler | Yes | C code in OAI, own gNB image |
+| 2 | Same policy, shares sent through a side channel (file or telnet) | No (not E2) | Less C, no E2 encoding |
+| 3 | Real KPM on the testbed; control loop on the simulator only (proposal §9) | Partly | None |
+
+Decide before starting M07b. Until then, M02–M05 are unaffected: they run on the simulator.

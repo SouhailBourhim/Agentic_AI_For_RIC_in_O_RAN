@@ -41,4 +41,4 @@ uv run pytest    # run the tests
 | `tests/` | pytest |
 | `docs/` | design, [`DECISIONS.md`](docs/DECISIONS.md), learning notes in `docs/learn/` |
 
-Status: M00 (skeleton) and M01 (simulator + objective schema) done; overall plan in `docs/PLAN.md`. Next: M06-spike (OAI + FlexRIC reconnaissance), then M02.
+Status: M00, M01 (simulator) and M06-spike (OAI + FlexRIC testbed reconnaissance, sim calibrated to 75 Mb/s) done. Next: M02 (DDPG). Open decision before M07b: `docs/PLAN.md` §7.
