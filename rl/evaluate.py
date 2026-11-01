@@ -60,15 +60,23 @@ def episode_metrics(controller: Controller, seed: int, steps: int = EPISODE_STEP
     - target_met: share of (step, slice) pairs with a minimum target where
       throughput >= min(target, offered load). NaN if the objective has no target.
     - latency_met: share of steps with URLLC latency <= bound. NaN if there is no bound.
+    - split_change: mean step-to-step change of the PRB split, sum(|share_t - share_t-1|) / 2,
+      i.e. the fraction of the cell's PRBs moved each step. Diagnostic added after the M02
+      figures showed a policy flipping its split every step.
     """
     env = SlicingEnv(episode_steps=steps)
     obs, _ = env.reset(seed=seed)
     objective = env.objective
     targets = dict(zip(SLICES, objective.min_thr_mbps.as_list()))
-    rewards, target_hits, latency_hits = [], [], []
+    rewards, target_hits, latency_hits, changes = [], [], [], []
+    previous = None
     for _ in range(steps):
         obs, reward, _, _, info = env.step(np.asarray(controller(obs), dtype=np.float32))
         rewards.append(reward)
+        shares = np.array([info["shares"][s] for s in SLICES])
+        if previous is not None:
+            changes.append(np.abs(shares - previous).sum() / 2)
+        previous = shares
         for s in SLICES:
             if targets[s] > 0:
                 needed = min(targets[s], info["load_mbps"][s])
@@ -79,6 +87,7 @@ def episode_metrics(controller: Controller, seed: int, steps: int = EPISODE_STEP
         "reward": float(np.mean(rewards)),
         "target_met": float(np.mean(target_hits)) if target_hits else float("nan"),
         "latency_met": float(np.mean(latency_hits)) if latency_hits else float("nan"),
+        "split_change": float(np.mean(changes)),
     }
 
 
@@ -169,12 +178,12 @@ def main() -> None:
         "proportional to load": proportional_to_load,
         **{name: policy.action for name, policy in policies.items()},
     }
-    print(f"{'controller':<22}{'reward/step':>18}{'targets met':>18}{'URLLC latency met':>20}")
+    print(f"{'controller':<22}{'reward/step':>18}{'targets met':>18}{'URLLC latency met':>20}{'split change/step':>20}")
     for name, controller in controllers.items():
         metrics = evaluate_random(controller)
         results["random"][name] = metrics
         print(f"{name:<22}{summarise(metrics['reward']):>18}{summarise(metrics['target_met']):>18}"
-              f"{summarise(metrics['latency_met']):>20}")
+              f"{summarise(metrics['latency_met']):>20}{summarise(metrics['split_change']):>20}")
     equal_mean = np.mean(results["random"]["equal split"]["reward"])
     beats = {name: float(np.mean(results["random"][name]["reward"]) - equal_mean) for name in policies}
     print("mean reward minus equal split:", {k: round(v, 4) for k, v in beats.items()})
