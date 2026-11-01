@@ -4,9 +4,10 @@ Run with:  uv run python -m rl.plot        (after rl.train and rl.evaluate)
 Writes into docs/learn/img/:
 - M02-training.png      reward per step during training, per algorithm and seed
 - M02-goal-gap.png      mean URLLC share under the two objectives, every policy, vs the criterion
-- M02-objectives.png    one policy on the URLLC-spike traffic under the two objectives
+- M02-objectives.png    the deployed policy (runs/m02/selection.json) on the URLLC-spike traffic
+                        under the two objectives
 - M02-eval.png          reward per step over the 100 evaluation episodes, every controller
-Every number comes from those files; nothing is typed in by hand. The figures show the policies
+Every number comes from those files (and selection.json); nothing is typed in by hand. The figures show the policies
 as deployed (with the output smoothing filter); eval.json also holds the raw ones.
 """
 
@@ -25,6 +26,7 @@ from sim.scenarios import urllc_spike
 RUN_DIR = Path("runs/m02")
 MODEL_DIR = Path("models/m02")
 EVAL_PATH = RUN_DIR / "eval.json"
+SELECTION_PATH = RUN_DIR / "selection.json"
 OUT_DIR = Path("docs/learn/img")
 EPISODE_STEPS = 200
 SMOOTH_EPISODES = 20
@@ -32,7 +34,6 @@ SMOOTH_EPISODES = 20
 # slice colours, which keep meaning eMBB / URLLC / BE everywhere in the project.
 ALGO_COLOURS = {"ddpg": "#6250d6", "td3": "#008300", "td3v2": "#e87ba4"}
 BASELINE_COLOUR = "#8a8984"
-DETAIL_POLICY = "td3_seed0"  # the one shown in detail in M02-objectives.png (said in the note)
 
 
 def algo_of(name: str) -> str:
@@ -73,8 +74,12 @@ def plot_training(eval_results: dict) -> Figure:
     return fig
 
 
-def plot_goal_gap(eval_results: dict) -> Figure:
-    """Mean URLLC share under each objective, per policy: the goal-conditioning criterion."""
+def plot_goal_gap(eval_results: dict, deployed: str) -> Figure:
+    """Mean URLLC share under each objective, per policy, with the smoothing filter.
+
+    The official verdict per round is in the note: round 1 was judged on the raw actor, so the
+    filtered gaps shown here are information for round 1 and the criterion for round 2.
+    """
     gc = eval_results["goal_conditioning"]
     names = [n for n in gc if not n.endswith(" raw")]
     fig = Figure(figsize=(11, 4), facecolor=SURFACE, layout="constrained")
@@ -87,14 +92,14 @@ def plot_goal_gap(eval_results: dict) -> Figure:
         ax.scatter([i], [protect], s=60, color=colour, edgecolor=SURFACE, linewidth=2, zorder=3, marker="^")
         ax.scatter([i], [maxim], s=60, color=colour, edgecolor=SURFACE, linewidth=2, zorder=3, marker="v")
         gap = protect - maxim
-        verdict = "≥ 0.10" if gap >= SHARE_GAP_CRITERION else "< 0.10"
-        ax.annotate(f"gap {gap:.2f}\n{verdict}", (i, protect), xytext=(0, 8), textcoords="offset points",
+        marker = "  (< 0.10)" if gap < SHARE_GAP_CRITERION else ""
+        ax.annotate(f"gap {gap:.3f}{marker}", (i, protect), xytext=(0, 8), textcoords="offset points",
                     ha="center", fontsize=8, color=TEXT_MUTED)
-    ax.set_xticks(x, names)
+    ax.set_xticks(x, [f"{n}\n(deployed)" if n == deployed else n for n in names])
     ax.set_ylim(0, max(gc[n]["protect URLLC"]["share_urllc"] for n in names) + 0.12)
     _style(ax, "mean URLLC PRB share")
     ax.set_title("▲ protect URLLC   ▼ maximise eMBB   (same URLLC-spike traffic, mean over "
-                 f"{SPIKE_STEPS} s; criterion: gap ≥ {SHARE_GAP_CRITERION} on every seed)",
+                 f"{SPIKE_STEPS} s, with the smoothing filter; target: gap ≥ {SHARE_GAP_CRITERION} on every seed)",
                  color=TEXT_MUTED, fontsize=9, loc="left")
     fig.suptitle("Goal conditioning: does the URLLC share follow the objective?", color=TEXT,
                  fontsize=12, x=0.01, ha="left")
@@ -142,11 +147,14 @@ def main() -> None:
     if not EVAL_PATH.exists():
         raise SystemExit(f"{EVAL_PATH} missing; run `uv run python -m rl.evaluate` first")
     results = json.loads(EVAL_PATH.read_text())
+    if not SELECTION_PATH.exists():
+        raise SystemExit(f"{SELECTION_PATH} missing; run `uv run python -m rl.select` first")
+    deployed = json.loads(SELECTION_PATH.read_text())["deployed"]
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     figures = {
         "M02-training.png": plot_training(results),
-        "M02-goal-gap.png": plot_goal_gap(results),
-        "M02-objectives.png": plot_objectives(DETAIL_POLICY),
+        "M02-goal-gap.png": plot_goal_gap(results, deployed),
+        "M02-objectives.png": plot_objectives(deployed),
         "M02-eval.png": plot_eval(results),
     }
     for filename, fig in figures.items():
