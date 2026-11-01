@@ -70,19 +70,29 @@ def default_traffic(capacity_mbps: float) -> dict[str, TrafficPattern]:
     return {s: TrafficPattern("steady", loads[s], loads[s]) for s in SLICES}
 
 
+# Peak / base factor of sampled spikes and ramps. Training in M02b widens it to (1.5, 5.0) to
+# cover the operating envelope of the evaluation scenarios ("steady then spike", up to x4).
+DEFAULT_SURGE_RANGE = (1.5, 3.0)
+
+
 def sample_traffic(
-    rng: np.random.Generator, episode_s: float, capacity_mbps: float
+    rng: np.random.Generator,
+    episode_s: float,
+    capacity_mbps: float,
+    surge_range: tuple[float, float] = DEFAULT_SURGE_RANGE,
 ) -> dict[str, TrafficPattern]:
     """A random scenario: each slice gets a random shape, level and timing.
 
     Used in training (M02) so the policy sees many situations, not one scripted scenario.
+    The random generator is called in the same order whatever surge_range is, so the
+    default reproduces exactly the episodes defined before the option existed.
     """
     traffic = {}
     for s in SLICES:
         low, high = SAMPLE_LOAD_FRACTION_RANGE[s]
         base = float(rng.uniform(low, high)) * capacity_mbps
         kind: PatternKind = str(rng.choice(["steady", "spike", "ramp"]))  # type: ignore[assignment]
-        peak = base * float(rng.uniform(1.5, 3.0))
+        peak = base * float(rng.uniform(*surge_range))
         start = float(rng.uniform(0.1, 0.6) * episode_s)
         end = float(start + rng.uniform(0.1, 0.4) * episode_s)
         traffic[s] = TrafficPattern(kind, base, peak, start, end)

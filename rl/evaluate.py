@@ -20,6 +20,9 @@ each group is judged on the variant fixed for it; the other variant is printed f
    general, or only in the states the spike scenario reaches. It uses the raw actor: the
    smoothing filter works over time and means nothing across unrelated states.
 
+Rewards use the env default, reward v2 since M02b (sim/reward.py); the M02 round 1-2 numbers in
+the learning note were computed with reward v1.
+
 Policies are evaluated as deployed, i.e. with the output smoothing filter of rl/policy.py
 (the criteria use these), and also raw ("<name> raw") for comparison.
 """

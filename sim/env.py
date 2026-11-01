@@ -14,9 +14,9 @@ from typing import Any
 import gymnasium as gym
 import numpy as np
 
-from sim.cell import CellConfig, SliceStep, shares_from_action, step_slice
-from sim.reward import compute_reward
-from sim.traffic import TrafficPattern, sample_traffic
+from sim.cell import CellConfig, SliceStep, shares_from_action, smooth_split, step_slice
+from sim.reward import DEFAULT_REWARD_VERSION, RewardVersion, compute_reward
+from sim.traffic import DEFAULT_SURGE_RANGE, TrafficPattern, sample_traffic
 from verifier.objective import SLICES, RLObjective, SliceValues
 
 LATENCY_SCALE_MS = 100.0  # latencies enter the observation as latency / 100 ms
@@ -26,15 +26,29 @@ OBJECTIVE_FEATURES = 7  # 3 weights, 3 minimum targets, 1 latency bound
 OBS_SIZE = KPI_FEATURES_PER_SLICE * len(SLICES) + OBJECTIVE_FEATURES
 
 
-def objective_to_vector(objective: RLObjective, cfg: CellConfig) -> np.ndarray:
-    """The objective as 7 numbers for the policy input.
+def objective_vectors(
+    weights: np.ndarray, targets_mbps: np.ndarray, bound_ms: np.ndarray, cfg: CellConfig
+) -> np.ndarray:
+    """n objectives as an (n, 7) array for the policy input (weights, targets, bound).
 
     A latency bound of 0 means "no bound": a real bound is always > 0 (the schema checks it).
+    bound_ms uses NaN for "no bound", as in sim/reward.py.
     """
-    weights = objective.weights.as_list()
-    targets = [t / cfg.capacity_mbps for t in objective.min_thr_mbps.as_list()]
-    bound = 0.0 if objective.max_latency_ms is None else objective.max_latency_ms / LATENCY_SCALE_MS
-    return np.clip(np.array(weights + targets + [bound]), 0.0, OBS_CLIP)
+    bound = np.where(np.isnan(bound_ms), 0.0, bound_ms / LATENCY_SCALE_MS)
+    vectors = np.concatenate([weights, targets_mbps / cfg.capacity_mbps, bound[:, None]], axis=1)
+    return np.clip(vectors, 0.0, OBS_CLIP)
+
+
+def objective_arrays(objective: RLObjective) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """One RLObjective as (weights (1, 3), targets_mbps (1, 3), bound_ms (1,)), NaN = no bound."""
+    bound = np.nan if objective.max_latency_ms is None else objective.max_latency_ms
+    return (np.array([objective.weights.as_list()]), np.array([objective.min_thr_mbps.as_list()]),
+            np.array([bound]))
+
+
+def objective_to_vector(objective: RLObjective, cfg: CellConfig) -> np.ndarray:
+    """The objective as 7 numbers for the policy input."""
+    return objective_vectors(*objective_arrays(objective), cfg)[0]
 
 
 def sample_objective(rng: np.random.Generator, cfg: CellConfig) -> RLObjective:
@@ -57,6 +71,24 @@ def sample_objective(rng: np.random.Generator, cfg: CellConfig) -> RLObjective:
     )
 
 
+def sample_objective_vectors(
+    rng: np.random.Generator, n: int, cfg: CellConfig
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """n random objectives at once, same distribution as sample_objective.
+
+    Used by the objective relabeling of the replay buffer (rl/relabel.py), which needs a
+    batch of objectives per gradient step; building 256 pydantic objects there would be slow.
+    A test checks the two samplers agree statistically. sample_objective itself is left as
+    it is, so the evaluation episodes, which depend on its random draws, do not change.
+    Returns weights (n, 3), targets_mbps (n, 3), bound_ms (n,) with NaN for "no bound".
+    """
+    k = len(SLICES)
+    weights = rng.dirichlet(np.ones(k), size=n)
+    targets = np.where(rng.random((n, k)) < 0.5, rng.uniform(0.0, 0.4 * cfg.capacity_mbps, (n, k)), 0.0)
+    bound = np.where(rng.random(n) < 0.5, rng.uniform(5.0, 50.0, n), np.nan)
+    return weights, targets, bound
+
+
 class SlicingEnv(gym.Env):
     """One cell with eMBB, URLLC and best-effort slices sharing a PRB budget."""
 
@@ -68,18 +100,29 @@ class SlicingEnv(gym.Env):
         episode_steps: int = 200,
         load_scale: float = 1.0,
         objective_switch_prob: float = 0.0,
+        surge_range: tuple[float, float] = DEFAULT_SURGE_RANGE,
+        action_filter_alpha: float | None = None,
+        reward_version: RewardVersion = DEFAULT_REWARD_VERSION,
     ) -> None:
-        """`load_scale` and `objective_switch_prob` are training options (M02, round 2):
+        """Training options (all off by default, so evaluation episodes and scripted
+        scenarios are unchanged):
         - load_scale multiplies the randomly sampled traffic, so more steps are in contention,
-          which is where the objective changes the best action;
+          which is where the objective changes the best action (M02 round 2);
         - objective_switch_prob is the chance, each step, of drawing a new random objective in
-          the middle of the episode, as when the LLM changes the goal at run time.
-        Both are off by default, so evaluation episodes and scripted scenarios are unchanged.
+          the middle of the episode, as when the LLM changes the goal at run time (round 2);
+        - surge_range is the peak/base factor range of sampled spikes and ramps (M02b);
+        - action_filter_alpha applies the deployed smoothing filter inside the environment, so
+          the policy trains with the actuator lag it will have when deployed (M02b). Do not
+          combine it with a smoothed SlicePolicy, or the split would be filtered twice.
+        reward_version picks the reward formula (sim/reward.py); "v2" is the default.
         """
         self.cfg = cfg or CellConfig()
         self.episode_steps = episode_steps
         self.load_scale = load_scale
         self.objective_switch_prob = objective_switch_prob
+        self.surge_range = surge_range
+        self.action_filter_alpha = action_filter_alpha
+        self.reward_version = reward_version
         self.action_space = gym.spaces.Box(0.0, 1.0, shape=(len(SLICES),), dtype=np.float32)
         self.observation_space = gym.spaces.Box(0.0, OBS_CLIP, shape=(OBS_SIZE,), dtype=np.float32)
         # Filled by reset():
@@ -100,7 +143,7 @@ class SlicingEnv(gym.Env):
         episode_s = self.episode_steps * self.cfg.dt_s
         self.objective = options.get("objective") or sample_objective(self.np_random, self.cfg)
         self.traffic = options.get("traffic") or sample_traffic(
-            self.np_random, episode_s, self.load_scale * self.cfg.capacity_mbps
+            self.np_random, episode_s, self.load_scale * self.cfg.capacity_mbps, self.surge_range
         )
         self.time_s = 0.0
         self.step_count = 0
@@ -114,7 +157,12 @@ class SlicingEnv(gym.Env):
 
     def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
         """Apply a PRB split for dt seconds and report what happened."""
-        self.shares = shares_from_action(action)
+        target = shares_from_action(action)
+        if self.action_filter_alpha is None:
+            self.shares = target
+        else:  # same filter as the deployed policy; nothing to smooth with on the first step
+            previous = None if self.step_count == 0 else self.shares
+            self.shares = smooth_split(previous, target, self.action_filter_alpha)
         self.loads = {s: self.traffic[s].load_at(self.time_s, self.np_random) for s in SLICES}
         self.last = {
             s: step_slice(
@@ -126,7 +174,7 @@ class SlicingEnv(gym.Env):
             )
             for i, s in enumerate(SLICES)
         }
-        reward = compute_reward(self.objective, self.last, self.loads, self.cfg)
+        reward = compute_reward(self.objective, self.last, self.loads, self.cfg, self.reward_version)
         # Only touch the random generator when the option is on, so that with the default the
         # random stream (hence every evaluation episode) is exactly what it was before.
         if self.objective_switch_prob > 0 and self.np_random.random() < self.objective_switch_prob:

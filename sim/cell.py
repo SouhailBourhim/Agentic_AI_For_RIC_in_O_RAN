@@ -60,6 +60,20 @@ def shares_from_action(action: np.ndarray) -> np.ndarray:
     return clipped / total
 
 
+def smooth_split(previous: np.ndarray | None, new: np.ndarray, alpha: float) -> np.ndarray:
+    """Exponential smoothing of the PRB split: alpha * new + (1 - alpha) * previous.
+
+    Both splits sum to 1, so the result does too. With no previous split (first step of an
+    episode) the new one is applied as is. Used in two places that must stay identical: the
+    deployed policy (rl/policy.py) and, during training, the environment itself, so the
+    policy learns with the same actuator lag it will have when deployed.
+    """
+    new = np.asarray(new, dtype=np.float64)
+    if previous is None:
+        return new
+    return alpha * new + (1.0 - alpha) * np.asarray(previous, dtype=np.float64)
+
+
 def step_slice(
     share: float,
     load_mbps: float,
@@ -122,3 +136,26 @@ def slice_latency_ms(
     queueing_ms = base_latency_ms / (1.0 - rho)
     drain_ms = 1000.0 * backlog_mb / safe_cap
     return queueing_ms + drain_ms
+
+
+def step_slices_batch(
+    shares: np.ndarray,
+    loads_mbps: np.ndarray,
+    backlog_mb: np.ndarray,
+    base_latency_ms: np.ndarray,
+    cfg: CellConfig,
+) -> dict[str, np.ndarray]:
+    """step_slice for many candidate splits at once (numpy), used by the oracle (rl/oracle.py).
+
+    Inputs broadcast together, e.g. shares (n, 3) against loads (3,). Same six steps and the
+    same formulas as step_slice and slice_latency_ms above; a test checks they agree.
+    Returns arrays "throughput_mbps", "backlog_mb", "latency_ms".
+    """
+    cap_mbps = shares * cfg.capacity_mbps
+    waiting_mb = backlog_mb + loads_mbps * cfg.dt_s
+    served_mb = np.minimum(waiting_mb, cap_mbps * cfg.dt_s)
+    new_backlog_mb = np.minimum(waiting_mb - served_mb, cfg.max_backlog_mb)
+    safe_cap = np.maximum(cap_mbps, 1e-6)
+    rho = np.minimum(loads_mbps / safe_cap, cfg.max_utilisation)
+    latency_ms = base_latency_ms / (1.0 - rho) + 1000.0 * new_backlog_mb / safe_cap
+    return {"throughput_mbps": served_mb / cfg.dt_s, "backlog_mb": new_backlog_mb, "latency_ms": latency_ms}
