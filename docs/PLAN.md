@@ -140,8 +140,17 @@ M05b → M07b → M08a → M08b → M08c.**
 policy). This is not O-RAN A1: FlexRIC has no Non-RT RIC.
 - `policy_id` (increasing), `objective` (JSON above), `mode` (`rl` | `direct_share`)
 - `shares`: only in `direct_share` mode, used by the LLM-only baseline
-- `intent_id`, `verifier_decision` (accept + reason), `confirmed_by` (`console` | `auto-eval`),
-  `issued_at`, `expires_at`
+- `intent_ids` (list): every intent merged into this objective (M03, see below);
+  `verifier_decision` (accept + reason), `confirmed_by` (`console` | `auto-eval`), `issued_at`,
+  `expires_at`
+- **The objective is the merge of the active intents** (`verifier.merge.merge`, decided in M03):
+  per slice the highest minimum throughput, the tightest URLLC latency bound, the weights of the
+  newest still-active intent (default weights if none). The verifier checks
+  `merge(active + new)`, so what is verified is exactly what runs. The merge is recomputed and
+  re-verified (`verifier.verify.reverify_after_removal`) whenever the active set changes (new
+  accept, expiry, cancellation), and a new row is written. An expiry only loosens the merge;
+  it is logged anyway. `get_status` of an older intent shows it is still applied as part of the
+  merged objective.
 - **Writer:** only the agent's "apply" step, after the verifier accepts (and the operator confirms
   in demo mode).
 - **Reader:** the RL runner polls the latest unexpired row each tick, never blocks, and falls back
@@ -218,3 +227,11 @@ and every candidate carries its `nssai`.
 E2. The M07b plan fixes the timebox. If the E2 SLICE handler cannot be finished within it, the
 fallback is option 2: the same scheduler policy driven through a side channel, reported
 explicitly as not E2. M02–M05 are unaffected: they run on the simulator.
+
+## 8. Open questions
+
+- **Hard minimum PRB share per slice in the RL runner (discuss in M04a).** The M03 verifier
+  only checks that the *targets* leave every slice at least 5 % of the PRBs; it cannot
+  guarantee the split the policy chooses. A deterministic clamp in the runner (after the policy
+  and the smoothing filter) would. If we add it, it must also be in the training environment,
+  like the smoothing filter, so the policy trains with the actuator it will have when deployed.

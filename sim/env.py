@@ -17,7 +17,13 @@ import numpy as np
 from sim.cell import CellConfig, SliceStep, shares_from_action, smooth_split, step_slice
 from sim.reward import DEFAULT_REWARD_VERSION, RewardVersion, compute_reward
 from sim.traffic import DEFAULT_SURGE_RANGE, TrafficPattern, sample_traffic
-from verifier.objective import SLICES, RLObjective, SliceValues
+from verifier.objective import (
+    SLICES,
+    TRAINED_LATENCY_BOUND_MS,
+    TRAINED_MAX_TARGET_FRACTION,
+    RLObjective,
+    SliceValues,
+)
 
 LATENCY_SCALE_MS = 100.0  # latencies enter the observation as latency / 100 ms
 OBS_CLIP = 10.0  # every observation value is clipped to [0, 10]
@@ -59,11 +65,9 @@ def sample_objective(rng: np.random.Generator, cfg: CellConfig) -> RLObjective:
     """
     weights = rng.dirichlet(np.ones(len(SLICES)))
     weights = weights / weights.sum()  # guard against rounding before the schema check
-    targets = [
-        float(rng.uniform(0.0, 0.4 * cfg.capacity_mbps)) if rng.random() < 0.5 else 0.0
-        for _ in SLICES
-    ]
-    bound = float(rng.uniform(5.0, 50.0)) if rng.random() < 0.5 else None
+    max_target = TRAINED_MAX_TARGET_FRACTION * cfg.capacity_mbps
+    targets = [float(rng.uniform(0.0, max_target)) if rng.random() < 0.5 else 0.0 for _ in SLICES]
+    bound = float(rng.uniform(*TRAINED_LATENCY_BOUND_MS)) if rng.random() < 0.5 else None
     return RLObjective(
         weights=SliceValues(**dict(zip(SLICES, map(float, weights)))),
         min_thr_mbps=SliceValues(**dict(zip(SLICES, targets))),
@@ -84,8 +88,9 @@ def sample_objective_vectors(
     """
     k = len(SLICES)
     weights = rng.dirichlet(np.ones(k), size=n)
-    targets = np.where(rng.random((n, k)) < 0.5, rng.uniform(0.0, 0.4 * cfg.capacity_mbps, (n, k)), 0.0)
-    bound = np.where(rng.random(n) < 0.5, rng.uniform(5.0, 50.0, n), np.nan)
+    max_target = TRAINED_MAX_TARGET_FRACTION * cfg.capacity_mbps
+    targets = np.where(rng.random((n, k)) < 0.5, rng.uniform(0.0, max_target, (n, k)), 0.0)
+    bound = np.where(rng.random(n) < 0.5, rng.uniform(*TRAINED_LATENCY_BOUND_MS, n), np.nan)
     return weights, targets, bound
 
 

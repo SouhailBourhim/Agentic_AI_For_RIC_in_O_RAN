@@ -17,11 +17,18 @@ SLICES: tuple[str, ...] = ("embb", "urllc", "be")
 
 WEIGHT_SUM_TOLERANCE = 1e-6
 
+# The range of objectives the RL policy was trained on (sampled in sim/env.py). The verifier
+# rejects objectives outside it (M03): a goal-conditioned policy is only trustworthy on goals
+# like the ones it learned from. Changing these values means retraining the policy.
+TRAINED_MAX_TARGET_FRACTION = 0.4  # each minimum target is at most 40 % of the cell capacity
+TRAINED_LATENCY_BOUND_MS = (5.0, 50.0)  # URLLC latency bound, when there is one
+
 
 class SliceValues(BaseModel):
     """One non-negative number per slice (a weight, or a throughput in Mb/s)."""
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    # allow_inf_nan=False: an infinite target would pass "ge=0" and break every sum later.
+    model_config = ConfigDict(frozen=True, extra="forbid", allow_inf_nan=False)
 
     embb: float = Field(default=0.0, ge=0.0)
     urllc: float = Field(default=0.0, ge=0.0)
@@ -39,7 +46,7 @@ class RLObjective(BaseModel):
     modified afterwards; a change means building a new object and verifying it again.
     """
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    model_config = ConfigDict(frozen=True, extra="forbid", allow_inf_nan=False)
 
     weights: SliceValues
     min_thr_mbps: SliceValues = SliceValues()
