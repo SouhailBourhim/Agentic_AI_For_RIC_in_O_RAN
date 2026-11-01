@@ -9,10 +9,14 @@ on:
 
 jobs:
   pytest:
-    runs-on: ubuntu-latest
+    # Pinned to the same Ubuntu as the development machine (WSL 24.04), so a runner image
+    # change (ubuntu-latest moves to 26) cannot break the tests without a commit here.
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      # Both actions run on Node.js 24 (Node 20 actions are deprecated on GitHub runners).
+      - uses: actions/checkout@v7
+      # setup-uv publishes no major tag since v8, so the exact version is pinned.
+      - uses: astral-sh/setup-uv@v10.3.3
       - name: Install dependencies (exact versions from uv.lock)
         run: uv sync --frozen
       - name: Run tests
