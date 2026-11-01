@@ -1,5 +1,12 @@
 # M02 — Goal-conditioned DDPG / TD3 policy
 
+> **Update, M02b (2026-11-01): goal conditioning now passes a valid test.** Sections 1–7 below
+> are the M02 record and stay as written: the M02 criterion failed in all three rounds, and
+> `td3_seed2` was deployed by a fallback rule. M02b found that the criterion itself was flawed,
+> built a better one, and trained a new recipe that passes it on every seed, including 5 fresh
+> seeds on a held-out test run once. **The deployed policy is now `td3_noreward_seed11_best`**
+> (registry version 3, see M02c). Read the part **M02b** at the end of this note.
+
 ## 1. What we built
 
 We trained a reinforcement-learning policy that decides the PRB split between eMBB, URLLC and
@@ -358,3 +365,179 @@ it on fresh episodes and scenarios; if it fails there, the comparison in M08 rep
    It gives each slice exactly its share of the offered load, so when the cell is nearly full
    every slice runs at utilisation close to 1; with latency ≈ base/(1 − ρ), every slice's latency
    explodes. The equal split leaves headroom for small slices like URLLC.
+
+---
+
+# Part M02b — making goal conditioning legitimately pass
+
+## M02b.1 What we found
+
+The M02 failure had **five causes**: one in the test, four in the training. Each was measured
+before it was fixed.
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 | **The test could not separate a perfect policy from a bad one.** A reward-optimal controller (greedy over all splits) gets a URLLC share gap anywhere from 0.034 to 0.120 on the M02 test, depending only on how it breaks ties: under "maximise eMBB" URLLC and BE weigh the same (0.1 each), so the URLLC share is undetermined. | A new test, grounded in the reward (M02b.2) |
+| 2 | **The real deficit was under constraints.** Under "protect URLLC" on the spike, the optimum earns 0.252 reward per step; the M02 deployed policy earned −0.015. | Relabeling (B2) |
+| 3 | **A reward cliff.** The latency penalty `min(1, (lat − bound) / bound)` is flat beyond twice the bound: 20 ms and 1 700 ms cost the same. After a surge, URLLC shares 0.30 to 0.60 earned −0.68 to −0.56, then 0.65 earned +0.46. Nothing led the policy towards the drain point. | Reward v2: `log(1 + excess / bound)` |
+| 4 | **The test surge was never seen in training.** The test has a ×4 URLLC surge; training surges were ×1.5–3 (0.0 % of episodes reached ×3). | Surges up to ×5, load ×1.2, 50-step episodes |
+| 5 | **Train ≠ deploy.** The smoothing filter was applied only at deployment, so the actor never learned to act through its lag. | The filter inside the training environment |
+
+## M02b.2 The new test (fixed before any training)
+
+[rl/goal_test.py](../../rl/goal_test.py). The idea: **telling the policy objective A must help it
+do well on A.** For a scenario and two objectives A and B:
+
+- policy advantage = reward under A when the policy was told A, minus reward under A when it was
+  told B;
+- oracle advantage = the same for a reference controller (below).
+
+A case is **material** if the oracle advantage is at least 0.02 reward per step (the objectives
+really demand different actions, which removes the URLLC/BE tie of finding 1). Per seed, **every
+seed must pass**:
+
+- **T1a**: the policy advantage is positive in at least 90 % of material cases;
+- **T1b**: the mean captured share of the oracle advantage, clipped to [−1, 1], is at least 0.5;
+- **T2**: mean reward on 100 random episodes beats the equal split.
+
+**The oracle** ([rl/oracle.py](../../rl/oracle.py)) is evaluation-only. Every second it tries 861
+splits on a 0.025 grid, passes each through the same smoothing filter, predicts the next second
+with the simulator's own equations and the *true* next loads, and applies the best one. It is a
+demanding reference no real controller could match. A first version that assumed "loads stay the
+same" lost to a fixed split under "protect URLLC", which would have made the test too easy, so we
+strengthened it.
+
+Two disjoint case sets: **validation** (8 scenarios × 6 sampled objectives, for development) and
+a **held-out test** (4 scenarios: the M02 spike, an eMBB surge, a BE ramp, steady overload; ×
+4 objectives: the two M02 ones, "guarantee eMBB", "protect BE"), used once at the end. Objective-
+blind controllers (equal split, proportional to load, a policy with its objective input frozen)
+have advantage 0 in every case, so they fail by construction (tested: 89 and 30 material cases
+in validation and test).
+
+## M02b.3 The training changes
+
+- **B1 Reward v2** ([sim/reward.py](../../sim/reward.py)): the latency term becomes
+  `log(1 + max(0, lat − bound) / bound)`, zero at the bound, 0.69 at twice the bound, 5.1 at 170×,
+  with a slope everywhere. The test always scores with v2; v1 is kept for the record.
+- **B2 Objective relabeling** ([rl/relabel.py](../../rl/relabel.py)): the objective does not
+  change how the cell behaves, only how a step is scored. So a stored transition is equally real
+  under any other objective. For 80 % of every training batch we replace the objective part of
+  the observation and recompute the reward from the stored KPIs (the same function as the
+  environment; a test checks it). Every congested state then teaches what many objectives want.
+  It is the idea of hindsight experience replay, applied to objectives instead of goals.
+- **B3 Coverage**: surge factor ×1.5–5, training load ×1.2, 50-step episodes (four times as many
+  surge onsets per training step).
+- **B4 Filter in the loop**: `SlicingEnv(action_filter_alpha=0.25)` applies the deployed filter
+  inside training, through the same function (`smooth_split`) as `SlicePolicy`.
+- **B5 Validation checkpoints**: every 25 000 steps the policy is scored on the validation cases
+  and the best checkpoint is kept (rule: beats equal split, then highest T1b, then reward).
+
+## M02b.4 The protocol, and what it found
+
+1. **Development round** (validation only): the full recipe and four versions each missing one
+   change, 3 seeds each, 400 000 steps. Recipe rule, fixed before: every seed passes, then the
+   highest mean T1b; if none passes, stop and report.
+2. **Confirmation round**: 5 fresh seeds (10–14) of the chosen recipe.
+3. **Held-out test**, run once (`--final`; the script refuses a second run).
+
+![Ablation on validation](img/M02b-ablation.png)
+
+Reading the ablation (`uv run python -m rl.plot_m02b`): each dot is one seed, the label above says
+how many seeds pass all three criteria.
+
+- **Removing relabeling breaks reliability** (1 of 3 seeds pass, the lowest of the new recipes).
+  It is the change that matters.
+- The M02 policies (grey) pass 1 or 2 of 3 seeds in every round: the training recipe was the
+  problem, not luck.
+- **Recipe "noreward"** (every M02b change except reward v2 in training) passes 3 of 3 with a mean
+  T1b of 0.93, far above the rest, and was chosen by the rule. Reward v2 stays the *yardstick*
+  of the test, but as a training signal its very large penalties (down to about −5) seem to make
+  learning noisier. That is a hypothesis; we did not isolate why.
+- The full recipe, the one without the filter and the one without wider surges also pass 3 of 3,
+  with lower margins.
+
+**Held-out test result** ([docs/learn/data/M02b-test-result.json](data/M02b-test-result.json)):
+
+![Held-out test](img/M02b-test.png)
+
+| Seed | T1a | T1b | reward per step | verdict |
+|---|---|---|---|---|
+| 10 | 0.97 | 0.84 | 0.279 | PASS |
+| 11 | 0.97 | 0.84 | 0.286 | PASS |
+| 12 | 0.97 | 0.88 | 0.283 | PASS |
+| 13 | 0.97 | 0.84 | 0.285 | PASS |
+| 14 | 0.97 | 0.70 | 0.283 | PASS |
+
+The equal split earns 0.183 on the same cases. **All 5 seeds pass.** The original M02 measure (URLLC
+share gap on the spike, threshold 0.10) is also above 0.10 on every seed (0.15–0.34), although it
+was no longer the bar.
+
+**What the deployed policy does.** `td3_noreward_seed11_best` was chosen among the five passing
+versions because it has the highest *validation* T1b (0.990), the deployment rule fixed before the
+test. On the original spike scenario:
+
+![Deployed policy under two objectives](img/M02-objectives.png)
+
+Under "protect URLLC" (left) the URLLC share rises within about 3 s of the surge to take most of
+the PRBs, and URLLC latency is back under the 10 ms bound by t = 14 s (the M02 policy never
+got there). The cost is visible: BE throughput is squeezed to ~2 Mb/s during the spike and its latency
+grows, which is what "protect URLLC" asks for. Under "maximise eMBB" (right) URLLC gets little
+and eMBB keeps the capacity. The first second of the surge still costs a big reward drop (−4.7),
+because the policy sees the load only after it has arrived.
+
+## M02b.5 How to run it
+
+```bash
+uv run pytest -q                                          # 123 tests
+uv run python -m rl.goal_test --check                     # validity of both case sets
+uv run python -m rl.sweep dev                             # development round, about 80 min on 15 runs
+uv run python -m rl.goal_test --split validation          # choose the recipe (rule printed)
+uv run python -m rl.sweep confirm --recipe noreward       # confirmation round, 5 fresh seeds
+uv run python -m rl.goal_test --split test --final        # held-out test, run once
+uv run python -m rl.plot_m02b                             # the two figures above
+```
+
+## M02b.6 Choices, limits, and what a real system would do differently
+
+- **We changed the pass bar, and say so.** The M02 criterion stays on record as a FAIL; it was
+  replaced because it was shown unable to measure goal conditioning, not because it failed. The
+  new bar was fixed, with every threshold, in code and in DECISIONS before any M02b training. The
+  old test is still reported for each policy.
+- **The oracle knows the next second's traffic.** That makes T1b demanding; a real system could
+  not do this. Because T1b is clipped at 1 per case, a policy can reach 1 on a case without
+  being better than the oracle in general.
+- **Training reward ≠ test reward.** The chosen recipe trains with reward v1 and is judged by v2.
+  We report both and do not claim v2 is a better *training* reward.
+- **Checkpoint selection uses T1b only** (not T1a). On the dev round it dropped a checkpoint that
+  passed everything for one that failed T1a. Since the rule was fixed in advance we did not change
+  it mid-round; the chosen recipe reached T1a 0.99–1.00, so it did not matter here.
+- **Same simulator for training and test.** Every number here is on the Python simulator. The
+  sim-to-real check on the OAI testbed is M08c.
+- **The first second of a surge is still lost.** The policy reacts to observed KPIs, one step late.
+  A real system would add a faster loop or a traffic predictor.
+- **Five test scenarios of 40 s** is a small test; a real system would use many more, with
+  confidence intervals.
+
+## M02b.7 Questions to check understanding
+
+1. **Why could the M02 test fail a perfect policy?**
+   Under "maximise eMBB" URLLC and BE have equal weights, so many splits earn the same reward and the
+   URLLC share is undetermined: an optimal controller's gap ranged from 0.034 to 0.120 depending only
+   on tie-breaking.
+
+2. **Why is objective relabeling valid?**
+   The objective changes only how a step is *scored*, never what happens in the cell. So a stored
+   transition (state, split, next state) is equally real under any other objective, as long as the
+   objective part of the observation and the reward are replaced consistently.
+
+3. **Why does the test compare with an oracle instead of a fixed threshold?**
+   The oracle shows what is achievable in each case, so the test can ignore cases where objectives
+   don't demand different actions and measure how much of the possible gain the policy captures.
+
+4. **Why was the held-out test run only once?**
+   Every decision (recipe, checkpoints) used only the validation cases. A test that influenced any
+   choice would no longer measure anything; the script refuses a second run.
+
+5. **The chosen recipe trains with reward v1 but is tested with v2. Is that a contradiction?**
+   No. The test's yardstick had to be the reward that does not hide queue build-up (v2). How to train
+   is a separate question, and on validation v1 trained a policy that scores better under v2.
