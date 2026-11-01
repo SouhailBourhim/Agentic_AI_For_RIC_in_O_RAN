@@ -34,3 +34,6 @@ eval/results/
 
 # marimo session cache
 __marimo__/
+
+# Testbed packet captures (large, regenerated)
+testbed/captures/
