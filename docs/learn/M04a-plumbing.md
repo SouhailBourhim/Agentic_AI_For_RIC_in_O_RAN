@@ -140,7 +140,7 @@ sequenceDiagram
 ## 5. How to run it and check it works
 
 ```bash
-uv run pytest -q                    # expected: 241 passed
+uv run pytest -q                    # expected: 262 passed
 uv run python -m rl.plot_runner     # ~10 s: the figure below, plus phase averages
 ```
 
@@ -209,17 +209,89 @@ objective panels so equal values stay visible):
   and URLLC latency rises to hundreds of ms.
 - At 20:34:40 (t = 600 s) the surge ends and the queues drain.
 
-Two findings from this run, kept as open points:
+Two findings from this run:
 1. **Best effort is starved while the intent is in force**: 2 % of the PRBs and about 41 s of
    latency. The surge makes the cell about 120 % loaded, the objective favours URLLC (weight
    0.6), and nothing stops the policy from giving BE almost nothing. The verifier's floor
-   applies to the *targets* (M03), not to the split. This is the PLAN §8 question: a hard
-   minimum share in the runner, which would also have to be in the training env.
+   applies to the *targets* (M03), not to the split. **Decided and fixed: a hard per-slice
+   floor, next section.**
 2. **Under the default objective the policy jitters.** It moves 6 % (steady) to 12 % (surge) of
    the PRBs per tick, against 0.3 % under the intent and about 2 % averaged over random
    objectives in M02. The default objective (no targets, no bound) seems to be a region where
    the policy is undecided between near-equal splits. Not a plumbing problem; to look at with
    M08a.
+
+### The per-slice floor (added after the live demo)
+
+**What.** Every slice always gets at least 5 % of the PRBs (`MIN_SLICE_SHARE`,
+[verifier/objective.py:31](../../verifier/objective.py#L31)). It plays the role of the 3GPP
+per-slice minimum PRB ratio (`rRMPolicyMinRatio`): a share a slice can always count on,
+whatever the scheduler does with the rest. One function enforces it,
+`apply_min_share` ([sim/cell.py:77](../../sim/cell.py#L77)):
+1. invalid values (NaN, inf, negative) count as 0; if nothing is left, use an equal split;
+2. scale to sum 1;
+3. raise every slice below 5 % to exactly 5 %, and take what that needs from the other slices,
+   in proportion to how far they are above 5 %.
+
+A split already above the floor is left as it is (up to float rounding).
+
+**Where.** It is applied in four places, always with the same constant:
+- the RL runner, unconditionally, as the last step before `apply_prb_split`
+  ([rl/runner.py:137](../../rl/runner.py#L137));
+- the training env, after the smoothing filter ([sim/env.py:211](../../sim/env.py#L211)), so the
+  policy trains with the actuator it will have;
+- the oracle and every evaluation env, when `--min-share` is set;
+- the verifier's reserve rule (M03).
+
+The registry gate now promotes only versions trained and tested with the floor
+([mlops/registry.py:163](../../mlops/registry.py#L163)). The old versions stay registered as
+rollback targets.
+
+**How we retrained** (pre-registered in DECISIONS.md and committed before training, commit
+22e4a9e):
+- the frozen M02b recipe, the only change being the floor;
+- five fresh seeds, 20–24;
+- the held-out goal test run once, which is **the second use of that test set** (the first was
+  M02b). Same scenarios, objectives, seeds and thresholds. The oracle and the equal split also
+  run under the floor; 29 of the 48 cases are material (30 without the floor).
+
+| Held-out test (run once) | T1a (≥ 0.90) | T1b (≥ 0.50) | reward (> 0.183) | verdict |
+|---|---|---|---|---|
+| seed 20 | 0.97 | 0.79 | 0.280 | PASS |
+| seed 21 | 1.00 | 0.79 | 0.283 | PASS |
+| seed 22 | 1.00 | 0.91 | 0.283 | PASS |
+| seed 23 | 0.97 | 0.73 | 0.282 | PASS |
+| seed 24 | 1.00 | 0.76 | 0.284 | PASS |
+
+All five pass, so the recipe passes. The gate refused every older version (not trained with
+the floor) and promoted **v7, `td3_noreward_floor_seed20_best`**: highest validation T1b,
+0.9805 against 0.9800 for seed 22, a difference too small to mean anything, decided by the rule
+fixed in advance. v3 is its recorded previous champion, so `rollback` returns to it. The old
+M02 measure, only reported now, is just under its old 0.10 bar on seed 23 (0.099).
+
+**Effect on the demo scenario** (`uv run python -m rl.plot_floor --policy ... --policy ...`,
+command in the script's docstring; numbers over t = 200–440 s):
+
+| | BE share | BE median latency | URLLC median latency |
+|---|---|---|---|
+| v3, no floor (M04a record, commit 5d1b76a) | 0.020 | 41.3 s | 4.9 ms |
+| v3 + floor (not trained with it) | 0.050 | 13.7 s | 5.2 ms |
+| **v7 + floor (trained with it, champion)** | 0.050 | 13.7 s | **4.1 ms** |
+
+![Per-slice floor, before vs after](img/M04a-floor.png)
+
+How to read it:
+- **While the intent is in force (lilac band), both policies sit exactly on the floor.** Best
+  effort gets 5 %, and its latency, 13.7 s, is the same for both.
+- **That latency is the buffer, not the policy.** Best effort offers 22.5 Mb/s but 5 % of the
+  cell carries 3.75 Mb/s, so its 50 Mb buffer stays full: 50 / 3.75 ≈ 13 s to drain. The floor
+  guarantees service, not low latency, in a cell loaded at ~120 %.
+- **So the gain for best effort comes from the floor itself, not from the retraining.** The
+  retrained policy also gives best effort only what it must, because the objective weighs
+  URLLC 0.6 against 0.2 for best effort.
+- **The retraining brings two things.** URLLC has more margin under its bound (4.1 ms against
+  5.2 ms). And training and deployment now run the same rule: v3 was running under a floor it
+  had never seen.
 
 ## 6. Choices and simplifications
 
@@ -247,7 +319,12 @@ Two findings from this run, kept as open points:
 - **The exporter runs in WSL, Prometheus and Grafana in Docker.** It reaches them through
   `host.docker.internal`, which I checked on this machine. Rejected running the exporter in a
   container: SQLite WAL over the Docker Desktop file share is not reliable.
-- **Not yet:** the runner-side minimum share (PLAN §8), the LLM (M04b), `set_slice_share`
+- **Per-slice floor = clip and redistribute.** Slices below 5 % are raised and the rest give
+  in proportion to their excess, so a safe split is untouched. Rejected a linear map
+  (5 % + 85 % × share), which would change every split, even safe ones.
+- **The floor is unconditional in the runner.** There is no switch to turn it off, even for
+  experiments. The "before" numbers therefore come from the M04a record, not from a new run.
+- **Not yet:** the LLM (M04b), `set_slice_share`
   (M04b; the runner already supports `direct_share`), the gateway (M05a), FlexRIC (M07b).
 
 ## 7. Questions to check understanding

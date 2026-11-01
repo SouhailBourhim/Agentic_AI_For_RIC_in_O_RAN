@@ -243,7 +243,7 @@ explicitly as not E2. M02–M05 are unaffected: they run on the simulator.
 
 ## 8. Open questions
 
-- **Hard minimum PRB share per slice in the RL runner (discuss in M04a).** The M03 verifier
+- ~~**Hard minimum PRB share per slice in the RL runner (discuss in M04a).**~~ **Decided and done (M04a): 5 % per slice, `sim.cell.apply_min_share`, retrained; see docs/learn/M04a-plumbing.md §5 and DECISIONS.md.** The M03 verifier
   only checks that the *targets* leave every slice at least 5 % of the PRBs; it cannot
   guarantee the split the policy chooses. A deterministic clamp in the runner (after the policy
   and the smoothing filter) would. If we add it, it must also be in the training environment,
