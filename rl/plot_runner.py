@@ -11,13 +11,13 @@ to the default objective by itself. A temporary database is used, var/ric.db is 
 
 import os
 import tempfile
-import time
 from pathlib import Path
 
 import numpy as np
 from matplotlib.figure import Figure
 
-from agent import intents as machine
+from agent.tools import AgentContext, Settings
+from agent.worker import submit_and_run
 from backends.sim import SimBackend, scenario_traffic
 from rl.runner import Runner, load_policy
 from sim.cell import CellConfig
@@ -43,7 +43,9 @@ def simulate(policy_file: Path | None = None) -> tuple[dict[str, np.ndarray], di
     kpi.write_backend_info(conn, backend.info(), label)
     runner = Runner(backend, policy, db.connect(work / "ric.db", timeout_s=0.0), cfg.dt_s)
     runner.run(SUBMIT_AT_S)
-    record = machine.submit(conn, INTENT, machine.Settings(mode="eval"), time.time())
+    # The rule-based agent, evaluation mode, no observation loop: the same objective every run.
+    agent_ctx = AgentContext(conn=conn, settings=Settings(mode="eval", observe_s=0.0, max_revisions=0), llm=None)
+    record = submit_and_run(agent_ctx, INTENT)
     runner.run(RUN_S - SUBMIT_AT_S)
     rows = conn.execute("SELECT ts, slice, dl_thr_mbps, prb_share_alloc, latency_ms, offered_load_mbps, policy_id"
                         " FROM kpi ORDER BY ts").fetchall()

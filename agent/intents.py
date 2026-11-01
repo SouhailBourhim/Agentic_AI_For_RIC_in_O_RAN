@@ -1,12 +1,15 @@
 """The intent state machine: from operator text to an applied (or rejected) objective.
 
-    received ──parse──> interpreted ──verify──> awaiting_confirmation ──console──> applied
-        │                    │                        │       │
-        └─ rejected          └─ rejected              │       └─ rejected (refused / re-check)
-           (not understood)     (verifier, reason)    └─ expired (no answer before the deadline)
+    received ─worker─> processing ─parse/plan─> interpreted ─verify─> awaiting_confirmation ─console─> applied
+                           │                         │                     │        │
+                           └─ rejected (clarify)     └─ rejected           │        └─ rejected (refused / re-check)
+                                                        (verifier)         └─ expired (no answer in time)
 
-In evaluation mode there is no operator: interpreted ──> applied (confirmed_by='auto-eval').
-Later an applied intent may be cancelled from the console.
+M04b: the HTTP service only stores the intent ('received', submit below: hard invariant 1).
+The agent worker (agent/worker.py) takes it ('processing') and runs the LangGraph loop
+(agent/graph.py). In evaluation mode there is no operator: interpreted ──> applied
+(confirmed_by='auto-eval'). An applied intent may later be cancelled from the console, or
+superseded by its revision (a new intent created by the agent, at most one per intent).
 
 Expiry of a pending confirmation is lazy: no background task, every read compares the
 deadline with the wall clock first (expire_pending). The deadline is wall-clock time because
@@ -15,51 +18,20 @@ Every function takes the wall clock as an argument, so tests can move time by ha
 """
 
 import sqlite3
-from dataclasses import dataclass
 
-from agent.apply import applied_intents, apply_intent, backend_now, decision_dict, verifier_state
-from agent.parser import parse_intent
+from agent.apply import applied_intents, backend_now, verifier_state
 from store import a1_policy, intents
-from store.events import log_event
+from store.events import log_event, read_events
 from store.intents import IntentRecord
-from verifier.verify import verify
 
 
-@dataclass(frozen=True)
-class Settings:
-    mode: str = "demo"  # 'demo': the console confirms; 'eval': applied without confirmation
-    confirm_timeout_s: float = 120.0  # wall clock
-
-
-def submit(conn: sqlite3.Connection, text: str, settings: Settings, now_wall: float) -> IntentRecord:
-    """Store, parse and verify an intent. Never applies anything in demo mode (invariant 1)."""
+def submit(conn: sqlite3.Connection, text: str, now_wall: float) -> IntentRecord:
+    """Store the operator's text as a new intent, state 'received'. Parses, decides and applies
+    nothing: the agent worker does that (hard invariant 1: submit_intent only creates a request)."""
     state = verifier_state(conn)  # raises ApplyError if no runner has published the cell yet
     record = intents.create(conn, text, now_wall, issued_backend=state.now_s)
     log_event("agent", "received", record.intent_id, state.now_s, {"text": text})
-
-    result = parse_intent(text, state.now_s)
-    if result.objective is None:
-        log_event("agent", "not_understood", record.intent_id, state.now_s, {"problem": result.problem})
-        return intents.set_state(conn, record.intent_id, "rejected", now_wall, parsed=result.parsed,
-                                 reason=f"parser: {result.problem}")
-    intents.set_state(conn, record.intent_id, "interpreted", now_wall, parsed=result.parsed,
-                      objective=result.objective)
-    log_event("agent", "interpreted", record.intent_id, state.now_s,
-              {"parsed": result.parsed, "objective": result.objective.model_dump()})
-
-    decision = verify(result.objective, state, new_intent_id=record.intent_id)
-    log_event("verifier", "verified", record.intent_id, state.now_s, decision_dict(decision))
-    if not decision.accepted:
-        return intents.set_state(conn, record.intent_id, "rejected", now_wall, verifier=decision_dict(decision),
-                                 reason=f"verifier ({decision.check}): {decision.reason}")
-    if settings.mode == "eval":
-        intents.set_state(conn, record.intent_id, "interpreted", now_wall, verifier=decision_dict(decision))
-        return apply_intent(conn, record.intent_id, now_wall, confirmed_by="auto-eval")
-    log_event("agent", "awaiting_confirmation", record.intent_id, state.now_s,
-              {"deadline_wall": now_wall + settings.confirm_timeout_s})
-    return intents.set_state(conn, record.intent_id, "awaiting_confirmation", now_wall,
-                             verifier=decision_dict(decision), reason=decision.reason,
-                             confirm_deadline=now_wall + settings.confirm_timeout_s)
+    return record
 
 
 def expire_pending(conn: sqlite3.Connection, now_wall: float) -> list[str]:
@@ -111,6 +83,9 @@ def status(conn: sqlite3.Connection, intent_id: str, now_wall: float) -> dict | 
         "backend_now": now,
         "in_effect": in_effect,
         "merged_with": [i for i in row.intent_ids if i != intent_id] if in_effect else [],
+        "supersedes": record.supersedes,
+        "agent_steps": [e["data"] for e in read_events() if e["intent_id"] == intent_id
+                        and e["event"] in ("agent_step", "agent_done")],
     }
     if record.state == "applied" and not in_effect and record.objective is not None:
         until = record.objective.valid_until

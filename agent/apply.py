@@ -21,8 +21,8 @@ from store import a1_policy, intents, kpi
 from store.events import log_event
 from store.intents import IntentRecord
 from verifier.merge import ActiveIntent, merge
-from verifier.objective import RLObjective
-from verifier.verify import Decision, VerifierState, reverify_after_removal, verify
+from verifier.objective import DEFAULT_OBJECTIVE, SLICES, RLObjective
+from verifier.verify import Decision, VerifierState, reverify_after_removal, verify, verify_shares
 
 
 class ApplyError(Exception):
@@ -108,6 +108,10 @@ def apply_intent(conn: sqlite3.Connection, intent_id: str, now_wall: float, conf
     Allowed from 'awaiting_confirmation' (console, before the deadline) and from 'interpreted'
     (evaluation mode, confirmed_by='auto-eval'). If the re-verification fails, the intent is
     rejected and a1_policy is not touched.
+
+    A revision (record.supersedes set, M04b) is verified as replacing its parent (conflicts
+    without it, step from what runs now), and the parent is cancelled in the same transaction:
+    at no moment are both, or neither, in the timetable.
     """
     conn.execute("BEGIN IMMEDIATE")
     try:
@@ -129,7 +133,7 @@ def apply_intent(conn: sqlite3.Connection, intent_id: str, now_wall: float, conf
             return record
 
         state = verifier_state(conn)
-        decision = verify(record.objective, state, new_intent_id=intent_id)
+        decision = verify(record.objective, state, new_intent_id=intent_id, replacing=record.supersedes)
         log_event("verifier", "reverified", intent_id, state.now_s, decision_dict(decision))
         if not decision.accepted:
             record = intents.set_state(conn, intent_id, "rejected", now_wall, verifier=decision_dict(decision),
@@ -139,7 +143,11 @@ def apply_intent(conn: sqlite3.Connection, intent_id: str, now_wall: float, conf
             return record
 
         new = ActiveIntent(intent_id=intent_id, issued_at=state.now_s, objective=record.objective)
-        write_timetable(conn, [*state.active, new], state, confirmed_by, f"apply {intent_id}")
+        staying = [i for i in state.active if i.intent_id != record.supersedes]  # a revision replaces its parent
+        write_timetable(conn, [*staying, new], state, confirmed_by, f"apply {intent_id}")
+        if record.supersedes is not None:
+            intents.set_state(conn, record.supersedes, "cancelled", now_wall,
+                              reason=f"superseded by its revision {intent_id}")
         record = intents.set_state(conn, intent_id, "applied", now_wall, confirmed_by=confirmed_by,
                                    applied_backend=state.now_s, confirm_deadline=None,
                                    reason=decision.reason)
@@ -171,3 +179,44 @@ def cancel_intent(conn: sqlite3.Connection, intent_id: str, now_wall: float) -> 
         raise
     log_event("console", "cancelled", intent_id, state.now_s)
     return record
+
+
+def apply_shares(conn: sqlite3.Connection, intent_id: str, shares: list[float], valid_s: float,
+                 now_wall: float) -> Decision:
+    """The "LLM only" baseline (M08a): write a PRB split chosen by the LLM itself, for valid_s.
+
+    Only the llm_only mode's set_slice_share tool calls this (hard invariant 4). The split goes
+    through verify_shares (floor, sum, step from the split applied now) and becomes the only
+    segment of a new timetable, in direct_share mode: the RL runner applies it as given (still
+    with the floor) and stays the only caller of apply_prb_split. Evaluation mode only.
+    """
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        record = intents.get(conn, intent_id)
+        if record is None or record.state not in ("processing", "applied"):
+            raise ApplyError(f"{intent_id} cannot take a direct PRB split in state "
+                             f"{record.state if record else 'missing'}")
+        now = backend_now(conn)
+        rows = conn.execute("SELECT slice, prb_share_alloc FROM kpi WHERE ts = ?", (now,)).fetchall()
+        applied_now = dict(rows)
+        previous = [applied_now[s] for s in SLICES] if len(applied_now) == len(SLICES) else None
+        decision = verify_shares(shares, previous)
+        log_event("verifier", "verified_shares", intent_id, now, {**decision_dict(decision), "shares": shares})
+        if not decision.accepted:
+            conn.execute("COMMIT")
+            return decision
+        holder = RLObjective(weights=DEFAULT_OBJECTIVE.weights, valid_from=now, valid_until=now + valid_s)
+        segment = a1_policy.Segment(objective=holder, intent_ids=(intent_id,), verifier_decision=decision_dict(decision),
+                                    confirmed_by="auto-eval", valid_from=now, expires_at=now + valid_s,
+                                    mode="direct_share", shares=tuple(float(x) for x in shares))
+        a1_policy.write_schedule(conn, [segment], f"shares {intent_id}", now)
+        if record.state != "applied":
+            intents.set_state(conn, intent_id, "applied", now_wall, confirmed_by="auto-eval", applied_backend=now,
+                              reason="LLM-only baseline: the LLM sets the PRB split")
+        conn.execute("COMMIT")
+    except BaseException:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
+    log_event("agent", "shares_applied", intent_id, now, {"shares": shares, "valid_s": valid_s})
+    return decision

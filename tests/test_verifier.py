@@ -199,3 +199,14 @@ def test_reverify_rejects_if_cell_shrank() -> None:
                           active=(BE_20, active("i2", NOW, min_thr_mbps={"embb": 20.0})))
     decision = reverify_after_removal(state)
     assert not decision.accepted and decision.check == "conflict"
+
+
+def test_revision_step_is_measured_from_the_objective_in_force() -> None:
+    """A revision raising URLLC from 0.8 to 0.9 is a small step from what runs (0.8) even though,
+    without its parent, the default (0.3) would be the baseline (M04b, verify(..., replacing=))."""
+    parent = active("i1", 50.0, weights={"embb": 0.1, "urllc": 0.8, "be": 0.1}, valid_from=50.0)
+    state = STATE.model_copy(update={"active": (parent,)})
+    revision = proposal(weights={"embb": 0.05, "urllc": 0.9, "be": 0.05})
+    assert verify(revision, STATE).check == "step"  # as a fresh intent: 0.3 -> 0.9
+    decision = verify(revision, state, new_intent_id="i2", replacing="i1")
+    assert decision.accepted and decision.merged.intent_ids == ("i2",)  # the parent leaves the merge

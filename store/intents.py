@@ -14,6 +14,7 @@ from verifier.objective import RLObjective
 
 STATES = (
     "received",  # text stored, not parsed yet
+    "processing",  # taken by the agent worker (M04b): its LangGraph loop is running
     "interpreted",  # parsed into an objective, not verified yet
     "rejected",  # by the parser, the verifier or the operator; `reason` says which and why
     "awaiting_confirmation",  # accepted by the verifier, waiting for the console (demo mode)
@@ -35,6 +36,7 @@ class IntentRecord:
     confirmed_by: str | None = None
     issued_backend: float | None = None
     applied_backend: float | None = None
+    supersedes: str | None = None  # a revision: the intent it replaces once applied
     confirm_deadline: float | None = None
     state_times: dict[str, float] = field(default_factory=dict)
 
@@ -51,20 +53,27 @@ def _record(row: sqlite3.Row) -> IntentRecord:
         confirmed_by=row["confirmed_by"],
         issued_backend=row["issued_backend"],
         applied_backend=row["applied_backend"],
+        supersedes=row["supersedes"],
         confirm_deadline=row["confirm_deadline"],
         state_times=json.loads(row["state_times"]),
     )
 
 
-def create(conn: sqlite3.Connection, text: str, now_wall: float, issued_backend: float | None) -> IntentRecord:
-    """Store a new intent in state 'received'. Ids are i0001, i0002, ... in arrival order."""
+def create(conn: sqlite3.Connection, text: str, now_wall: float, issued_backend: float | None,
+           supersedes: str | None = None, state: str = "received") -> IntentRecord:
+    """Store a new intent (state 'received' by default). Ids are i0001, i0002, ... in arrival order.
+
+    A revision made by the agent is created directly as 'interpreted', with `supersedes` naming
+    the intent it replaces, so the worker does not pick it up as a new operator request.
+    """
     conn.execute("BEGIN IMMEDIATE")
     try:
         count = conn.execute("SELECT COUNT(*) FROM intents").fetchone()[0]
         intent_id = f"i{count + 1:04d}"
         conn.execute(
-            "INSERT INTO intents (intent_id, text, state, issued_backend, state_times) VALUES (?, ?, ?, ?, ?)",
-            (intent_id, text, "received", issued_backend, json.dumps({"received": now_wall})),
+            "INSERT INTO intents (intent_id, text, state, issued_backend, supersedes, state_times)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (intent_id, text, state, issued_backend, supersedes, json.dumps({state: now_wall})),
         )
         conn.execute("COMMIT")
     except BaseException:
@@ -88,6 +97,18 @@ def in_states(conn: sqlite3.Connection, states: tuple[str, ...]) -> list[IntentR
 def recent(conn: sqlite3.Connection, limit: int = 20) -> list[IntentRecord]:
     rows = conn.execute("SELECT * FROM intents ORDER BY intent_id DESC LIMIT ?", (limit,))
     return [_record(r) for r in rows]
+
+
+def claim(conn: sqlite3.Connection, intent_id: str, from_state: str, to_state: str, now_wall: float) -> bool:
+    """Move an intent from one state to another only if it is still in from_state; True if this
+    call did it. One UPDATE, so two workers can never both take the same intent."""
+    record = get(conn, intent_id)
+    if record is None:
+        return False
+    times = json.dumps({**record.state_times, to_state: now_wall})
+    cursor = conn.execute("UPDATE intents SET state = ?, state_times = ? WHERE intent_id = ? AND state = ?",
+                          (to_state, times, intent_id, from_state))
+    return cursor.rowcount == 1
 
 
 def set_state(conn: sqlite3.Connection, intent_id: str, state: str, now_wall: float, **fields: Any) -> IntentRecord:

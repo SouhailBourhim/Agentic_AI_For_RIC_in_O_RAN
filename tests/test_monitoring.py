@@ -4,8 +4,7 @@ from pathlib import Path
 
 from prometheus_client import CollectorRegistry, generate_latest
 
-from agent import intents as machine
-from conftest import start_cell
+from conftest import run_agent, start_cell
 from monitoring.exporter import RicCollector
 from store.db import db_path
 
@@ -19,8 +18,8 @@ def scrape(path: Path) -> str:
 def test_exporter_exposes_slices_policy_and_intents(ric_db, tiny_policy_file) -> None:
     runner = start_cell(ric_db, tiny_policy_file)
     runner.run(10)
-    machine.submit(ric_db, "garantir 10 Mb/s au slice URLLC pendant 10 minutes", machine.Settings(mode="eval"), 0.0)
-    machine.submit(ric_db, "make the network better", machine.Settings(mode="eval"), 0.0)
+    run_agent(ric_db, "garantir 10 Mb/s au slice URLLC pendant 10 minutes", "eval")
+    run_agent(ric_db, "make the network better", "eval")
     runner.run(2)
     text = scrape(db_path())
     for line in [

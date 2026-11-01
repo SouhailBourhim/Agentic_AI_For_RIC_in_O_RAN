@@ -46,3 +46,17 @@ def start_cell(conn: sqlite3.Connection, policy_file: Path, scenario: str = "dem
     backend = SimBackend(cfg, scenario_traffic(scenario, cfg), seed=seed, speed=0.0)
     kpi.write_backend_info(conn, backend.info(), "tiny test policy")
     return Runner(backend, SlicePolicy.load(policy_file), db.connect(timeout_s=0.0), cfg.dt_s)
+
+
+def run_agent(conn: sqlite3.Connection, text: str, mode: str = "demo", now_wall: float = 0.0, llm=None,
+              runner: Runner | None = None, **settings):
+    """Submit an intent and run the agent on it, in-process. Defaults reproduce M04a's behaviour:
+    rule-based agent, no observation, no revision, stop at awaiting_confirmation in demo mode.
+    With a runner, backend time passes by running it (wait_and_observe)."""
+    from agent.tools import AgentContext, Settings
+    from agent.worker import submit_and_run
+
+    options = {"mode": mode, "observe_s": 0.0, "max_revisions": 0, "wait_for_confirmation": False, **settings}
+    ctx = AgentContext(conn=conn, settings=Settings(**options), llm=llm, now_wall=lambda: now_wall,
+                       wait_backend=(lambda s: runner.run(int(s))) if runner is not None else None)
+    return submit_and_run(ctx, text)

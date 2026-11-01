@@ -17,6 +17,7 @@ Plain Python: no LLM, no randomness, no network, no clock read (the time is in t
 tests/test_verifier_purity.py checks this. Each check is explained in docs/learn/M03-verifier.md.
 """
 
+import math
 from collections.abc import Mapping
 from typing import Any, Literal
 
@@ -46,6 +47,7 @@ class VerifierConfig(BaseModel):
 
     min_share_floor: float = Field(default=MIN_SLICE_SHARE, ge=0.0, le=1.0 / len(SLICES))  # same as the runner
     max_weight_step: float = Field(default=0.5, gt=0.0)  # per slice, between two merged objectives
+    max_share_step: float = Field(default=0.3, gt=0.0)  # per slice, between two direct PRB splits (LLM only)
     max_target_step_fraction: float = Field(default=0.3, gt=0.0)  # per slice, fraction of capacity
     min_duration_s: float = Field(default=10.0, gt=0.0)  # the policy needs ~10-20 steps to act
     max_duration_s: float = Field(default=86_400.0, gt=0.0)  # one day
@@ -273,12 +275,17 @@ def verify(
     state: VerifierState,
     config: VerifierConfig = DEFAULT_CONFIG,
     new_intent_id: str = "new",
+    replacing: str | None = None,
 ) -> Decision:
     """Accept or reject a proposed objective. Checks 1-8 in order; the first failure wins.
 
     On acceptance, Decision.merged is merge(active + new) at state.now_s: the objective the RL
     xApp follows from now on, with the intent_ids it comes from. The new intent is treated as
     issued now, so it is the newest one and its weights are used.
+
+    `replacing` (M04b): the id of an active intent this proposal replaces (a revision). Conflicts
+    are checked WITHOUT it, since it leaves when the revision is applied, but the step is
+    measured from what runs now, WITH it: a revision is a change from the objective in force.
     """
     obj = check_schema(proposal)
     if isinstance(obj, Decision):
@@ -299,14 +306,15 @@ def verify(
         return decision
 
     # Checks 7-8 look at the merge with the intents already active.
-    current = list(state.active)
+    running_now = list(state.active)
+    current = [i for i in running_now if i.intent_id != replacing]
     with_new = [*current, ActiveIntent(intent_id=new_intent_id, issued_at=state.now_s, objective=obj)]
     decision = check_merges(with_new, check_instants(obj, state), state, config, new_intent_id)
     if decision is not None:
         return decision
 
     start = max(obj.valid_from, state.now_s)
-    decision = check_step(merge(current, start).objective, merge(with_new, start).objective, state, config)
+    decision = check_step(merge(running_now, start).objective, merge(with_new, start).objective, state, config)
     if decision is not None:
         return decision
 
@@ -336,3 +344,28 @@ def _accept_reason(merged: MergedObjective) -> str:
     if not merged.intent_ids:
         return "no intent active: default objective"
     return f"accepted; once applied, the RL xApp follows the merge of {', '.join(merged.intent_ids)}"
+
+
+def verify_shares(shares: list[float], previous: list[float] | None,
+                  config: VerifierConfig = DEFAULT_CONFIG) -> Decision:
+    """Check a PRB split proposed directly (set_slice_share, the "LLM only" baseline of M08a).
+
+    Only that baseline sets shares itself; in the proposed controller the RL policy does
+    (hard invariant 4). Checks, in order: 3 finite numbers (schema), summing to 1 (budget),
+    every slice at or above the floor (floor), no slice moving more than max_share_step from the
+    split applied now (step). Same Decision as verify(); `merged` stays None.
+    """
+    values = list(shares)
+    if len(values) != len(SLICES) or not all(isinstance(v, (int, float)) and math.isfinite(v) for v in values):
+        return _reject("schema", f"a PRB split is {len(SLICES)} finite numbers (embb, urllc, be), got {shares}")
+    if abs(sum(values) - 1.0) > 1e-6:
+        return _reject("budget", f"PRB shares must sum to 1, got {sum(values):.4f}")
+    for s, v in zip(SLICES, values):
+        if v < config.min_share_floor - TOLERANCE:
+            return _reject("floor", f"{s} share {v:.3f} is below the floor of {config.min_share_floor:.0%} per slice")
+    if previous is not None:
+        for s, v, before in zip(SLICES, values, previous):
+            if abs(v - before) > config.max_share_step + TOLERANCE:
+                return _reject("step", f"{s} share would change by {abs(v - before):.2f} ({before:.2f} -> {v:.2f}),"
+                                       f" more than the maximum step {config.max_share_step:.2f}")
+    return Decision(accepted=True, check="ok", reason="PRB split accepted")

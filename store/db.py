@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS intents (
     issued_backend REAL,                   -- backend clock at submission
     applied_backend REAL,                  -- backend clock when applied: decides 'newest' in the merge
     confirm_deadline REAL,                 -- wall clock, only while awaiting confirmation
+    supersedes TEXT,                       -- a revision: the intent it replaces once applied (M04b)
     state_times TEXT NOT NULL              -- JSON {state: wall clock}
 );
 """
@@ -95,4 +96,17 @@ def connect(path: Path | None = None, timeout_s: float = 5.0) -> sqlite3.Connect
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(SCHEMA)
+    migrate(conn)
     return conn
+
+
+# Columns added after a table was first created: (table, column, SQL type). CREATE TABLE IF NOT
+# EXISTS does not add columns to an existing table, so they are added here, once.
+ADDED_COLUMNS = [("intents", "supersedes", "TEXT")]
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    for table, column, sql_type in ADDED_COLUMNS:
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}")
