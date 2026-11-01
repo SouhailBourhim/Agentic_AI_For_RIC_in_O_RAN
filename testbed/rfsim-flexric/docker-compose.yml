@@ -2,7 +2,7 @@
 # gNB (rfsim, E2 agent) + FlexRIC nearRT-RIC + KPM xApps + 3 nrUE, attached to the CN5G network.
 # Source: https://github.com/duranta-project/openairinterface5g (tag v3.0.0), ci-scripts/yaml_files/5g_rfsimulator_flexric/docker-compose.yml
 # Changes: local config paths; images pinned to v3.0.0; kept only the KPM and
-# MAC/RLC/PDCP/GTP monitor xApps; 3 UEs (IMSI ...02, ...03, ...04 -> 10.0.0.3/.4/.5).
+# MAC/RLC/PDCP/GTP monitor xApps; 3 UEs (IMSI ...02, ...03, ...04).
 
 services:
     nearRT-RIC:

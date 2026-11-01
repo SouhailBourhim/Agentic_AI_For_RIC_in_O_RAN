@@ -12,7 +12,8 @@ any change we made.
 | `rfsim-flexric/` | nearRT-RIC, KPM + MAC/RLC/PDCP/GTP monitor xApps, gNB (E2 agent), 3 nrUE | joins `oai-cn5g-public-net` |
 
 Addresses: AMF .132, UPF .134, ext-dn .135, nearRT-RIC .150, gNB .151, UEs .152/.153/.158.
-UE IPs (from the subscriber database): 10.0.0.3, 10.0.0.4, 10.0.0.5. PLMN 001/01, one slice SST=1.
+UE IPs are given by the SMF at attach time, in attach order, from 10.0.0.0/24; the static IPs in the
+subscriber database are not used. Read them with `ip -4 addr show oaitun_ue1`. PLMN 001/01, one slice SST=1.
 
 ## Prerequisites
 
@@ -29,7 +30,7 @@ docker compose -f oai-cn5g/docker-compose.yaml ps
 docker compose -f rfsim-flexric/docker-compose.yml up -d nearRT-RIC
 docker compose -f rfsim-flexric/docker-compose.yml up -d oai-gnb
 docker compose -f rfsim-flexric/docker-compose.yml up -d oai-nr-ue oai-nr-ue2 oai-nr-ue3
-docker exec rfsim5g-oai-nr-ue ip -4 addr show oaitun_ue1      # expect 10.0.0.3
+docker exec rfsim5g-oai-nr-ue ip -4 addr show oaitun_ue1      # a 10.0.0.x address
 docker exec rfsim5g-oai-nr-ue ping -c 3 -I oaitun_ue1 192.168.70.135
 docker compose -f rfsim-flexric/docker-compose.yml up -d xapp-kpm-moni   # prints KPM reports
 docker logs -f xapp-kpm-moni
