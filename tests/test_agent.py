@@ -14,6 +14,7 @@ from agent.parser import parse_intent
 from agent.service import app
 from conftest import start_cell
 from store import a1_policy
+from store.events import read_events
 
 DEMO = machine.Settings(mode="demo", confirm_timeout_s=120.0)
 EVAL = machine.Settings(mode="eval")
@@ -99,6 +100,8 @@ def test_confirming_after_deadline_expires_it(ric_db, tiny_policy_file) -> None:
     record = machine.submit(ric_db, URLLC_10, DEMO, now_wall=1000.0)
     assert apply_intent(ric_db, record.intent_id, now_wall=1200.0, confirmed_by="console").state == "expired"
     assert policy_rows(ric_db) == 0
+    late = [e for e in read_events() if e["event"] == "confirm_after_deadline"]
+    assert len(late) == 1 and late[0]["source"] == "console" and late[0]["data"]["late_by_s"] == 80.0
 
 
 def test_eval_mode_skips_confirmation(ric_db, tiny_policy_file) -> None:

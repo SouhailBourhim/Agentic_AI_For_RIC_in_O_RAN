@@ -118,9 +118,13 @@ def apply_intent(conn: sqlite3.Connection, intent_id: str, now_wall: float, conf
         if record.state != allowed:
             raise ApplyError(f"{intent_id} is {record.state}, not {allowed}")
         if record.confirm_deadline is not None and now_wall >= record.confirm_deadline:
+            late_by_s = now_wall - record.confirm_deadline
             record = intents.set_state(conn, intent_id, "expired", now_wall,
                                        reason="not confirmed before the deadline", confirm_deadline=None)
             conn.execute("COMMIT")
+            # Distinct from a lazy expiry found by a read: here someone tried to confirm too late.
+            log_event("console" if confirmed_by == "console" else "agent", "confirm_after_deadline", intent_id,
+                      data={"late_by_s": late_by_s})
             log_event("agent", "expired", intent_id)
             return record
 
