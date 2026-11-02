@@ -27,12 +27,14 @@ from agent.apply import apply_intent, backend_now, decision_dict
 from agent.intents import expire_pending
 from agent.parser import parse_facts
 from agent.prompts import PARSE_VERSION, PLAN_SYSTEM, REFLECT_SYSTEM, parse_messages
-from agent.schema import DEFAULT_DURATION_S, NOTHING_TO_DO, ParsedIntent, clarify
+from agent.schema import DEFAULT_DURATION_S, NOTHING_TO_DO, ParsedIntent, clarify, stated_changes
 from agent.tools import AgentContext
 from store import intents
 from store.events import log_event
 from verifier.objective import SLICES, RLObjective
 
+DEMO_RULE = ("\nDEMO MODE: keep min_thr_mbps, max_latency_ms and duration_s exactly as extracted. "
+             "If the verifier rejects them, call finish with its reason; never lower them.")
 SCRATCH_LINES = 8  # the plan step sees only the latest tool results: small context for an 8B model
 REFLECT_SCHEMA = {"type": "object", "properties": {"decision": {"type": "string", "enum": ["done", "revise"]},
                                                    "reason": {"type": "string"}},
@@ -50,6 +52,7 @@ class AgentState(TypedDict, total=False):
     revisions: int
     scratch: list[str]  # tool results and feedback shown to the plan step
     rejected_calls: list[str]  # proposals the verifier rejected (JSON), never sent again
+    stated_rejection: str | None  # demo mode: the verifier's reason for rejecting the stated values
     pending: dict | None  # the tool call chosen by plan: {"name", "arguments"}
     objective: dict | None  # the applied objective of active_id
     compliance: dict | None
@@ -145,7 +148,7 @@ def build_graph(ctx: AgentContext):  # noqa: C901 (one closure per node, kept to
     def llm_decision(state: AgentState) -> tuple[dict | None, float]:
         user = (f"Operator request: {state['text']}\nExtracted facts: {json.dumps(state['facts'])}\n"
                 f"Backend time: {backend_now(conn):g} s\n" + "\n".join(state.get("scratch", [])) +
-                "\nChoose exactly one tool.")
+                (DEMO_RULE if s.mode == "demo" else "") + "\nChoose exactly one tool.")
         messages = [{"role": "system", "content": PLAN_SYSTEM[s.controller]}, {"role": "user", "content": user}]
         latency = 0.0
         for _ in (1, 2):
@@ -216,12 +219,25 @@ def build_graph(ctx: AgentContext):  # noqa: C901 (one closure per node, kept to
 
     def set_objective(state: AgentState, args: dict, key: str) -> dict:
         revision_of = state.get("active_id")  # an applied objective exists: this is a revision
+        changes = stated_changes(state["facts"], args) if s.mode == "demo" else []
+        if changes:  # demo mode: the operator's numbers are not the agent's to relax
+            step(state, "act", tool="set_rl_objective", arguments=args, result="changes stated values",
+                 changes=changes)
+            if state.get("stated_rejection"):
+                final = (f"the verifier rejected the operator's stated values ({state['stated_rejection']}); "
+                         "demo mode does not relax them")
+                return done(state, final) if state.get("active_id") else reject(state, final)
+            return {**rejected_action(state, "demo mode keeps the operator's stated values; you changed "
+                                      + "; ".join(changes)), "rejected_calls": [*state["rejected_calls"], key]}
         decision, objective = tools.propose_objective(
             ctx, state["intent_id"], revision_of, args.get("importance") or {}, args.get("min_thr_mbps"),
             args.get("max_latency_ms"), args.get("duration_s"))
         step(state, "act", tool="set_rl_objective", arguments=args, verifier=decision_dict(decision))
         if not decision.accepted:
-            return {**rejected_action(state, decision.reason), "rejected_calls": [*state["rejected_calls"], key]}
+            update = {**rejected_action(state, decision.reason), "rejected_calls": [*state["rejected_calls"], key]}
+            if s.mode == "demo":  # the values were the operator's own (checked above)
+                update["stated_rejection"] = decision.reason
+            return update
         now_wall = ctx.now_wall()
         if revision_of is None:
             target = state["intent_id"]

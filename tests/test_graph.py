@@ -13,6 +13,7 @@ import pytest
 from agent import tools
 from agent.apply import apply_intent
 from agent.llm import FakeLLM, LLMError, LLMReply, OllamaClient, tool_call
+from agent.schema import stated_changes
 from agent.tools import AgentContext, Settings, ToolNotAllowed
 from agent.worker import next_intent, process_one, submit_and_run
 from conftest import run_agent, start_cell
@@ -71,6 +72,38 @@ def test_verifier_rejection_replans(ric_db, cell) -> None:
     assert record.state == "applied"
     plan_prompt = llm.requests[2]["messages"][1]["content"]
     assert "VERIFIER REJECTED" in plan_prompt and "trained on" in plan_prompt  # the reason reaches the LLM
+
+
+def test_demo_mode_never_relaxes_a_stated_value(ric_db, cell) -> None:
+    """Live demo: 60 Mb/s rejected, the LLM proposed 30. In demo mode the intent ends instead
+    (decision of 2026-11-02: relaxing is allowed in eval mode only)."""
+    script = [facts(urllc=60), objective_call(urllc=60.0), objective_call(urllc=30.0)]
+    record, llm = agent(ric_db, cell, script, mode="demo", wait_for_confirmation=False)
+    assert record.state == "rejected" and "stated values" in record.reason and "trained on" in record.reason
+    assert a1_policy.current_schedule(ric_db) == [] and record.objective is None
+    assert "DEMO MODE" in llm.requests[1]["messages"][1]["content"]  # the plan step is told
+
+
+def test_demo_mode_lets_the_model_fix_a_dropped_value(ric_db, cell) -> None:
+    """A proposal that loses a stated value (here the latency) is sent back, not applied."""
+    script = [facts(urllc=10, lat=10.0), objective_call(urllc=10.0), objective_call(urllc=10.0, lat=10.0)]
+    record, _ = agent(ric_db, cell, script, mode="demo", wait_for_confirmation=False)
+    assert record.state == "awaiting_confirmation" and record.objective.max_latency_ms == 10.0
+
+
+def test_eval_mode_may_relax_a_rejected_value(ric_db, cell) -> None:
+    script = [facts(urllc=60), objective_call(urllc=60.0), objective_call(urllc=20.0), reflection()]
+    record, _ = agent(ric_db, cell, script)
+    assert record.state == "applied" and record.objective.min_thr_mbps.urllc == 20.0
+
+
+def test_stated_changes_lists_only_relaxed_stated_values() -> None:
+    stated = json.loads(facts(urllc=20, lat=10.0, dur=300.0))
+    same = {"importance": {"urllc": 9}, "min_thr_mbps": {"urllc": 20}, "max_latency_ms": 10, "duration_s": 300}
+    assert stated_changes(stated, same) == []
+    lowered = {**same, "min_thr_mbps": {"urllc": 15}, "duration_s": None}
+    assert stated_changes(stated, lowered) == ["urllc minimum 20 Mb/s (proposed 15)", "duration_s 300 s (proposed None)"]
+    assert stated_changes(json.loads(facts(urllc=20, dur=None)), {"min_thr_mbps": {"urllc": 20, "embb": 5}}) == []
 
 
 def test_three_rejections_reject_the_intent(ric_db, cell) -> None:

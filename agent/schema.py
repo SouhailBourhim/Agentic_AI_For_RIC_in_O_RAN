@@ -66,6 +66,30 @@ def clarify(question: str) -> ParsedIntent:
                         max_latency_ms=None, duration_s=None)
 
 
+def stated_changes(facts: dict, arguments: dict) -> list[str]:
+    """The operator's stated values that a proposed objective changes (empty = all kept).
+
+    Stated = not null in the parse: each minimum throughput, the latency bound, the duration.
+    Used in demo mode, where the agent may choose the importances but not relax what the
+    operator asked for (decision of 2026-11-02: relaxing is allowed in eval mode only).
+    """
+    changes = []
+    proposed_thr = arguments.get("min_thr_mbps") or {}
+    for s in SLICES:
+        stated = facts["min_thr_mbps"][s]
+        if stated is not None and not _same(stated, proposed_thr.get(s)):
+            changes.append(f"{s} minimum {stated:g} Mb/s (proposed {proposed_thr.get(s)})")
+    for key, unit in (("max_latency_ms", "ms"), ("duration_s", "s")):
+        stated = facts[key]
+        if stated is not None and not _same(stated, arguments.get(key)):
+            changes.append(f"{key} {stated:g} {unit} (proposed {arguments.get(key)})")
+    return changes
+
+
+def _same(a: float, b: float | None) -> bool:
+    return b is not None and abs(float(a) - float(b)) <= 1e-6
+
+
 def weights_from_importance(importance: dict[str, float]) -> SliceValues:
     """Importance 0..10 per slice -> weights summing to 1. All zero -> the default weights.
 

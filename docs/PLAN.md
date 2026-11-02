@@ -265,7 +265,10 @@ explicitly as not E2. M02–M05 are unaffected: they run on the simulator.
   higher than needed. M08a should report this cost, not only target compliance. Levers to weigh:
   the importance the plan step chooses (6 instead of 8), a reward term for share above target,
   or a revision triggered by over-compliance.
-- **May the agent relax a target the operator stated? (decide before M05a.)** M04b live demo:
+- ~~**May the agent relax a target the operator stated?**~~ **Decided (2026-11-02): option (c),
+  only in eval mode. In demo mode a proposal that changes a stated value is sent back, and once
+  the verifier has rejected the stated values the intent ends with its reason
+  (`stated_changes`, agent/graph.py `set_objective`; DECISIONS.md).** M04b live demo:
   for "garantir 60 Mb/s au slice URLLC", the verifier rejected 60 Mb/s and the LLM replanned with
   30 Mb/s (the largest allowed), which the verifier accepted; the console showed it and the
   operator refused. Options: (a) keep it, and make the console flag "differs from the request";

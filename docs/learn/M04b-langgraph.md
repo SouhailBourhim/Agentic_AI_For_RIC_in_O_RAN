@@ -137,7 +137,7 @@ flowchart LR
 ## 5. How to run it and check it works
 
 ```bash
-uv run pytest -q                                    # expected: 294 passed (no GPU, no Ollama)
+uv run pytest -q                                    # expected: 298 passed (no GPU, no Ollama)
 uv run python -m eval.extraction --parser qwen3:8b --split tune   # 20/20 with prompt v2, ~1.3 s per parse
 uv run python -m eval.benchmark_models              # ~5 min: the model choice (runs/m04b/model_benchmark.json)
 uv run python -m agent.plot_trace                   # ~1 min with Ollama: the figure and trace below
@@ -239,9 +239,14 @@ and the split goes back to the default behaviour while the surge continues. One 
      accepted.
   3. The console showed the operator's text next to "min Mb/s 30", and the operator refused it.
 
-  Nothing unsafe can happen: the verifier and the console both stand in the way. But the agent
-  changed a number the operator stated. Whether it may do that is an open design question,
-  recorded in [PLAN §8](../PLAN.md).
+  Nothing unsafe could happen: the verifier and the console both stood in the way. But the
+  agent had changed a number the operator stated. **Decision: relaxing is allowed in eval mode
+  only.** In demo mode, `stated_changes` ([agent/schema.py](../../agent/schema.py)) compares each
+  proposal with the stated values, and the plan prompt says so. A proposal that changes one is
+  sent back to the plan step; once the verifier has rejected the stated values themselves,
+  the intent ends with the verifier's reason. Re-run with qwen3:8b in demo mode: 60 Mb/s
+  rejected, then the model called `finish` with the verifier's reason, and nothing reached the
+  console.
 
 ### Choosing the model and tuning the prompt
 
@@ -276,6 +281,12 @@ in M08b.
     cannot be attributed.
 - **Importance 0–10 instead of weights.** An 8B model is bad at three decimals that sum to 1.
   The normalisation is code, and the verifier still checks the result.
+- **Demo mode keeps the operator's numbers; eval mode may adapt them.** In front of a person
+  the agent may choose the importances, but each stated target, bound and duration reaches the
+  verifier unchanged or the intent ends. In the automated evaluation, adapting to the
+  verifier's feedback is part of what is measured.
+  - *Rejected:* letting it adapt in demo mode with a warning in the console, since an operator
+    who confirms quickly could miss the warning.
 - **The verifier stays outside the LLM's reach.** The model proposes; `verify()` decides, and
   its reason goes back into the next prompt. A model that repeats a rejected proposal (seen
   with llama3.1) is stopped instead of asked again.

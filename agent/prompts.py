@@ -67,7 +67,8 @@ Call exactly ONE tool per turn.
   priority, favour the slices that have a guarantee; min_thr_mbps, max_latency_ms and
   duration_s exactly as extracted, never larger.
 - If the verifier rejected your last objective, read its reason and propose a corrected one
-  that still serves the operator (for example a lower target or a shorter duration).
+  that still serves the operator (outside demo mode, for example a lower target or a
+  shorter duration).
 - If a reflection asks for a revision, propose a better objective (usually a higher
   importance for the slice that missed its target), within what the operator asked.
 - Call get_kpis only if you need the current load to decide.
