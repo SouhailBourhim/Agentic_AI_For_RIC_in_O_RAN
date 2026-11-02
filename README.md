@@ -1,44 +1,256 @@
-# Agentic AI for the RIC in O-RAN
+# Agentic AI for the RAN Intelligent Controller (O-RAN)
 
-Personal project by Souhail Bourhim.
+**An operator types a goal in plain French or English. A local LLM agent turns it into an
+objective, a deterministic verifier checks it, and a goal-conditioned reinforcement-learning
+xApp reallocates the radio resources of a 5G cell, every second.**
 
-An operator states a goal in plain language. An LLM agent (LangGraph) turns it into an objective for a
-goal-conditioned RL xApp (DDPG) that allocates PRBs between slices in the Near-RT RIC. A deterministic
-verifier checks every objective before it is applied. Hermes Agent is only the operator chat interface,
-behind an MCP gateway that exposes three tools. Testbed: OpenAirInterface (rfsim) + OAI 5G core + FlexRIC.
+> "Protège l'URLLC : au moins 20 Mb/s et une latence sous 10 ms pendant 5 minutes."
+>
+> About five seconds later the agent has a verified objective waiting for the operator. Once it
+> is confirmed, the URLLC slice gets about 80 % of the cell, its latency drops back under 10 ms,
+> and the agent checks the result against the operator's numbers.
 
-- Design: [`docs/Proposition_IA_agentique_RIC_ORAN_v2.pdf`](docs/Proposition_IA_agentique_RIC_ORAN_v2.pdf) (French)
-- Rules for the coding agent: [`CLAUDE.md`](CLAUDE.md)
-- Overall plan (checkpoints, order, interfaces, risks): [`docs/PLAN.md`](docs/PLAN.md)
-- Build order, one prompt per checkpoint: [`PROMPTS.md`](PROMPTS.md)
-- Learning notes, one per checkpoint: `docs/learn/` (written as the project progresses)
+Personal research and engineering project by **Souhail Bourhim**. Everything runs on one laptop:
+a simulated cell, an RL controller, an 8B LLM on the local GPU, and a real OpenAirInterface 5G
+testbed in Docker.
 
-## Quickstart
+![Live demo: the RL xApp serving an operator intent](docs/learn/img/M04b-grafana-after.png)
+*Live run (Grafana). An intent arrives during a URLLC traffic surge: the RL xApp gives URLLC
+about 80 % of the PRBs and its latency drops under the 10 ms bound. The two panels at the bottom
+show the objective the LLM chose and the verifier confirmed.*
 
-Requires [uv](https://docs.astral.sh/uv/) (it installs the right Python by itself).
+---
 
-```bash
-uv sync          # create .venv and install the locked dependencies
-uv run pytest    # run the tests
+## Why this project is interesting
+
+Putting an LLM into a network controller is attractive, because operators can speak in intents
+instead of configuration. It is also risky, because LLMs are slow, non-deterministic and
+sometimes wrong. This project's answer is to **give each component only the job it is good
+at**:
+
+| Component | Its job | What it is never allowed to do |
+|---|---|---|
+| **LLM agent** (LangGraph, qwen3:8b) | Understand the request, choose an objective, judge whether it worked | Touch the radio, set the PRB split, or skip the verifier |
+| **Verifier** (plain Python) | Accept or reject every objective, with a reason | Use an LLM, randomness, the network or the clock |
+| **RL xApp** (TD3, goal-conditioned) | Split the PRBs between slices every second | Wait for the LLM: it runs on its own loop |
+| **Operator console** | Confirm or refuse each change, with a timeout | Be reachable from the chat interface |
+
+These rules are written as six **hard invariants**. Each one has an automated test as soon as
+the component it protects exists. For example: submitting an intent never writes to the policy
+channel, the verifier module imports nothing non-deterministic, the RL runner imports nothing
+from the agent, and the direct PRB-split tool cannot run outside the "LLM only" baseline.
+
+## Architecture
+
+![Architecture: language, safety, control and RAN layers](docs/img/architecture.svg)
+
+The figure follows a request from left to right, and the KPI store at the bottom closes the
+loop. Dashed boxes are planned or partly built; see [Status](#status-and-roadmap). Two design
+choices carry the architecture:
+
+- **The LLM changes the objective, not the actions.** The RL policy takes the objective as part
+  of its input: per-slice weights, minimum throughputs and a URLLC latency bound. It was
+  trained on randomly sampled objectives, so a new operator goal needs no retraining. Without
+  this, an LLM changing goals at run time would be pointless.
+- **One backend interface.** The RL runner calls the same five methods whether the RAN is the
+  Python simulator or the real OAI gNB through FlexRIC. Nothing above the runner knows which
+  one is behind it.
+
+## What happens to one request
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Op as Operator
+    participant S as Agent service
+    participant A as LangGraph worker (LLM)
+    participant V as Verifier
+    participant C as Console
+    participant R as RL xApp
+    Op->>S: "Protège l'URLLC : au moins 20 Mb/s, latence sous 10 ms, 5 min"
+    S-->>Op: received (nothing applied yet)
+    A->>S: claims the request
+    A->>A: parse to facts (priority urllc, 20 Mb/s, 10 ms, 300 s)
+    A->>V: set_rl_objective(importance 2/8/2, targets)
+    alt rejected
+        V-->>A: reason, e.g. "60 Mb/s is above the trained range"
+        A->>A: re-plan (demo mode keeps the operator's numbers)
+    else accepted
+        V-->>C: awaiting confirmation
+        Op->>C: confirm
+        C->>R: objective in force for 300 s
+        R->>R: new PRB split every second
+        A->>A: observe 20 s, compute compliance in code
+        A->>A: reflect: done, or revise once
+    end
 ```
 
-## Layout
+The agent itself is an explicit LangGraph state machine. There is no free-running ReAct loop:
+each node has a bounded number of retries, a step limit and a revision limit, and each limit
+has a test.
 
-| Folder | What goes there |
+```mermaid
+flowchart LR
+    P[parse<br/>LLM, JSON schema] -->|not understood| Q([ask a question])
+    P --> PL[plan<br/>LLM, one tool call]
+    PL --> AC[act]
+    AC -->|read KPIs| PL
+    AC -->|propose| V{verifier}
+    V -->|reject, max 2| PL
+    V -->|accept| CF[confirm<br/>console, demo mode]
+    CF --> O[observe<br/>20 s, compliance in code]
+    O --> RF[reflect<br/>LLM: done or revise]
+    RF -->|revise, max 1| PL
+    RF --> D([done])
+```
+
+The run below is one real intent, step by step: the LLM calls are the blue bars at the top, and
+the cell's response is underneath.
+
+![One intent traced through the agent](docs/learn/img/M04b-trace.png)
+
+## Results so far
+
+**Goal-conditioned RL that passes a test it could fail.** Showing that a policy "follows the
+objective" turned out to be the hard part.
+- The first criterion (M02) failed, and the failure is kept on record. Investigating it showed
+  the criterion was flawed: even a perfect controller could fail it.
+- The new test compares the policy with an evaluation-only **oracle** that searches 861
+  candidate splits every second using the true future loads. The thresholds were fixed before
+  any training.
+- On a held-out test run once, **5 of 5 fresh training seeds pass**: telling the policy the
+  objective helps in 97 % of the cases where it matters, and it captures 70–88 % of the
+  oracle's advantage. It earns 0.28 reward per step against 0.18 for an equal split.
+
+![Held-out goal-conditioning test](docs/learn/img/M02b-test.png)
+
+**The same policy under two objectives, on the same traffic.** Told "protect URLLC", it hands
+URLLC most of the cell during a surge and keeps URLLC latency under the bound. Told "maximise
+eMBB", it does not.
+
+![Same policy, two objectives](docs/learn/img/M02-objectives.png)
+
+**A verifier that explains itself.** Eight checks run in a fixed order: schema, validity window,
+latency physics, PRB budget, per-slice floor, the policy's training range, conflicts with active
+intents, and step size. Each rejection is a sentence with the numbers in it, and the LLM reads
+it when it re-plans. When several intents are active, they are merged into the single objective
+the RL xApp will follow, and that merge is what gets verified.
+
+**Safety found by running it.** The first live demo showed best effort starved at 2 % of the
+PRBs, with a median latency of 41 s.
+- Fix: a 5 % per-slice floor, enforced by one deterministic function in the actuator, and
+  present during training as well.
+- The policy was retrained with the same frozen recipe and promoted through the registry's gate.
+- Result: best effort now always gets at least 5 % of the PRBs, and URLLC latency during the
+  surge improved from 4.9 ms to 4.1 ms.
+
+**An LLM chosen by measurement, not by reputation.** Five local models were benchmarked on
+annotated intents, under a selection rule written down before the run.
+- Two models scored as well but did not fit entirely in 8 GB of VRAM. llama3.1:8b scored lower.
+  granite4.2:8b returned schema-valid but empty answers.
+- **qwen3:8b** won: 19/20 with prompt v1, then 20/20 after a general fix (an answer saying
+  "understood" must actually contain a fact).
+- Parsing takes about 1.3 s. A held-out set of 20 intents was written before the prompt
+  existed, and it is reserved for the final evaluation.
+
+**A real 5G testbed on a laptop.** It runs the OAI 5G core, an OAI gNB in RF-simulator mode,
+the FlexRIC near-RT RIC and three UEs (one per slice), all from official Docker images.
+- Measured capacity: about 75 Mb/s. The simulator is calibrated to it.
+- Main finding: per-slice monitoring (KPM) works out of the box, but **PRB-split control over E2
+  does not exist in OAI v3.0.0**. The plan therefore includes a small custom gNB build, which
+  is documented as a decision.
+
+## Engineering practices
+
+- **298 automated tests**, run by GitHub Actions on every push. No GPU, LLM or testbed is
+  needed: the LLM is replaced by a scripted fake.
+- **Pre-registration.** Pass/fail criteria, model-selection rules and held-out sets are
+  committed before the experiment runs. Failed criteria stay in the record.
+- **MLOps on a laptop:** local MLflow tracking of every training and evaluation run, a model
+  registry, and a deterministic promotion gate. A policy becomes "champion" only with recorded
+  test evidence.
+- **Decision log.** [docs/DECISIONS.md](docs/DECISIONS.md) records more than 100 decisions, each
+  with its date and reason, including the alternatives rejected.
+- **A learning note per checkpoint** ([docs/learn/](docs/learn/)): what was built, how it works
+  with file:line references, how to run and check it, the choices made, and questions to test
+  understanding.
+- **Live observability:** a Prometheus exporter and a provisioned Grafana dashboard show every
+  slice, the objective in force, intent states and verifier decisions.
+- **AI-assisted, human-owned.** The code is written with an AI coding assistant (Claude Code),
+  under rules in [CLAUDE.md](CLAUDE.md): plan first, simple readable code, a test for every
+  invariant, and no result that wasn't measured.
+
+## Status and roadmap
+
+| Checkpoint | What it delivers | Status |
+|---|---|---|
+| M01 | Gymnasium simulator: one cell, three slices (eMBB, URLLC, best effort), objective schema | Done |
+| M02 / M02b | Goal-conditioned DDPG/TD3 policy, oracle-validated goal test | Done (5/5 seeds pass the held-out test) |
+| M02c | MLflow tracking, model registry, promotion gate, CI | Done |
+| M03 | Deterministic verifier and multi-intent merge | Done |
+| M04a | Processes and plumbing: backend interface, KPI store, A1 emulation, RL runner, console, Grafana | Done |
+| M04b | LangGraph agent with a local LLM, model benchmark, annotated intents | Done |
+| M06-spike | OAI + FlexRIC testbed reconnaissance and simulator calibration | Done |
+| M05a | MCP gateway with exactly three tools | Next |
+| M06 / M07a | Three network slices end to end on the testbed; KPM monitoring xApp | Planned |
+| M05b | Hermes Agent as the chat interface, isolated | Planned (can be cut) |
+| M07b | PRB-split control on the real gNB (custom build), FlexRIC backend | Planned |
+| M08a–c | Four-controller comparison (static, RL only, LLM only, LLM + RL) on the simulator and the testbed; extraction accuracy on the held-out intents | Planned |
+
+The full plan, with interfaces, risks and how each hypothesis gets tested, is in
+[docs/PLAN.md](docs/PLAN.md). The original design document (in French) is
+[docs/Proposition_IA_agentique_RIC_ORAN_v2.pdf](docs/Proposition_IA_agentique_RIC_ORAN_v2.pdf).
+
+## Tech stack
+
+**Python 3.12, uv**, pydantic and FastAPI. **gymnasium** and **stable-baselines3** (TD3/DDPG)
+for the RL. **LangGraph** for the agent, with **Ollama** serving a local 8B LLM behind a small
+client that can be swapped for a cloud model. **MLflow** for tracking and the registry,
+**SQLite** in WAL mode for the shared state, **Prometheus** and **Grafana** for live
+monitoring, and **matplotlib** and **marimo** for figures and notebooks. The testbed uses
+**OpenAirInterface** (5G core, gNB, nrUE in RF simulation), **FlexRIC** and **Docker**.
+Everything runs on WSL2 with an RTX 5070 laptop GPU.
+
+## Try it
+
+Requires [uv](https://docs.astral.sh/uv/), which installs the right Python by itself.
+
+```bash
+uv sync                              # install the locked dependencies
+uv run pytest -q                     # 298 tests; no GPU, LLM or Docker needed
+uv run python -m rl.plot_runner      # one intent through the whole chain, simulated (~10 s)
+```
+
+With [Ollama](https://ollama.com) and `qwen3:8b` installed:
+
+```bash
+uv run python -m agent.plot_trace                                  # one intent through the LLM agent
+uv run python -m eval.extraction --parser qwen3:8b --split tune    # extraction score
+```
+
+The six-process live demo (RL runner, agent service, agent worker, exporter with Grafana, and
+the console) is described step by step in
+[docs/learn/M04b-langgraph.md](docs/learn/M04b-langgraph.md#5-how-to-run-it-and-check-it-works).
+
+## Repository layout
+
+| Folder | Contents |
 |---|---|
-| `sim/` | gymnasium environment: one cell, three slices |
-| `rl/` | DDPG training and the goal-conditioned policy |
-| `verifier/` | objective schema and deterministic checks (no LLM) |
-| `agent/` | LangGraph service (FastAPI): intent → RL objective |
-| `gateway/` | MCP server with exactly 3 tools: `submit_intent`, `get_kpis`, `get_status` |
-| `console/` | operator confirmation console (demo mode) |
-| `backends/` | one interface, two backends: simulator and FlexRIC |
-| `xapps/` | FlexRIC xApps: KPM monitoring, slice control |
-| `testbed/` | Docker/configs for OAI CN5G, gNB, nrUE (rfsim), FlexRIC |
-| `eval/` | scenarios, controller comparison, interface metrics, plots |
-| `monitoring/` | Prometheus exporter + Grafana dashboards (from M04a) |
-| `notebooks/` | marimo notebooks to explore each checkpoint (`uv run marimo edit notebooks/<file>.py`) |
-| `tests/` | pytest |
-| `docs/` | design, [`DECISIONS.md`](docs/DECISIONS.md), learning notes in `docs/learn/` |
+| [sim/](sim/) | Gymnasium environment: one cell, three slices, traffic scenarios |
+| [rl/](rl/) | Training, goal-conditioned policy, oracle and goal test, RL runner (the xApp) |
+| [verifier/](verifier/) | Objective schema, the eight checks, multi-intent merge (no LLM) |
+| [agent/](agent/) | LangGraph agent, LLM client, internal tools, FastAPI service, worker |
+| [store/](store/) | Shared state: KPI table, `a1_policy` timetable, intents, event log |
+| [backends/](backends/) | The backend interface and the simulator backend (FlexRIC backend planned) |
+| [console/](console/) | Operator confirmation console |
+| [eval/](eval/) | Annotated intents, extraction scorer, model benchmark |
+| [mlops/](mlops/) | MLflow tracking, registry, promotion gate |
+| [monitoring/](monitoring/) | Prometheus exporter, Prometheus and Grafana configuration and dashboard |
+| [testbed/](testbed/) | OAI and FlexRIC configurations, measurements, packet captures |
+| [notebooks/](notebooks/) | marimo notebooks to explore the simulator and the policy |
+| [tests/](tests/) | pytest, including one test per hard invariant |
+| [docs/](docs/) | Plan, decisions, learning notes, design document |
 
-Status: M00, M01 (simulator), M06-spike (OAI + FlexRIC testbed reconnaissance, sim calibrated to 75 Mb/s), M02 + M02b (goal-conditioned policy; passes an oracle-validated held-out test on 5 of 5 fresh seeds) and M02c (local MLflow tracking, registry, promotion gate, CI) done. Next: M03 (verifier). Real PRB-split control (M07b): custom gNB build, `docs/PLAN.md` §7.
+## Contact
+
+Souhail Bourhim: [GitHub](https://github.com/SouhailBourhim)

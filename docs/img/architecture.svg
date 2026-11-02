@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" width="1200" height="600" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#3a3a38"/>
+    </marker>
+    <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8a8984"/>
+    </marker>
+    <style>
+      .panel { fill: #f6f6f4; stroke: #d6d5d0; stroke-width: 1.2; }
+      .box { fill: #ffffff; stroke: #3a3a38; stroke-width: 1.4; }
+      .planned { stroke-dasharray: 6 4; }
+      .title { font-size: 15px; font-weight: 700; fill: #0b0b0b; }
+      .sub { font-size: 12px; fill: #52514e; }
+      .name { font-size: 14px; font-weight: 700; fill: #0b0b0b; }
+      .note { font-size: 12px; fill: #52514e; }
+      .edge { stroke: #3a3a38; stroke-width: 1.6; fill: none; }
+      .feedback { stroke: #8a8984; stroke-width: 1.4; fill: none; stroke-dasharray: 5 4; }
+      .label { font-size: 12px; fill: #3a3a38; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="600" rx="14" fill="#ffffff"/>
+
+  <!-- operator -->
+  <rect x="20" y="168" width="110" height="64" rx="32" class="box"/>
+  <text x="75" y="206" text-anchor="middle" class="name">Operator</text>
+
+  <!-- language layer -->
+  <rect x="160" y="40" width="250" height="350" rx="10" class="panel"/>
+  <rect x="160" y="40" width="250" height="6" fill="#2a78d6"/>
+  <text x="176" y="72" class="title">Language layer</text>
+  <text x="176" y="90" class="sub">LLM: understands and proposes (seconds)</text>
+  <rect x="185" y="108" width="200" height="64" rx="8" class="box planned"/>
+  <text x="285" y="135" text-anchor="middle" class="name">MCP gateway</text>
+  <text x="285" y="155" text-anchor="middle" class="note">exactly 3 tools</text>
+  <rect x="185" y="196" width="200" height="64" rx="8" class="box"/>
+  <text x="285" y="223" text-anchor="middle" class="name">Agent service</text>
+  <text x="285" y="243" text-anchor="middle" class="note">stores the request</text>
+  <rect x="185" y="284" width="200" height="84" rx="8" class="box" stroke="#2a78d6"/>
+  <text x="285" y="312" text-anchor="middle" class="name">LangGraph agent</text>
+  <text x="285" y="332" text-anchor="middle" class="note">parse, plan, observe, reflect</text>
+  <text x="285" y="350" text-anchor="middle" class="note">local 8B LLM (Ollama)</text>
+
+  <!-- safety layer -->
+  <rect x="450" y="40" width="250" height="350" rx="10" class="panel"/>
+  <rect x="450" y="40" width="250" height="6" fill="#127a55"/>
+  <text x="466" y="72" class="title">Safety layer</text>
+  <text x="466" y="90" class="sub">plain Python: checks and confirms</text>
+  <rect x="475" y="108" width="200" height="64" rx="8" class="box" stroke="#127a55"/>
+  <text x="575" y="135" text-anchor="middle" class="name">Verifier</text>
+  <text x="575" y="155" text-anchor="middle" class="note">8 checks, reason on reject</text>
+  <rect x="475" y="196" width="200" height="64" rx="8" class="box"/>
+  <text x="575" y="223" text-anchor="middle" class="name">Operator console</text>
+  <text x="575" y="243" text-anchor="middle" class="note">confirm within 120 s</text>
+  <rect x="475" y="284" width="200" height="84" rx="8" class="box"/>
+  <text x="575" y="312" text-anchor="middle" class="name">a1_policy</text>
+  <text x="575" y="332" text-anchor="middle" class="note">timetable of objectives</text>
+  <text x="575" y="350" text-anchor="middle" class="note">(emulated A1 channel)</text>
+
+  <!-- control layer -->
+  <rect x="740" y="40" width="190" height="350" rx="10" class="panel"/>
+  <rect x="740" y="40" width="190" height="6" fill="#c4521d"/>
+  <text x="756" y="72" class="title">Control layer</text>
+  <text x="756" y="90" class="sub">RL: acts every second</text>
+  <rect x="752" y="196" width="166" height="128" rx="8" class="box" stroke="#c4521d"/>
+  <text x="835" y="226" text-anchor="middle" class="name">RL xApp</text>
+  <text x="835" y="248" text-anchor="middle" class="note">goal-conditioned</text>
+  <text x="835" y="266" text-anchor="middle" class="note">TD3 policy</text>
+  <text x="835" y="290" text-anchor="middle" class="note">5 % floor per slice</text>
+  <text x="835" y="308" text-anchor="middle" class="note">never waits for the LLM</text>
+
+  <!-- RAN -->
+  <rect x="970" y="40" width="210" height="350" rx="10" class="panel"/>
+  <rect x="970" y="40" width="210" height="6" fill="#6b6a66"/>
+  <text x="986" y="72" class="title">RAN</text>
+  <text x="986" y="90" class="sub">one backend interface</text>
+  <rect x="990" y="150" width="170" height="70" rx="8" class="box"/>
+  <text x="1075" y="180" text-anchor="middle" class="name">Simulator</text>
+  <text x="1075" y="200" text-anchor="middle" class="note">1 cell, 3 slices</text>
+  <rect x="990" y="270" width="170" height="70" rx="8" class="box planned"/>
+  <text x="1075" y="300" text-anchor="middle" class="name">OAI gNB + FlexRIC</text>
+  <text x="1075" y="320" text-anchor="middle" class="note">real 5G testbed</text>
+
+  <!-- KPI store and monitoring -->
+  <rect x="160" y="440" width="1020" height="50" rx="10" class="box"/>
+  <text x="670" y="470" text-anchor="middle" class="name">KPI store (throughput, load, latency, PRB share per slice, every second)</text>
+  <rect x="970" y="526" width="210" height="50" rx="8" class="box"/>
+  <text x="1075" y="556" text-anchor="middle" class="name">Prometheus + Grafana</text>
+
+  <!-- main path -->
+  <path d="M130,200 H150 V140 H183" class="edge" marker-end="url(#a)"/>
+  <text x="138" y="128" class="label">intent</text>
+  <path d="M285,172 V194" class="edge" marker-end="url(#a)"/>
+  <path d="M285,260 V282" class="edge" marker-end="url(#a)"/>
+  <path d="M385,326 H430 V140 H473" class="edge" marker-end="url(#a)"/>
+  <text x="444" y="244" class="label" transform="rotate(-90 444 244)" text-anchor="middle">proposed objective</text>
+  <path d="M575,172 V194" class="edge" marker-end="url(#a)"/>
+  <text x="583" y="188" class="label">accepted</text>
+  <path d="M575,260 V282" class="edge" marker-end="url(#a)"/>
+  <text x="583" y="276" class="label">confirmed</text>
+  <path d="M675,326 H720 V260 H750" class="edge" marker-end="url(#a)"/>
+  <text x="682" y="318" class="label">in force</text>
+  <path d="M918,240 H962 V185 H988" class="edge" marker-end="url(#a)"/>
+  <text x="923" y="219" class="label">PRB</text>
+  <text x="923" y="232" class="label">split</text>
+  <path d="M918,290 H962 V305 H988" class="edge planned" marker-end="url(#a)"/>
+  <text x="921" y="284" class="label" font-size="11">planned</text>
+
+  <!-- measurements and feedback -->
+  <path d="M1075,220 V250 H1172 V438" class="edge" marker-end="url(#a)"/>
+  <path d="M1075,340 V438" class="edge planned" marker-end="url(#a)"/>
+  <path d="M835,440 V326" class="feedback" marker-end="url(#ag)"/>
+  <text x="843" y="420" class="label">state</text>
+  <path d="M300,440 V370" class="feedback" marker-end="url(#ag)"/>
+  <text x="308" y="420" class="label">KPIs (get_kpis)</text>
+  <path d="M1075,490 V524" class="edge" marker-end="url(#a)"/>
+
+  <!-- legend -->
+  <rect x="20" y="526" width="34" height="16" rx="3" class="box planned"/>
+  <text x="62" y="539" class="note">planned or partly built</text>
+  <path d="M20,566 H54" class="feedback"/>
+  <text x="62" y="570" class="note">measurement feedback</text>
+</svg>
