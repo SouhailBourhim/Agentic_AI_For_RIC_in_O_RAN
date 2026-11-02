@@ -151,7 +151,8 @@ the FlexRIC near-RT RIC and three UEs (one per slice), all from official Docker 
 | M04b | LangGraph agent with a local LLM, model benchmark, annotated intents | Done |
 | M06-spike | OAI + FlexRIC testbed reconnaissance and simulator calibration | Done |
 | M05a | MCP gateway with exactly three tools, CLI MCP client, live demo of the three cases | Done |
-| M06 / M07a | Three network slices end to end on the testbed; KPM monitoring xApp | Next |
+| M06 | Three network slices end to end on the testbed (OAI core, gNB, one UE per slice), capacity and load measured | Done |
+| M07a | KPM monitoring xApp (one subscription per slice) | Next |
 | M05b | Hermes Agent as the chat interface, isolated | Planned (can be cut) |
 | M07b | PRB-split control on the real gNB (custom build), FlexRIC backend | Planned |
 | M08a–c | Four-controller comparison (static, RL only, LLM only, LLM + RL) on the simulator and the testbed; extraction accuracy on the held-out intents | Planned |
@@ -176,7 +177,7 @@ Requires [uv](https://docs.astral.sh/uv/), which installs the right Python by it
 
 ```bash
 uv sync                              # install the locked dependencies
-uv run pytest -q                     # 319 tests; no GPU, LLM or Docker needed
+uv run pytest -q                     # 336 tests; no GPU, LLM or Docker needed
 uv run python -m gateway.client tools # the MCP gateway's three tools
 uv run python -m rl.plot_runner      # one intent through the whole chain, simulated (~10 s)
 ```

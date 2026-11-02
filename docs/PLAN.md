@@ -39,7 +39,7 @@ RAM in WSL, RTX 5070 Laptop with 8151 MiB VRAM, about 1.5 GB of it used by Windo
 | M04a Plumbing | Backend interface, SimBackend, KPI store, `a1_policy`, RL runner, FastAPI with intent state machine, console; rule-based parser, no LLM | M01–M03 | 3–4 | Getting process boundaries and the clock right |
 | M04b Agent | LLM client (Ollama, swappable), LangGraph graph, parsing prompt, annotated-intent template | M04a | 3–4 | 8B model tool calling and JSON output are unreliable |
 | M05a Gateway | MCP server with exactly 3 tools, calling only the agent HTTP API; 3-case demo with a CLI client | M04b | 1–2 | Low |
-| M06 Testbed | 3 S-NSSAIs end to end (core config + database, gNB `snssaiList`, UEs), one UE per slice, traffic scripts, ordered start/stop script | spike | 3–5 | KPM style-4 reports filter on one S-NSSAI, so probably one subscription per slice |
+| M06 Testbed | 3 S-NSSAIs end to end (core config + database, gNB `snssaiList`, UEs), one UE per slice, traffic scripts, ordered start/stop script | spike | 3–5 | KPM style-4 reports filter on one S-NSSAI, so probably one subscription per slice. **Done 2026-11-02** (`docs/learn/M06-testbed.md`): confirmed, the stock xApp gets only cell-level reports with SD-tagged slices, so M07a subscribes per slice |
 | M07a KPM | KPM xApp (one long-lived process) writing per-slice records into the KPI store | M06, M04a | 3–5 | E2 state is fragile across xApp/RIC restarts (seen in the spike) |
 | M05b Hermes | Hermes config (3-tool whitelist, general tools off, isolated container), demo through Hermes. Timeboxed; can be cut | M05a | 2–3 | Install/config (H1, H3); VRAM when Hermes and LangGraph share one model |
 | M07b Control | PRB-split control on the real gNB, FlexRICBackend, RL runner on the testbed | M07a, M02 | 5–10 | **No PRB-split control over E2 in OAI v3.0.0** (SLICE is a stub): needs a custom gNB build: option 1 decided, see §7 |
@@ -207,7 +207,7 @@ This is not O-RAN A1: FlexRIC has no Non-RT RIC.
 | ~~Official gNB image lacks the E2 agent~~ | **Resolved in the spike**: built with E2 (E2AP v3, KPM v3.00), same versions as `oai-flexric:v3.0.0` |
 | OAI slice control through FlexRIC | **Confirmed missing in v3.0.0.** Decided (§7): custom gNB build with a slice-aware `dl_rb_alloc` policy and a real SLICE control handler; fallback to a side channel (option 2) if the E2 handler exceeds the M07b timebox |
 | rfsim throughput low, noisy or CPU heavy | **Measured**: ~75 Mb/s DL, limited by the radio config (MCS 28 64-QAM, TDD 7/2), not CPU (~10 % of 32 threads, ~4 GiB). Sim calibrated to 75 Mb/s |
-| RAM (23 GB in WSL): CN5G + gNB + 3 UE + FlexRIC | Minimal CN5G profile; measure in M06. Ollama runs on Windows, outside the WSL memory limit, but competes for the same physical RAM |
+| ~~RAM (23 GB in WSL): CN5G + gNB + 3 UE + FlexRIC~~ | **Measured in M06**: ~4.2 GiB and 4.3 (idle) to 7.4 (overload) cores of 32 for the whole testbed. Ollama runs on Windows, outside the WSL memory limit, but competes for the same physical RAM |
 
 ## 6. Visualization per checkpoint
 
