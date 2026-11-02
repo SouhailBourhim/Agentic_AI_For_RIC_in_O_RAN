@@ -4,6 +4,8 @@
 # Changes: local config paths; images pinned to v3.0.0; kept only the KPM and
 # MAC/RLC/PDCP/GTP monitor xApps; 3 UEs (IMSI ...02, ...03, ...04).
 # M06: one UE per slice (eMBB, URLLC, best effort), each with its own conf (IMSI + PDU session slice).
+# M07a: our KPM xApp (xapp-kpm-slices, one subscription per slice) and our gNB image (OAI v3.0.0 +
+# testbed/gnb/kpm-per-ue.patch); GNB_IMAGE=oaisoftwarealliance/oai-gnb:v3.0.0 gives the stock gNB.
 
 services:
     nearRT-RIC:
@@ -36,6 +38,22 @@ services:
             interval: 10s
             timeout: 5s
 
+    xapp-kpm-slices:
+        image: agentic-ric/xapp-kpm-slices:${FLEXRIC_TAG:-v3.0.0}   # built from xapps/kpm/Dockerfile
+        container_name: xapp-kpm-slices
+        depends_on:
+            - nearRT-RIC
+            - oai-gnb
+        networks:
+            public_net:
+                ipv4_address: 192.168.70.156
+        volumes:
+            - ./conf/flexric.conf:/usr/local/etc/flexric/flexric.conf
+        healthcheck:
+            test: /bin/bash -c "pgrep xapp_kpm_slices"
+            interval: 10s
+            timeout: 5s
+
     xapp-gtp-mac-rlc-pdcp-moni:
         image: ${REGISTRY-oaisoftwarealliance/}oai-flexric:${FLEXRIC_TAG:-v3.0.0}
         command: "stdbuf -o0 /usr/local/flexric/xApp/c/monitor/xapp_gtp_mac_rlc_pdcp_moni"
@@ -54,7 +72,7 @@ services:
             timeout: 5s
 
     oai-gnb:
-        image: ${REGISTRY-oaisoftwarealliance/}${GNB_IMG:-oai-gnb}:${TAG:-v3.0.0}
+        image: ${GNB_IMAGE:-agentic-ric/oai-gnb:v3.0.0-kpmfix}   # built by testbed/gnb/build.sh
         privileged: true
         container_name: rfsim5g-oai-gnb
         environment:

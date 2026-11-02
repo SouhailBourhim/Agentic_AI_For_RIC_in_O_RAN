@@ -1,0 +1,136 @@
+diff --git a/openair2/E2AP/RAN_FUNCTION/O-RAN/ran_func_kpm_subs.c b/openair2/E2AP/RAN_FUNCTION/O-RAN/ran_func_kpm_subs.c
+index 9c029d1..9b7472a 100644
+--- a/openair2/E2AP/RAN_FUNCTION/O-RAN/ran_func_kpm_subs.c
++++ b/openair2/E2AP/RAN_FUNCTION/O-RAN/ran_func_kpm_subs.c
+@@ -193,8 +193,37 @@ static meas_record_lst_t fill_RRC_ConnMean(__attribute__((unused)) const label_i
+ }
+ 
+ #if defined (NGRAN_GNB_DU)
+-static uldlcounter_t last_rlc_pdu_total_bytes[MAX_MOBILES_PER_GNB] = {0};
+-static uldlcounter_t last_total_prbs[MAX_MOBILES_PER_GNB] = {0};
++/* agentic-ric (M07a): the previous values of the delta measurements, kept PER UE (by RNTI).
++   Stock v3.0.0 indexes them by the UE's position in one subscription's match list, so several
++   subscriptions (e.g. one per S-NSSAI, one UE each) all share slot 0 and compute their deltas
++   against another UE's counter. The cell PRB total is kept per UE too, so a UE's PRB % uses
++   the cell's PRBs over the same interval as its own: since that UE's previous report. */
++typedef struct {
++  bool used;
++  rnti_t rnti;
++  uldlcounter_t rlc_pdu_bytes;  // RLC PDU bytes (DRB.UEThpDl / DRB.UEThpUl)
++  uldlcounter_t total_rbs;      // UE's PRBs (RRU.PrbTotDl / RRU.PrbTotUl)
++  uint64_t cell_prb_aggr_dl;    // cell's PRBs at the UE's previous RRU.PrbTotDl
++  uint64_t cell_prb_aggr_ul;
++} ue_prev_t;
++static ue_prev_t ue_prev[MAX_MOBILES_PER_GNB] = {0};
++
++static ue_prev_t* prev_of(const rnti_t rnti)
++{
++  for (int i = 0; i < MAX_MOBILES_PER_GNB; i++)
++    if (ue_prev[i].used && ue_prev[i].rnti == rnti)
++      return &ue_prev[i];
++  // New UE: a free slot, or (table full of departed UEs) a slot chosen by RNTI. Its first
++  // report is then a delta from zero, as for any UE's first report in stock OAI.
++  int slot = rnti % MAX_MOBILES_PER_GNB;
++  for (int i = 0; i < MAX_MOBILES_PER_GNB; i++)
++    if (!ue_prev[i].used) {
++      slot = i;
++      break;
++    }
++  ue_prev[slot] = (ue_prev_t){.used = true, .rnti = rnti};
++  return &ue_prev[slot];
++}
+ 
+ static nr_rlc_statistics_t get_rlc_stats_per_drb(const rnti_t rnti, const int rb_id)
+ {
+@@ -239,7 +268,7 @@ static meas_record_lst_t fill_DRB_RlcSduDelayDl(__attribute__((unused)) const la
+ static meas_record_lst_t fill_DRB_UEThpDl(__attribute__((unused)) const label_info_lst_t label,
+                                           uint32_t gran_period_ms,
+                                           cudu_ue_info_pair_t ue_info,
+-                                          const size_t ue_idx,
++                                          __attribute__((unused)) const size_t ue_idx,
+                                           __attribute__((unused))e2_node_level_stats_t* node_stats)
+ {
+   meas_record_lst_t meas_record = {0};
+@@ -249,8 +278,9 @@ static meas_record_lst_t fill_DRB_UEThpDl(__attribute__((unused)) const label_in
+   meas_record.value = REAL_MEAS_VALUE;
+ 
+   // Calculate DL Thp
+-  meas_record.real_val = (double)(rlc.txpdu_bytes - last_rlc_pdu_total_bytes[ue_idx].dl)*8/gran_period_ms;  // [kbps]
+-  last_rlc_pdu_total_bytes[ue_idx].dl = rlc.txpdu_bytes;
++  ue_prev_t* prev = prev_of(ue_info.ue->rnti);
++  meas_record.real_val = (double)(rlc.txpdu_bytes - prev->rlc_pdu_bytes.dl)*8/gran_period_ms;  // [kbps]
++  prev->rlc_pdu_bytes.dl = rlc.txpdu_bytes;
+ 
+   return meas_record;
+ }
+@@ -261,7 +291,7 @@ static meas_record_lst_t fill_DRB_UEThpDl(__attribute__((unused)) const label_in
+ static meas_record_lst_t fill_DRB_UEThpUl(__attribute__((unused)) const label_info_lst_t label,
+                                           uint32_t gran_period_ms,
+                                           cudu_ue_info_pair_t ue_info,
+-                                          const size_t ue_idx,
++                                          __attribute__((unused)) const size_t ue_idx,
+                                           __attribute__((unused))e2_node_level_stats_t* node_stats)
+ {
+   meas_record_lst_t meas_record = {0};
+@@ -273,8 +303,9 @@ static meas_record_lst_t fill_DRB_UEThpUl(__attribute__((unused)) const label_in
+   meas_record.value = REAL_MEAS_VALUE;
+ 
+   // Calculate UL Thp
+-  meas_record.real_val = (double)(rlc.rxpdu_bytes - last_rlc_pdu_total_bytes[ue_idx].ul)*8/gran_period_ms;  // [kbps]
+-  last_rlc_pdu_total_bytes[ue_idx].ul = rlc.rxpdu_bytes;
++  ue_prev_t* prev = prev_of(ue_info.ue->rnti);
++  meas_record.real_val = (double)(rlc.rxpdu_bytes - prev->rlc_pdu_bytes.ul)*8/gran_period_ms;  // [kbps]
++  prev->rlc_pdu_bytes.ul = rlc.rxpdu_bytes;
+   
+   return meas_record;
+ }
+@@ -284,7 +315,7 @@ static meas_record_lst_t fill_DRB_UEThpUl(__attribute__((unused)) const label_in
+ static meas_record_lst_t fill_RRU_PrbTotDl(__attribute__((unused)) const label_info_lst_t label,
+                                            __attribute__((unused)) uint32_t gran_period_ms,
+                                            cudu_ue_info_pair_t ue_info,
+-                                           const size_t ue_idx,
++                                           __attribute__((unused)) const size_t ue_idx,
+                                            e2_node_level_stats_t* node_stats)
+ {
+   meas_record_lst_t meas_record = {0};
+@@ -292,9 +323,12 @@ static meas_record_lst_t fill_RRU_PrbTotDl(__attribute__((unused)) const label_i
+   meas_record.value = INTEGER_MEAS_VALUE;
+ 
+   // Get the number of DL PRBs
+-  const uint64_t tot_prb_dl_aggr = node_stats[1].mac_stats.dl.total_prb_aggregate - node_stats[0].mac_stats.dl.total_prb_aggregate;
+-  meas_record.int_val = (tot_prb_dl_aggr == 0) ? 0 : (ue_info.ue->mac_stats.dl.total_rbs - last_total_prbs[ue_idx].dl) * 100 / tot_prb_dl_aggr;   // [%]
+-  last_total_prbs[ue_idx].dl = ue_info.ue->mac_stats.dl.total_rbs;
++  ue_prev_t* prev = prev_of(ue_info.ue->rnti);
++  const uint64_t cell_now = node_stats[1].mac_stats.dl.total_prb_aggregate;  // set by the matcher for this read
++  const uint64_t tot_prb_dl_aggr = cell_now - prev->cell_prb_aggr_dl;
++  meas_record.int_val = (tot_prb_dl_aggr == 0) ? 0 : (uint64_t)(ue_info.ue->mac_stats.dl.total_rbs - prev->total_rbs.dl) * 100 / tot_prb_dl_aggr;   // [%]
++  prev->total_rbs.dl = ue_info.ue->mac_stats.dl.total_rbs;
++  prev->cell_prb_aggr_dl = cell_now;
+ 
+   return meas_record;
+ }
+@@ -304,7 +338,7 @@ static meas_record_lst_t fill_RRU_PrbTotDl(__attribute__((unused)) const label_i
+ static meas_record_lst_t fill_RRU_PrbTotUl(__attribute__((unused)) const label_info_lst_t label,
+                                            __attribute__((unused)) uint32_t gran_period_ms,
+                                            cudu_ue_info_pair_t ue_info,
+-                                           const size_t ue_idx,
++                                           __attribute__((unused)) const size_t ue_idx,
+                                            e2_node_level_stats_t* node_stats)
+ {
+   meas_record_lst_t meas_record = {0};
+@@ -312,9 +346,12 @@ static meas_record_lst_t fill_RRU_PrbTotUl(__attribute__((unused)) const label_i
+   meas_record.value = INTEGER_MEAS_VALUE;
+ 
+   // Get the number of UL PRBs
+-  const uint64_t tot_prb_ul_aggr = node_stats[1].mac_stats.ul.total_prb_aggregate - node_stats[0].mac_stats.ul.total_prb_aggregate;
+-  meas_record.int_val = (tot_prb_ul_aggr == 0) ? 0 : (ue_info.ue->mac_stats.ul.total_rbs - last_total_prbs[ue_idx].ul) * 100 / tot_prb_ul_aggr;   // [%]
+-  last_total_prbs[ue_idx].ul = ue_info.ue->mac_stats.ul.total_rbs;
++  ue_prev_t* prev = prev_of(ue_info.ue->rnti);
++  const uint64_t cell_now = node_stats[1].mac_stats.ul.total_prb_aggregate;
++  const uint64_t tot_prb_ul_aggr = cell_now - prev->cell_prb_aggr_ul;
++  meas_record.int_val = (tot_prb_ul_aggr == 0) ? 0 : (uint64_t)(ue_info.ue->mac_stats.ul.total_rbs - prev->total_rbs.ul) * 100 / tot_prb_ul_aggr;   // [%]
++  prev->total_rbs.ul = ue_info.ue->mac_stats.ul.total_rbs;
++  prev->cell_prb_aggr_ul = cell_now;
+ 
+   return meas_record;
+ }

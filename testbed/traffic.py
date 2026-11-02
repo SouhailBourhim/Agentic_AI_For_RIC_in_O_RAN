@@ -29,7 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # testbed/, for plot_spike
 from plot_spike import load_run  # noqa: E402  (receiver-side throughput from iperf3 JSON)
 
-RESULTS = Path("testbed/results/m06")
+RESULTS = Path("testbed/results/m06")  # --results changes it (M07a writes to testbed/results/m07a)
 EXT_DN = "oai-ext-dn"
 EXT_DN_IP = "192.168.70.135"
 # The UE <-> slice mapping of the testbed (configs: tests/test_testbed_config.py). M07a reuses it.
@@ -148,12 +148,15 @@ def run(label: str, rates: dict[str, str], seconds: int, with_ping: bool, stats_
 
 
 def main() -> None:
+    global RESULTS
     parser = argparse.ArgumentParser(description="Per-slice downlink traffic on the testbed (M06)")
     parser.add_argument("mode", choices=["idle", "alone", "together"])
     parser.add_argument("rates", nargs="*", help="together: eMBB URLLC BE rates, e.g. 40M 40M 40M")
     parser.add_argument("--rate", default="200M", help="alone: the offered rate (above capacity)")
     parser.add_argument("--seconds", type=int, default=30)
+    parser.add_argument("--results", type=Path, default=RESULTS, help="output folder")
     args = parser.parse_args()
+    RESULTS = args.results
     start_servers()
     if args.mode == "idle":
         run("idle", {}, args.seconds, with_ping=True)

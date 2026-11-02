@@ -4,8 +4,10 @@
 #
 # Usage: testbed/up.sh          (from anywhere; never runs sudo)
 # Stop:  testbed/down.sh
-# The KPM monitor xApp is not started here (M07a replaces it):
-#   docker compose -f testbed/rfsim-flexric/docker-compose.yml up -d xapp-kpm-moni
+# Step 5 starts our KPM xApp (M07a), one long-lived process; its KPIs reach the store through
+#   uv run python -m xapps.kpm_monitor
+# Images: GNB_IMAGE (default: our patched gNB, testbed/gnb/build.sh) and the xApp image
+# (docker build -t agentic-ric/xapp-kpm-slices:v3.0.0 xapps/kpm).
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -30,6 +32,13 @@ if ! docker info > /dev/null 2>&1; then
   exit 1
 fi
 
+for image in "${GNB_IMAGE:-agentic-ric/oai-gnb:v3.0.0-kpmfix}" agentic-ric/xapp-kpm-slices:v3.0.0; do
+  if ! docker image inspect "$image" > /dev/null 2>&1; then
+    echo "Image $image not found: build it first (see the top of this script)." >&2
+    exit 1
+  fi
+done
+
 wait_healthy() {  # compose_file: wait until no service with a healthcheck is anything but healthy
   local file=$1
   for _ in $(seq 1 60); do
@@ -48,19 +57,19 @@ ue_ip() {  # container -> IPv4 of its tunnel interface, empty if not up yet
   docker exec "$1" ip -4 -o addr show oaitun_ue1 2> /dev/null | awk '{print $4}' | cut -d/ -f1
 }
 
-echo "1/4 core (mysql, NRF, UDR, UDM, AUSF, AMF, SMF, UPF, ext-dn)"
+echo "1/5 core (mysql, NRF, UDR, UDM, AUSF, AMF, SMF, UPF, ext-dn)"
 docker compose -f "$CORE" up -d
 wait_healthy "$CORE"
 
-echo "2/4 near-RT RIC"
+echo "2/5 near-RT RIC"
 docker compose -f "$RAN" up -d nearRT-RIC
 wait_healthy "$RAN"
 
-echo "3/4 gNB (rfsim, E2 agent)"
+echo "3/5 gNB (rfsim, E2 agent): ${GNB_IMAGE:-agentic-ric/oai-gnb:v3.0.0-kpmfix}"
 docker compose -f "$RAN" up -d oai-gnb
 wait_healthy "$RAN"
 
-echo "4/4 UEs, one per slice"
+echo "4/5 UEs, one per slice"
 docker compose -f "$RAN" up -d oai-nr-ue-embb oai-nr-ue-urllc oai-nr-ue-be
 for entry in "${SLICES[@]}"; do
   read -r _ container _ <<< "$entry"
@@ -87,4 +96,13 @@ for entry in "${SLICES[@]}"; do
   fi
   printf '%-6s %-25s %-12s %s\n' "$name" "$container" "${ip:--}" "$result"
 done
+
+echo
+echo "5/5 KPM xApp (one subscription per slice)"
+docker compose -f "$RAN" up -d xapp-kpm-slices
+for _ in $(seq 1 15); do
+  [ "$(docker logs xapp-kpm-slices 2>&1 | grep -c '"event":"subscribed"')" -ge 3 ] && break
+  sleep 2
+done
+docker logs xapp-kpm-slices 2>&1 | grep '"event":"subscribed"' || { echo "no subscription (docker logs xapp-kpm-slices)"; status=1; }
 exit $status
