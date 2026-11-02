@@ -27,7 +27,7 @@ from agent.apply import apply_intent, backend_now, decision_dict
 from agent.intents import expire_pending
 from agent.parser import parse_facts
 from agent.prompts import PARSE_VERSION, PLAN_SYSTEM, REFLECT_SYSTEM, parse_messages
-from agent.schema import DEFAULT_DURATION_S, NOTHING_TO_DO, ParsedIntent, clarify, stated_changes
+from agent.schema import DEFAULT_DURATION_S, NOTHING_TO_DO, SCOPE_HINT, ParsedIntent, clarify, stated_changes
 from agent.tools import AgentContext
 from store import intents
 from store.events import log_event
@@ -132,7 +132,8 @@ def build_graph(ctx: AgentContext):  # noqa: C901 (one closure per node, kept to
         if facts is None:
             return reject(state, "agent: the model returned no valid parse (twice)")
         if not facts.understood:
-            return reject(state, f"needs clarification: {facts.clarification or 'the request is ambiguous'}")
+            question = facts.clarification or "the request is ambiguous"
+            return reject(state, f"needs clarification: {question} {SCOPE_HINT}")
         intents.set_state(conn, state["intent_id"], "processing", ctx.now_wall(), parsed=facts.model_dump())
         duration = facts.duration_s if facts.duration_s is not None else DEFAULT_DURATION_S
         return {"facts": facts.model_dump(), "end_backend": backend_now(conn) + duration, "route": "plan"}

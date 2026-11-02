@@ -13,7 +13,7 @@ import pytest
 from agent import tools
 from agent.apply import apply_intent
 from agent.llm import FakeLLM, LLMError, LLMReply, OllamaClient, tool_call
-from agent.schema import stated_changes
+from agent.schema import SCOPE_HINT, stated_changes
 from agent.tools import AgentContext, Settings, ToolNotAllowed
 from agent.worker import next_intent, process_one, submit_and_run
 from conftest import run_agent, start_cell
@@ -196,7 +196,18 @@ def test_understood_with_nothing_to_do_becomes_a_question(ric_db, cell) -> None:
 
 def test_ambiguous_intent_is_rejected_with_the_question(ric_db, cell) -> None:
     record, _ = agent(ric_db, cell, [facts(understood=False, question="Pour quel slice ?", dur=None)])
-    assert record.state == "rejected" and record.reason == "needs clarification: Pour quel slice ?"
+    assert record.state == "rejected" and record.reason == f"needs clarification: Pour quel slice ? {SCOPE_HINT}"
+
+
+def test_an_out_of_scope_request_is_told_what_can_be_asked(ric_db, cell) -> None:
+    """M05a live demo: for "90/5/5" the model only asked what PRB means. The fixed scope sentence
+    follows the model's question, and nothing is applied."""
+    question = "Quel est le sens de 'PRB' ?"
+    record, llm = agent(ric_db, cell, [facts(understood=False, dur=None, question=question)], mode="demo")
+    assert record.state == "rejected" and len(llm.requests) == 1  # parse only: no plan, no verifier
+    assert record.reason == f"needs clarification: {question} {SCOPE_HINT}"
+    assert "PRB split itself is decided by the RL controller" in record.reason
+    assert a1_policy.current_schedule(ric_db) == []
 
 
 def test_one_revision_supersedes_the_applied_objective(ric_db, cell) -> None:

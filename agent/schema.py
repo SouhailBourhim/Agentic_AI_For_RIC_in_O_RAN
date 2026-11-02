@@ -58,6 +58,14 @@ NOTHING_TO_DO = ("Je n'ai trouvé aucun objectif exprimable (débit minimum, lat
                  "Que faut-il changer ? / I found no objective I can set (minimum throughput, "
                  "latency, priority). What should change?")
 
+# Added to every "needs clarification" reply (M05a live demo: for "Fixe le partage des PRB à
+# 90/5/5" the model only asked "what does PRB mean?"). Fixed text, not the LLM's: it tells the
+# operator what can be asked, and it cannot change the extracted facts or their score.
+SCOPE_HINT = ("Je peux fixer des objectifs (débit minimum par slice, borne de latence URLLC, priorité, "
+              "durée) ; le partage des PRB est décidé par le contrôleur RL. / I can set goals (minimum "
+              "throughput per slice, URLLC latency bound, priority, duration); the PRB split itself is "
+              "decided by the RL controller.")
+
 
 def clarify(question: str) -> ParsedIntent:
     """A not-understood parse with every fact null."""

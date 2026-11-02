@@ -319,8 +319,8 @@ in M08b.
 
 ### Fixed after the M05a live demo (2026-11-02)
 
-Two bugs of this checkpoint showed up when the demo ran through the gateway
-([M05a-gateway.md](M05a-gateway.md) §5). Both are fixed in [agent/graph.py](../../agent/graph.py),
+Three issues of this checkpoint showed up when the demo ran through the gateway
+([M05a-gateway.md](M05a-gateway.md) §5). They are fixed in [agent/graph.py](../../agent/graph.py) and [agent/schema.py](../../agent/schema.py),
 with tests in [tests/test_graph.py](../../tests/test_graph.py) that fail on the old code:
 - **A verifier rejection was not stored on the rejected intent.** When the verifier refused a
   proposal and the agent then gave up (`finish`, too many rejections, a repeated proposal),
@@ -335,6 +335,12 @@ with tests in [tests/test_graph.py](../../tests/test_graph.py) that fail on the 
   ([graph.py:236](../../agent/graph.py#L236)) now drops an unstated duration, so the default
   applies; the ignored value stays in the step trace (`ignored_duration_s`). As for stated
   values (decision (c)), eval mode may still set a duration after a verifier rejection.
+- **An out-of-scope request got an unhelpful question.** For "Fixe le partage des PRB à
+  90/5/5" the model asked only "what does PRB mean?". The parse step is unchanged, but every
+  "needs clarification" reply now ends with a fixed sentence (`SCOPE_HINT` in
+  [agent/schema.py](../../agent/schema.py)): the goals the agent can set, and that the PRB
+  split is decided by the RL controller. It is plain text added by code, so the extracted facts
+  and the extraction score cannot change.
 
 ## 7. Questions to check understanding
 

@@ -107,7 +107,7 @@ the console, which the gateway cannot reach.
 
 ```bash
 uv run pytest -q tests/test_gateway.py      # 20 passed (no LLM, no processes)
-uv run pytest -q                            # 324 passed (319 at the end of M05a)
+uv run pytest -q                            # 325 passed (319 at the end of M05a)
 uv run python -m gateway.client tools       # the 3 tools and their descriptions
 ```
 
@@ -220,8 +220,11 @@ arguments.
 - **Observed in the demo, M04b behaviour:**
   - *i0003 and i0004 were rejected at parse,* with a poor clarification question ("what does
     PRB mean?"). The right answer would be "the split is the RL xApp's decision; state a goal
-    instead". Not fixed yet: it changes the parse prompt, which then has to be re-scored on the
-    tune split. Planned with M05b, where Hermes shows this text to the operator.
+    instead". **Fixed in code** right after M05a: every "needs clarification" reply now ends with
+    a fixed sentence saying what can be asked and that the PRB split is the RL controller's
+    (`SCOPE_HINT`, [agent/schema.py](../../agent/schema.py)). The parse prompt is unchanged; a
+    prompt change (with a tune re-score) is considered in M05b only if the model's own question
+    still reads badly through Hermes.
   - *For i0002, which stated no duration, the planner proposed `duration_s: 217`,* the current
     backend clock. **Fixed** right after M05a: an unstated duration now always gets the default
     ([M04b note, "Fixed after the M05a live demo"](M04b-langgraph.md#fixed-after-the-m05a-live-demo-2026-11-02)).
