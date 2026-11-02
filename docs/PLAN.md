@@ -98,8 +98,11 @@ M05b → M07b → M08a → M08b → M08c.**
 - **First end-to-end demo on the simulator:**
   - End of M04a, with a rule-based parser and no LLM: `POST /intents` → verifier → console
     confirms → `a1_policy` → RL runner shifts PRBs → `GET /kpis` shows the effect.
-  - End of M04b, the same flow with the LLM parsing "garantir 10 Mb/s au slice URLLC pendant 10
-    minutes".
+  - End of M04b, the same flow with the LLM (qwen3:8b) parsing and planning, in a sixth
+    process: `POST /intents` stores the intent (`received`), the agent worker
+    (`python -m agent.worker`) claims it (`processing`), runs parse → plan → verifier →
+    console → observe → reflect, and may revise it once (a new intent with `supersedes`).
+    Commands in `docs/learn/M04b-langgraph.md` §5.
   - End of M05a, the same flow through the MCP gateway.
 
 ## 3. Interfaces fixed early
