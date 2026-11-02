@@ -317,6 +317,25 @@ in M08b.
   - per-tool timeouts and tracing (OpenTelemetry or MLflow tracing);
   - a held-out set written by operators rather than by the system's own author.
 
+### Fixed after the M05a live demo (2026-11-02)
+
+Two bugs of this checkpoint showed up when the demo ran through the gateway
+([M05a-gateway.md](M05a-gateway.md) §5). Both are fixed in [agent/graph.py](../../agent/graph.py),
+with tests in [tests/test_graph.py](../../tests/test_graph.py) that fail on the old code:
+- **A verifier rejection was not stored on the rejected intent.** When the verifier refused a
+  proposal and the agent then gave up (`finish`, too many rejections, a repeated proposal),
+  `reject()` wrote only the reason. The `verifier` column stayed empty, so `get_status`, the
+  exporter's "verifier decisions" panel, and M08b's count of verifier rejections all missed it.
+  The agent state now keeps the verifier's last decision (`last_verifier`), and `reject()`
+  ([graph.py:107](../../agent/graph.py#L107)) stores it. A refusal by the agent's own
+  demo-mode guard is not the verifier's, and stays out of that column.
+- **The planner could invent a duration.** The operator stated none, and qwen3:8b proposed
+  `duration_s: 217`, which was the backend clock. Accepted, that objective would have lasted
+  217 s instead of the 10-minute default, silently. `keep_default_duration`
+  ([graph.py:236](../../agent/graph.py#L236)) now drops an unstated duration, so the default
+  applies; the ignored value stays in the step trace (`ignored_duration_s`). As for stated
+  values (decision (c)), eval mode may still set a duration after a verifier rejection.
+
 ## 7. Questions to check understanding
 
 1. **Why does `POST /intents` no longer run the parser?**

@@ -122,6 +122,52 @@ def test_repeating_a_rejected_proposal_ends_at_once(ric_db, cell) -> None:
     assert sum(1 for e in read_events() if e["event"] == "agent_step" and e["data"].get("verifier")) == 1
 
 
+
+# Fixes after the M05a live demo: the verifier's decision of a rejected intent, and an invented duration.
+
+
+def test_a_verifier_rejection_is_stored_on_the_rejected_intent(ric_db, cell) -> None:
+    """Live (i0002, 500 Mb/s): the verifier said 'budget', the model then called finish. The
+    verifier column stayed empty, so the exporter and M08b did not count the rejection."""
+    script = [facts(urllc=500, dur=None), objective_call(urllc=500.0, dur=None),
+              tool_call("finish", reason="the cell cannot carry 500 Mb/s")]
+    record, _ = agent(ric_db, cell, script, mode="demo", wait_for_confirmation=False)
+    assert record.state == "rejected"
+    assert record.verifier is not None and record.verifier["accepted"] is False
+    assert record.verifier["check"] == "budget"
+
+
+def test_the_last_verifier_decision_is_stored_after_too_many_rejections(ric_db, cell) -> None:
+    script = [facts(urllc=60), objective_call(urllc=60.0), objective_call(urllc=50.0), objective_call(urllc=40.0)]
+    record, _ = agent(ric_db, cell, script)
+    assert record.state == "rejected" and record.verifier["check"] == "training_range"
+
+
+def test_the_agents_own_guard_is_not_recorded_as_a_verifier_decision(ric_db, cell) -> None:
+    """Demo mode refuses a proposal that drops a stated value before the verifier sees it."""
+    drops_latency = objective_call(urllc=10.0)
+    script = [facts(urllc=10, lat=10.0), drops_latency, drops_latency]
+    record, _ = agent(ric_db, cell, script, mode="demo", wait_for_confirmation=False)
+    assert record.state == "rejected" and record.verifier is None
+
+
+def test_an_unstated_duration_gets_the_default_whatever_the_model_says(ric_db, cell) -> None:
+    """Live (i0002): with no duration stated, qwen3 proposed duration_s = 217, the backend clock."""
+    script = [facts(urllc=10, dur=None), objective_call(urllc=10.0, dur=217.0)]
+    record, _ = agent(ric_db, cell, script, mode="demo", wait_for_confirmation=False)
+    assert record.state == "awaiting_confirmation"
+    assert record.objective.valid_until - record.objective.valid_from == pytest.approx(600.0)
+    [act] = [e["data"] for e in read_events() if e["event"] == "agent_step" and e["data"]["node"] == "act"]
+    assert act["ignored_duration_s"] == 217.0 and act["arguments"]["duration_s"] is None
+
+
+def test_eval_mode_may_set_a_duration_after_a_rejection(ric_db, cell) -> None:
+    script = [facts(urllc=60, dur=None), objective_call(urllc=60.0, dur=None),
+              objective_call(urllc=20.0, dur=300.0), reflection()]
+    record, _ = agent(ric_db, cell, script)
+    assert record.state == "applied"
+    assert record.objective.valid_until - record.objective.valid_from == pytest.approx(300.0)
+
 def test_invalid_json_is_retried_then_rejected(ric_db, cell) -> None:
     record, _ = agent(ric_db, cell, ["not json", '{"understood": "maybe"}'])
     assert record.state == "rejected" and "no valid parse" in record.reason

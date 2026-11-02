@@ -53,6 +53,7 @@ class AgentState(TypedDict, total=False):
     scratch: list[str]  # tool results and feedback shown to the plan step
     rejected_calls: list[str]  # proposals the verifier rejected (JSON), never sent again
     stated_rejection: str | None  # demo mode: the verifier's reason for rejecting the stated values
+    last_verifier: dict | None  # the verifier's last decision on a proposal, stored if the intent ends rejected
     pending: dict | None  # the tool call chosen by plan: {"name", "arguments"}
     objective: dict | None  # the applied objective of active_id
     compliance: dict | None
@@ -104,10 +105,17 @@ def build_graph(ctx: AgentContext):  # noqa: C901 (one closure per node, kept to
         return [*state.get("scratch", []), line][-SCRATCH_LINES:]
 
     def reject(state: AgentState, reason: str) -> dict:
-        """End the intent as rejected (only if nothing of it is applied)."""
+        """End the intent as rejected (only if nothing of it is applied).
+
+        If the verifier rejected a proposal on the way, its decision is stored on the intent, so
+        get_status, the exporter and M08b see a verifier rejection (seen in the M05a live demo:
+        a 'budget' rejection left the verifier column empty and was counted nowhere).
+        """
         current = intents.get(conn, state["intent_id"])
         if current.state in ("processing", "interpreted"):
-            intents.set_state(conn, state["intent_id"], "rejected", ctx.now_wall(), reason=reason)
+            verifier = state.get("last_verifier")
+            fields = {"verifier": verifier} if verifier is not None else {}
+            intents.set_state(conn, state["intent_id"], "rejected", ctx.now_wall(), reason=reason, **fields)
         return {"route": "end", "outcome": "rejected", "reason": reason}
 
     def done(state: AgentState, reason: str) -> dict:
@@ -205,20 +213,46 @@ def build_graph(ctx: AgentContext):  # noqa: C901 (one closure per node, kept to
             decision = tools.set_slice_share(ctx, state["intent_id"], args, valid_s=s.observe_s + 5.0)
             step(state, "act", tool=name, arguments=args, verifier=decision_dict(decision))
             if not decision.accepted:
-                return {**rejected_action(state, decision.reason), "rejected_calls": [*state["rejected_calls"], key]}
+                return {**rejected_action(state, decision.reason, decision_dict(decision)),
+                        "rejected_calls": [*state["rejected_calls"], key]}
             return {"active_id": state["intent_id"], "route": "observe",
                     "scratch": note(state, f"set_slice_share accepted: {json.dumps(args)}")}
         return set_objective(state, args, key)
 
-    def rejected_action(state: AgentState, reason: str) -> dict:
+    def rejected_action(state: AgentState, reason: str, verifier: dict | None = None) -> dict:
+        """A proposal was refused. verifier is the verifier's decision when the verifier refused it;
+        None when it was the agent's own guard (demo mode keeps the operator's stated values)."""
+        if verifier is not None:
+            state = {**state, "last_verifier": verifier}
         count = state["rejections"] + 1
         if count > s.max_rejections:
             final = f"verifier rejected {count} proposals; last: {reason}"
             return done(state, final) if state.get("active_id") else reject(state, final)
-        return {"rejections": count, "route": "plan", "scratch": note(state, f"VERIFIER REJECTED: {reason}")}
+        update = {"rejections": count, "route": "plan", "scratch": note(state, f"VERIFIER REJECTED: {reason}")}
+        if verifier is not None:
+            update["last_verifier"] = verifier
+        return update
+
+    def keep_default_duration(state: AgentState, args: dict) -> tuple[dict, float | None]:
+        """The operator stated no duration: the objective gets the default (DEFAULT_DURATION_S),
+        whatever the model wrote. Returns the arguments to use and the ignored value (or None).
+
+        Seen in the M05a live demo: qwen3:8b copied the backend clock (217 s) into duration_s.
+        The agent must not invent what the operator did not ask for (same rule as decision (c)).
+        Exception, as for stated values: in eval mode, after a verifier rejection, the agent may
+        set a duration as a correction.
+        """
+        proposed = args.get("duration_s")
+        if state["facts"]["duration_s"] is not None or proposed is None:
+            return args, None
+        if s.mode == "eval" and state["rejections"] > 0:
+            return args, None
+        return {**args, "duration_s": None}, proposed
 
     def set_objective(state: AgentState, args: dict, key: str) -> dict:
         revision_of = state.get("active_id")  # an applied objective exists: this is a revision
+        args, ignored_duration = keep_default_duration(state, args)
+        extra = {"ignored_duration_s": ignored_duration} if ignored_duration is not None else {}
         changes = stated_changes(state["facts"], args) if s.mode == "demo" else []
         if changes:  # demo mode: the operator's numbers are not the agent's to relax
             step(state, "act", tool="set_rl_objective", arguments=args, result="changes stated values",
@@ -232,9 +266,10 @@ def build_graph(ctx: AgentContext):  # noqa: C901 (one closure per node, kept to
         decision, objective = tools.propose_objective(
             ctx, state["intent_id"], revision_of, args.get("importance") or {}, args.get("min_thr_mbps"),
             args.get("max_latency_ms"), args.get("duration_s"))
-        step(state, "act", tool="set_rl_objective", arguments=args, verifier=decision_dict(decision))
+        step(state, "act", tool="set_rl_objective", arguments=args, verifier=decision_dict(decision), **extra)
         if not decision.accepted:
-            update = {**rejected_action(state, decision.reason), "rejected_calls": [*state["rejected_calls"], key]}
+            update = {**rejected_action(state, decision.reason, decision_dict(decision)),
+                      "rejected_calls": [*state["rejected_calls"], key]}
             if s.mode == "demo":  # the values were the operator's own (checked above)
                 update["stated_rejection"] = decision.reason
             return update
@@ -249,7 +284,7 @@ def build_graph(ctx: AgentContext):  # noqa: C901 (one closure per node, kept to
         if s.mode == "eval":
             record = apply_intent(conn, target, now_wall, confirmed_by="auto-eval")
             if record.state != "applied":
-                return rejected_action(state, record.reason or "re-verification failed")
+                return rejected_action(state, record.reason or "re-verification failed", record.verifier)
             return {"active_id": target, "objective": objective.model_dump(), "route": "observe"}
         intents.set_state(conn, target, "awaiting_confirmation", now_wall, reason=decision.reason,
                           confirm_deadline=now_wall + s.confirm_timeout_s)

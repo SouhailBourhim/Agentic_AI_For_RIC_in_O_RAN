@@ -107,7 +107,7 @@ the console, which the gateway cannot reach.
 
 ```bash
 uv run pytest -q tests/test_gateway.py      # 20 passed (no LLM, no processes)
-uv run pytest -q                            # 319 passed
+uv run pytest -q                            # 324 passed (319 at the end of M05a)
 uv run python -m gateway.client tools       # the 3 tools and their descriptions
 ```
 
@@ -217,15 +217,17 @@ arguments.
   tool × outcome series from the start at 0. That needs a fixed set of outcomes, so the exporter
   groups `http_*` and `unreachable` as `error` (the log keeps the exact one). The first-pass
   screenshot was not kept; the panel shown above is from the second pass, after the fix.
-- **Observed, not fixed here (M04b behaviour):**
+- **Observed in the demo, M04b behaviour:**
   - *i0003 and i0004 were rejected at parse,* with a poor clarification question ("what does
     PRB mean?"). The right answer would be "the split is the RL xApp's decision; state a goal
-    instead". This is a prompt-tuning candidate (tune split only).
+    instead". Not fixed yet: it changes the parse prompt, which then has to be re-scored on the
+    tune split. Planned with M05b, where Hermes shows this text to the operator.
   - *For i0002, which stated no duration, the planner proposed `duration_s: 217`,* the current
-    backend clock, instead of the default. It made no difference here (the proposal was rejected
-    on budget), but it is a planning bug to look at.
-  - *The `verifier` field of i0002's status is `null`.* The verifier's exact reason is in
-    `agent_steps` (the `act` step); the top-level `reason` is the LLM's paraphrase.
+    backend clock. **Fixed** right after M05a: an unstated duration now always gets the default
+    ([M04b note, "Fixed after the M05a live demo"](M04b-langgraph.md#fixed-after-the-m05a-live-demo-2026-11-02)).
+  - *The `verifier` field of i0002's status was `null`,* so the dashboard's verifier panel
+    above shows no `budget` rejection. **Fixed** the same way: a rejected intent now keeps the
+    verifier's last decision.
 - **What a real deployment would add:** authentication on the HTTP transport (the SDK
   supports OAuth; we bind to 127.0.0.1 instead), rate limiting, and the network isolation
   test of M07b (the gateway's container has no route to FlexRIC/OAI). The import tests here
