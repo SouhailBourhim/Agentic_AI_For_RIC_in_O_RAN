@@ -42,7 +42,7 @@ from the agent, and the direct PRB-split tool cannot run outside the "LLM only" 
 
 ## Architecture
 
-![Architecture: language, safety, control and RAN layers](docs/img/architecture.svg)
+![Architecture: language, safety, control and RAN layers](docs/img/architecture.png)
 
 The figure follows a request from left to right, and the KPI store at the bottom closes the
 loop. Dashed boxes are planned or partly built; see [Status](#status-and-roadmap). Two design
@@ -58,51 +58,13 @@ choices carry the architecture:
 
 ## What happens to one request
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Op as Operator
-    participant S as Agent service
-    participant A as LangGraph worker (LLM)
-    participant V as Verifier
-    participant C as Console
-    participant R as RL xApp
-    Op->>S: "Protège l'URLLC : au moins 20 Mb/s, latence sous 10 ms, 5 min"
-    S-->>Op: received (nothing applied yet)
-    A->>S: claims the request
-    A->>A: parse to facts (priority urllc, 20 Mb/s, 10 ms, 300 s)
-    A->>V: set_rl_objective(importance 2/8/2, targets)
-    alt rejected
-        V-->>A: reason, e.g. "60 Mb/s is above the trained range"
-        A->>A: re-plan (demo mode keeps the operator's numbers)
-    else accepted
-        V-->>C: awaiting confirmation
-        Op->>C: confirm
-        C->>R: objective in force for 300 s
-        R->>R: new PRB split every second
-        A->>A: observe 20 s, compute compliance in code
-        A->>A: reflect: done, or revise once
-    end
-```
+![One request, step by step](docs/img/request-sequence.png)
 
 The agent itself is an explicit LangGraph state machine. There is no free-running ReAct loop:
 each node has a bounded number of retries, a step limit and a revision limit, and each limit
 has a test.
 
-```mermaid
-flowchart LR
-    P[parse<br/>LLM, JSON schema] -->|not understood| Q([ask a question])
-    P --> PL[plan<br/>LLM, one tool call]
-    PL --> AC[act]
-    AC -->|read KPIs| PL
-    AC -->|propose| V{verifier}
-    V -->|reject, max 2| PL
-    V -->|accept| CF[confirm<br/>console, demo mode]
-    CF --> O[observe<br/>20 s, compliance in code]
-    O --> RF[reflect<br/>LLM: done or revise]
-    RF -->|revise, max 1| PL
-    RF --> D([done])
-```
+![The agent's state machine and its limits](docs/img/agent-graph.png)
 
 The run below is one real intent, step by step: the LLM calls are the blue bars at the top, and
 the cell's response is underneath.
@@ -176,9 +138,6 @@ the FlexRIC near-RT RIC and three UEs (one per slice), all from official Docker 
   understanding.
 - **Live observability:** a Prometheus exporter and a provisioned Grafana dashboard show every
   slice, the objective in force, intent states and verifier decisions.
-- **AI-assisted, human-owned.** The code is written with an AI coding assistant (Claude Code),
-  under rules in [CLAUDE.md](CLAUDE.md): plan first, simple readable code, a test for every
-  invariant, and no result that wasn't measured.
 
 ## Status and roadmap
 

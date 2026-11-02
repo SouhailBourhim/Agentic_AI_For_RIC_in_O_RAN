@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1250 760" width="1250" height="760" font-family="Helvetica, Arial, sans-serif">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3a3a38"/></marker>
+<style>.box{fill:#fff;stroke:#3a3a38;stroke-width:1.4}.name{font-size:14px;font-weight:700;fill:#0b0b0b}.sub{font-size:12px;fill:#52514e}
+.life{stroke:#b9b8b3;stroke-width:1.2;stroke-dasharray:4 4}.msg{stroke:#3a3a38;stroke-width:1.5;fill:none}.reply{stroke:#3a3a38;stroke-width:1.3;fill:none;stroke-dasharray:6 4}
+.label{font-size:12.5px;fill:#0b0b0b;paint-order:stroke;stroke:#fff;stroke-width:5px;stroke-linejoin:round}.num{font-weight:700}
+.frame{fill:none;stroke:#8a8984;stroke-width:1.2}.tag{font-size:12px;font-weight:700;fill:#52514e}.act{fill:#f6f6f4;stroke:#b9b8b3}</style></defs>
+<rect width="1250" height="760" rx="14" fill="#fff"/>
+<line x1="90" y1="86" x2="90" y2="730" class="life"/>
+<rect x="10" y="26" width="160" height="60" rx="8" class="box" stroke="#3a3a38"/>
+<rect x="10" y="26" width="160" height="5" rx="2" fill="#3a3a38"/>
+<text x="90" y="62" text-anchor="middle" class="name">Operator</text>
+<line x1="290" y1="86" x2="290" y2="730" class="life"/>
+<rect x="210" y="26" width="160" height="60" rx="8" class="box" stroke="#3a3a38"/>
+<rect x="210" y="26" width="160" height="5" rx="2" fill="#3a3a38"/>
+<text x="290" y="56" text-anchor="middle" class="name">Agent service</text>
+<text x="290" y="74" text-anchor="middle" class="sub">FastAPI</text>
+<line x1="510" y1="86" x2="510" y2="730" class="life"/>
+<rect x="430" y="26" width="160" height="60" rx="8" class="box" stroke="#2a78d6"/>
+<rect x="430" y="26" width="160" height="5" rx="2" fill="#2a78d6"/>
+<text x="510" y="56" text-anchor="middle" class="name">LangGraph agent</text>
+<text x="510" y="74" text-anchor="middle" class="sub">local LLM</text>
+<line x1="740" y1="86" x2="740" y2="730" class="life"/>
+<rect x="660" y="26" width="160" height="60" rx="8" class="box" stroke="#127a55"/>
+<rect x="660" y="26" width="160" height="5" rx="2" fill="#127a55"/>
+<text x="740" y="56" text-anchor="middle" class="name">Verifier</text>
+<text x="740" y="74" text-anchor="middle" class="sub">plain Python</text>
+<line x1="950" y1="86" x2="950" y2="730" class="life"/>
+<rect x="870" y="26" width="160" height="60" rx="8" class="box" stroke="#127a55"/>
+<rect x="870" y="26" width="160" height="5" rx="2" fill="#127a55"/>
+<text x="950" y="56" text-anchor="middle" class="name">Console</text>
+<text x="950" y="74" text-anchor="middle" class="sub">operator</text>
+<line x1="1150" y1="86" x2="1150" y2="730" class="life"/>
+<rect x="1070" y="26" width="160" height="60" rx="8" class="box" stroke="#c4521d"/>
+<rect x="1070" y="26" width="160" height="5" rx="2" fill="#c4521d"/>
+<text x="1150" y="56" text-anchor="middle" class="name">RL xApp</text>
+<text x="1150" y="74" text-anchor="middle" class="sub">every second</text>
+<line x1="90" y1="125" x2="288" y2="125" class="msg" marker-end="url(#a)"/>
+<text x="100" y="117" text-anchor="start" class="label"><tspan class="num">1</tspan>  “Protège l’URLLC … 5 min”</text>
+<line x1="290" y1="165" x2="92" y2="165" class="reply" marker-end="url(#a)"/>
+<text x="100" y="157" text-anchor="start" class="label"><tspan class="num">2</tspan>  received, nothing applied</text>
+<line x1="510" y1="205" x2="292" y2="205" class="msg" marker-end="url(#a)"/>
+<text x="300" y="197" text-anchor="start" class="label"><tspan class="num">3</tspan>  claims the request</text>
+<path d="M510,232 H544 V250 H513" class="msg" marker-end="url(#a)"/>
+<text x="552" y="245" text-anchor="start" class="label"><tspan class="num">4</tspan>  parse: priority urllc, 20 Mb/s, 10 ms, 300 s</text>
+<line x1="510" y1="300" x2="738" y2="300" class="msg" marker-end="url(#a)"/>
+<text x="520" y="292" text-anchor="start" class="label"><tspan class="num">5</tspan>  set_rl_objective(importance 2/8/2, targets)</text>
+<rect x="40" y="322" width="1170" height="406" rx="6" class="frame"/>
+<path d="M40,322 h64 v20 l-8,8 h-56 z" fill="#f6f6f4" stroke="#8a8984"/>
+<text x="50" y="340" class="tag">alt</text>
+<text x="116" y="340" class="tag">[rejected]</text>
+<line x1="740" y1="370" x2="512" y2="370" class="reply" marker-end="url(#a)"/>
+<text x="520" y="362" text-anchor="start" class="label"><tspan class="num">6</tspan>  reason: “60 Mb/s is above the trained range”</text>
+<path d="M510,392 H544 V410 H513" class="msg" marker-end="url(#a)"/>
+<text x="552" y="405" text-anchor="start" class="label"><tspan class="num">7</tspan>  re-plan (demo mode keeps the operator’s numbers)</text>
+<line x1="40" y1="440" x2="1210" y2="440" class="frame" stroke-dasharray="6 4"/>
+<text x="50" y="458" class="tag">[accepted]</text>
+<line x1="740" y1="490" x2="948" y2="490" class="msg" marker-end="url(#a)"/>
+<text x="750" y="482" text-anchor="start" class="label"><tspan class="num">8</tspan>  awaiting confirmation</text>
+<line x1="90" y1="535" x2="948" y2="535" class="msg" marker-end="url(#a)"/>
+<text x="100" y="527" text-anchor="start" class="label"><tspan class="num">9</tspan>  confirm (within 120 s)</text>
+<line x1="950" y1="580" x2="1148" y2="580" class="msg" marker-end="url(#a)"/>
+<text x="960" y="572" text-anchor="start" class="label"><tspan class="num">10</tspan>  objective in force, 300 s</text>
+<path d="M1150,605 H1116 V623 H1147" class="msg" marker-end="url(#a)"/>
+<text x="1108" y="618" text-anchor="end" class="label"><tspan class="num">11</tspan>  new PRB split every second</text>
+<path d="M510,640 H544 V658 H513" class="msg" marker-end="url(#a)"/>
+<text x="552" y="653" text-anchor="start" class="label"><tspan class="num">12</tspan>  observe 20 s, compliance computed in code</text>
+<path d="M510,685 H544 V703 H513" class="msg" marker-end="url(#a)"/>
+<text x="552" y="698" text-anchor="start" class="label"><tspan class="num">13</tspan>  reflect: done, or revise once</text>
+</svg>
