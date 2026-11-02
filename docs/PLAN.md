@@ -103,7 +103,8 @@ M05b → M07b → M08a → M08b → M08c.**
     (`python -m agent.worker`) claims it (`processing`), runs parse → plan → verifier →
     console → observe → reflect, and may revise it once (a new intent with `supersedes`).
     Commands in `docs/learn/M04b-langgraph.md` §5.
-  - End of M05a, the same flow through the MCP gateway.
+  - End of M05a, the same flow through the MCP gateway (done 2026-11-02: accepted, rejected and
+    out-of-scope cases live, `docs/learn/M05a-gateway.md` §5).
 
 ## 3. Interfaces fixed early
 

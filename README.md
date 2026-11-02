@@ -150,8 +150,8 @@ the FlexRIC near-RT RIC and three UEs (one per slice), all from official Docker 
 | M04a | Processes and plumbing: backend interface, KPI store, A1 emulation, RL runner, console, Grafana | Done |
 | M04b | LangGraph agent with a local LLM, model benchmark, annotated intents | Done |
 | M06-spike | OAI + FlexRIC testbed reconnaissance and simulator calibration | Done |
-| M05a | MCP gateway with exactly three tools | Next |
-| M06 / M07a | Three network slices end to end on the testbed; KPM monitoring xApp | Planned |
+| M05a | MCP gateway with exactly three tools, CLI MCP client, live demo of the three cases | Done |
+| M06 / M07a | Three network slices end to end on the testbed; KPM monitoring xApp | Next |
 | M05b | Hermes Agent as the chat interface, isolated | Planned (can be cut) |
 | M07b | PRB-split control on the real gNB (custom build), FlexRIC backend | Planned |
 | M08a–c | Four-controller comparison (static, RL only, LLM only, LLM + RL) on the simulator and the testbed; extraction accuracy on the held-out intents | Planned |
@@ -176,7 +176,8 @@ Requires [uv](https://docs.astral.sh/uv/), which installs the right Python by it
 
 ```bash
 uv sync                              # install the locked dependencies
-uv run pytest -q                     # 298 tests; no GPU, LLM or Docker needed
+uv run pytest -q                     # 319 tests; no GPU, LLM or Docker needed
+uv run python -m gateway.client tools # the MCP gateway's three tools
 uv run python -m rl.plot_runner      # one intent through the whole chain, simulated (~10 s)
 ```
 
@@ -189,7 +190,9 @@ uv run python -m eval.extraction --parser qwen3:8b --split tune    # extraction 
 
 The six-process live demo (RL runner, agent service, agent worker, exporter with Grafana, and
 the console) is described step by step in
-[docs/learn/M04b-langgraph.md](docs/learn/M04b-langgraph.md#5-how-to-run-it-and-check-it-works).
+[docs/learn/M04b-langgraph.md](docs/learn/M04b-langgraph.md#5-how-to-run-it-and-check-it-works);
+the same demo through the MCP gateway is in
+[docs/learn/M05a-gateway.md](docs/learn/M05a-gateway.md#5-how-to-run-it-and-check-it-works).
 
 ## Repository layout
 
