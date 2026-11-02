@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" viewBox="0 0 1250 600" width="1250" height="600" font-family="Helvetica, Arial, sans-serif">
+<!-- M07a: why per-slice KPM subscriptions broke on the stock OAI v3.0.0 gNB, and what the patch changes.
+     Source of docs/learn/img/M07a-kpm-bug.png. Code: OAI ran_func_kpm_subs.c (stock) and
+     testbed/gnb/kpm-per-ue.patch. The counter values are an illustration, not measurements. -->
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3a3a38"/></marker>
+<style>.zone{fill:#f6f6f3;stroke:#e2e1dc;stroke-width:1.2}.zname{font-size:15px;font-weight:700;fill:#0b0b0b}
+.box{fill:#fff;stroke-width:2.4}.name{font-size:14px;font-weight:700;fill:#0b0b0b}.sub{font-size:12px;fill:#52514e}
+.mono{white-space:pre;font-family:Menlo, Consolas, monospace;font-size:12px;fill:#0b0b0b}.monob{white-space:pre;font-family:Menlo, Consolas, monospace;font-size:12px;fill:#0b0b0b;font-weight:700}
+.ln{stroke:#3a3a38;stroke-width:1.5;fill:none}.bad{fill:#fbe9e7;stroke:#c0392b;stroke-width:1.6}.good{fill:#fff;stroke:#3a3a38;stroke-width:1.4}
+.note{font-size:12.5px;fill:#0b0b0b}.muted{font-size:12px;fill:#52514e}</style></defs>
+<rect width="1250" height="600" rx="14" fill="#fff"/>
+
+<!-- ===== left: stock ===== -->
+<rect x="14" y="14" width="600" height="572" rx="12" class="zone"/>
+<text x="32" y="44" class="zname">Stock OAI v3.0.0: "previous value" stored by list position</text>
+<text x="32" y="66" class="muted">DRB.UEThpDl = (counter now − previous) / period; the same for RRU.PrbTotDl</text>
+
+<rect x="32" y="90" width="190" height="62" rx="8" class="box" stroke="#2a78d6"/>
+<text x="127" y="114" text-anchor="middle" class="name">eMBB subscription</text>
+<text x="127" y="134" text-anchor="middle" class="sub">matches 1 UE → position 0</text>
+<rect x="32" y="172" width="190" height="62" rx="8" class="box" stroke="#eb6834"/>
+<text x="127" y="196" text-anchor="middle" class="name">URLLC subscription</text>
+<text x="127" y="216" text-anchor="middle" class="sub">matches 1 UE → position 0</text>
+<rect x="32" y="254" width="190" height="62" rx="8" class="box" stroke="#1baf7a"/>
+<text x="127" y="278" text-anchor="middle" class="name">BE subscription</text>
+<text x="127" y="298" text-anchor="middle" class="sub">matches 1 UE → position 0</text>
+
+<rect x="330" y="150" width="262" height="110" rx="8" class="bad"/>
+<text x="461" y="176" text-anchor="middle" class="monob">last_rlc_pdu_total_bytes[ ]</text>
+<rect x="352" y="190" width="56" height="34" rx="4" fill="#fff" stroke="#c0392b" stroke-width="2"/>
+<text x="380" y="212" text-anchor="middle" class="monob">[0]</text>
+<rect x="412" y="190" width="56" height="34" rx="4" fill="#fff" stroke="#e2e1dc"/>
+<text x="440" y="212" text-anchor="middle" class="mono">[1]</text>
+<rect x="472" y="190" width="56" height="34" rx="4" fill="#fff" stroke="#e2e1dc"/>
+<text x="500" y="212" text-anchor="middle" class="mono">…</text>
+<text x="461" y="246" text-anchor="middle" class="sub">one array shared by all subscriptions</text>
+
+<path d="M222,121 C290,121 300,200 350,204" class="ln" marker-end="url(#a)"/>
+<path d="M222,203 C280,203 300,207 350,207" class="ln" marker-end="url(#a)"/>
+<path d="M222,285 C290,285 300,214 350,210" class="ln" marker-end="url(#a)"/>
+
+<text x="32" y="360" class="name">One second, three reports about 1 ms apart (example counters):</text>
+<text x="32" y="388" class="mono">eMBB : 9 000 000 − [0] (BE's 2 000 000)    → wrong delta</text>
+<text x="32" y="412" class="mono">URLLC: 3 000 000 − [0] (eMBB's 9 000 000)  → negative</text>
+<text x="32" y="436" class="mono">BE   : 2 000 000 − [0] (URLLC's 3 000 000) → negative</text>
+<text x="32" y="472" class="note">Each slice subtracts <tspan font-weight="700">another slice's</tspan> counter. The counters are unsigned</text>
+<text x="32" y="492" class="note">32-bit, so a negative difference wraps to ~4·10⁹ bytes: measured ~34 000 Mb/s</text>
+<text x="32" y="512" class="note">for URLLC and BE, and PRB use of ~40 million %. The cell's PRB total</text>
+<text x="32" y="532" class="note">(the denominator of RRU.PrbTotDl) is shared the same way.</text>
+<text x="32" y="564" class="muted">With one subscription for all UEs (the spike), positions 0, 1, 2 are stable: no bug.</text>
+
+<!-- ===== right: patched ===== -->
+<rect x="636" y="14" width="600" height="572" rx="12" class="zone"/>
+<text x="654" y="44" class="zname">Patched (kpm-per-ue.patch): "previous value" stored per UE</text>
+<text x="654" y="66" class="muted">prev_of(rnti) finds the UE's row, or creates it on its first report</text>
+
+<rect x="654" y="90" width="190" height="62" rx="8" class="box" stroke="#2a78d6"/>
+<text x="749" y="114" text-anchor="middle" class="name">eMBB subscription</text>
+<text x="749" y="134" text-anchor="middle" class="sub">its UE's RNTI</text>
+<rect x="654" y="172" width="190" height="62" rx="8" class="box" stroke="#eb6834"/>
+<text x="749" y="196" text-anchor="middle" class="name">URLLC subscription</text>
+<text x="749" y="216" text-anchor="middle" class="sub">its UE's RNTI</text>
+<rect x="654" y="254" width="190" height="62" rx="8" class="box" stroke="#1baf7a"/>
+<text x="749" y="278" text-anchor="middle" class="name">BE subscription</text>
+<text x="749" y="298" text-anchor="middle" class="sub">its UE's RNTI</text>
+
+<rect x="920" y="84" width="296" height="240" rx="8" class="good"/>
+<text x="1068" y="108" text-anchor="middle" class="monob">ue_prev[ ] (one row per UE)</text>
+<text x="1068" y="132" text-anchor="middle" class="muted">RNTI + counters at its previous report</text>
+<rect x="936" y="144" width="264" height="40" rx="4" fill="#fff" stroke="#2a78d6" stroke-width="2"/>
+<text x="948" y="169" class="mono">eMBB UE  · its previous values</text>
+<rect x="936" y="192" width="264" height="40" rx="4" fill="#fff" stroke="#eb6834" stroke-width="2"/>
+<text x="948" y="217" class="mono">URLLC UE · its previous values</text>
+<rect x="936" y="240" width="264" height="40" rx="4" fill="#fff" stroke="#1baf7a" stroke-width="2"/>
+<text x="948" y="265" class="mono">BE UE    · its previous values</text>
+<text x="1068" y="306" text-anchor="middle" class="sub">16 rows (MAX_MOBILES_PER_GNB)</text>
+
+<line x1="844" y1="121" x2="934" y2="162" class="ln" marker-end="url(#a)"/>
+<line x1="844" y1="203" x2="934" y2="211" class="ln" marker-end="url(#a)"/>
+<line x1="844" y1="285" x2="934" y2="261" class="ln" marker-end="url(#a)"/>
+
+<text x="654" y="360" class="name">The same second, patched:</text>
+<text x="654" y="388" class="mono">eMBB : 9 000 000 − eMBB row  → 1 s of eMBB traffic</text>
+<text x="654" y="412" class="mono">URLLC: 3 000 000 − URLLC row → 1 s of URLLC traffic</text>
+<text x="654" y="436" class="mono">BE   : 2 000 000 − BE row    → 1 s of BE traffic</text>
+<text x="654" y="472" class="note">PRB %: the UE's ΔRBs divided by the cell's ΔPRBs <tspan font-weight="700">since that UE's</tspan></text>
+<text x="654" y="492" class="note"><tspan font-weight="700">own previous report</tspan>, so numerator and denominator cover the same</text>
+<text x="654" y="512" class="note">interval. Measured: 30.7 / 10.2 / 5.1 Mb/s for 31.3 / 10.1 / 5.0 received.</text>
+<text x="654" y="564" class="muted">About 50 lines of C in OAI's ran_func_kpm_subs.c; built with OAI's own Dockerfiles.</text>
+</svg>

@@ -1,0 +1,30 @@
+# E2/E42 at the near-RT RIC (192.168.70.150) while xapp-kpm-slices (.156) was recreated; gNB = .151.
+# testbed/captures/m07a_e2.pcap (not in git). Decoded with:
+#   tshark -r m07a_e2.pcap -d sctp.port==36422,e2ap -d sctp.port==36421,e2ap
+# Columns: frame, time (s), source, destination, message
+40	3.021366000	192.168.70.150	192.168.70.151	SACK (Ack=11, Arwnd=106496) , RICsubscriptionDeleteRequest
+41	3.022245000	192.168.70.151	192.168.70.150	SACK (Ack=0, Arwnd=106496) , RICsubscriptionDeleteResponse
+42	3.022483000	192.168.70.150	192.168.70.156	SACK (Ack=0, Arwnd=106496) , RICsubscriptionDeleteResponse
+44	3.023012000	192.168.70.150	192.168.70.151	SACK (Ack=12, Arwnd=106496) , RICsubscriptionDeleteRequest
+45	3.023138000	192.168.70.151	192.168.70.150	SACK (Ack=1, Arwnd=106496) , RICsubscriptionDeleteResponse
+46	3.023283000	192.168.70.150	192.168.70.156	SACK (Ack=1, Arwnd=106496) , RICsubscriptionDeleteResponse
+48	3.023557000	192.168.70.150	192.168.70.151	SACK (Ack=13, Arwnd=106496) , RICsubscriptionDeleteRequest
+49	3.023891000	192.168.70.151	192.168.70.150	SACK (Ack=2, Arwnd=106496) , RICsubscriptionDeleteResponse
+50	3.024064000	192.168.70.150	192.168.70.156	SACK (Ack=2, Arwnd=106496) , RICsubscriptionDeleteResponse
+64	6.793296000	192.168.70.150	192.168.70.151	RICsubscriptionRequest
+65	6.794023000	192.168.70.151	192.168.70.150	SACK (Ack=3, Arwnd=106496) , RICsubscriptionResponse
+66	6.794159000	192.168.70.150	192.168.70.156	SACK (Ack=1, Arwnd=106496) , RICsubscriptionResponse
+68	6.794602000	192.168.70.150	192.168.70.151	SACK (Ack=15, Arwnd=106496) , RICsubscriptionRequest
+69	6.794740000	192.168.70.151	192.168.70.150	SACK (Ack=4, Arwnd=106496) , RICsubscriptionResponse
+70	6.794836000	192.168.70.150	192.168.70.156	SACK (Ack=2, Arwnd=106496) , RICsubscriptionResponse
+72	6.795123000	192.168.70.150	192.168.70.151	SACK (Ack=16, Arwnd=106496) , RICsubscriptionRequest
+73	6.795215000	192.168.70.151	192.168.70.150	SACK (Ack=5, Arwnd=106496) , RICsubscriptionResponse
+74	6.795319000	192.168.70.150	192.168.70.156	SACK (Ack=3, Arwnd=106496) , RICsubscriptionResponse
+
+# The S-NSSAI matching condition inside each RICsubscriptionRequest (RIC -> gNB): an octet
+# string of length 4 (byte 0x04, then SST and the 3-byte SD), found in the frame bytes:
+frame 64: 04 01 00 00 01 -> embb  (SST 1, SD 000001)
+frame 68: 04 02 00 00 01 -> urllc (SST 2, SD 000001)
+frame 72: 04 01 00 00 02 -> be    (SST 1, SD 000002)
+# Wireshark does not decode the E2SM-KPM payload here ('Unmapped RANfunctionID'): it learns
+# which service model RAN function 2 is from the E2 Setup, which was before this capture.
