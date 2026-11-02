@@ -11,7 +11,7 @@ weights summing exactly to 1 are not. The verifier then checks the result like a
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from verifier.objective import DEFAULT_OBJECTIVE, SLICES, RLObjective, SliceValues
 
@@ -20,26 +20,50 @@ DEFAULT_DURATION_S = 600.0  # an intent with no stated duration lasts 10 minutes
 
 
 class SliceNumbers(BaseModel):
-    """One optional number per slice (null = not stated)."""
+    """One number per slice, null = not stated. Every key is required: see ParsedIntent."""
 
     model_config = ConfigDict(extra="forbid")
 
-    embb: float | None = None
-    urllc: float | None = None
-    be: float | None = None
+    embb: float | None
+    urllc: float | None
+    be: float | None
 
 
 class ParsedIntent(BaseModel):
-    """The facts of an operator intent. Not stated = null. See eval/intents/README.md."""
+    """The facts of an operator intent. Not stated = null. See eval/intents/README.md.
+
+    Every field is required (null is allowed, absence is not): the JSON schema then lists them
+    all, Ollama's constrained decoding writes them all, and a reply that drops fields is
+    invalid (retried) instead of silently read as "nothing stated" (seen with granite4.2).
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     understood: bool
-    clarification: str | None = None  # one question, when understood is false
-    priority: SliceName | None = None  # the slice explicitly favoured or protected
-    min_thr_mbps: SliceNumbers = Field(default_factory=SliceNumbers)
-    max_latency_ms: float | None = None  # URLLC only
-    duration_s: float | None = None
+    clarification: str | None  # one question, when understood is false
+    priority: SliceName | None  # the slice explicitly favoured or protected
+    min_thr_mbps: SliceNumbers
+    max_latency_ms: float | None  # URLLC only
+    duration_s: float | None
+
+    def states_something(self) -> bool:
+        """True when a priority, a throughput target or a latency bound is set. An understood
+        request with none of them (a duration alone, "switch the eMBB slice off") gives the
+        agent nothing to do: it is out of scope."""
+        numbers = [*self.min_thr_mbps.model_dump().values(), self.max_latency_ms]
+        return self.priority is not None or any(v is not None for v in numbers)
+
+
+NOTHING_TO_DO = ("Je n'ai trouvé aucun objectif exprimable (débit minimum, latence, priorité). "
+                 "Que faut-il changer ? / I found no objective I can set (minimum throughput, "
+                 "latency, priority). What should change?")
+
+
+def clarify(question: str) -> ParsedIntent:
+    """A not-understood parse with every fact null."""
+    return ParsedIntent(understood=False, clarification=question, priority=None,
+                        min_thr_mbps=SliceNumbers(embb=None, urllc=None, be=None),
+                        max_latency_ms=None, duration_s=None)
 
 
 def weights_from_importance(importance: dict[str, float]) -> SliceValues:

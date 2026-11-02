@@ -99,6 +99,22 @@ def test_invalid_json_once_then_valid_goes_on(ric_db, cell) -> None:
     assert record.state == "applied"
 
 
+def test_a_reply_missing_fields_is_invalid_not_read_as_null(ric_db, cell) -> None:
+    """Seen with granite4.2: the number fields dropped. Absent is invalid; only null means 'not stated'."""
+    partial = '{"understood": true, "clarification": null, "priority": null}'
+    record, llm = agent(ric_db, cell, [partial, facts(urllc=10), objective_call(), reflection()])
+    assert record.state == "applied" and len(llm.requests) == 4  # the partial reply was retried
+    assert set(llm.requests[0]["schema"]["required"]) == {"understood", "clarification", "priority", "min_thr_mbps",
+                                                          "max_latency_ms", "duration_s"}
+
+
+def test_understood_with_nothing_to_do_becomes_a_question(ric_db, cell) -> None:
+    """Seen with qwen3 on "Coupe complètement le slice eMBB": understood, but no fact set."""
+    record, llm = agent(ric_db, cell, [facts(dur=None)])
+    assert record.state == "rejected" and record.reason.startswith("needs clarification:")
+    assert len(llm.requests) == 1  # no plan step
+
+
 def test_ambiguous_intent_is_rejected_with_the_question(ric_db, cell) -> None:
     record, _ = agent(ric_db, cell, [facts(understood=False, question="Pour quel slice ?", dur=None)])
     assert record.state == "rejected" and record.reason == "needs clarification: Pour quel slice ?"

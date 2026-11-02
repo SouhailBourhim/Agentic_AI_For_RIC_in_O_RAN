@@ -27,7 +27,7 @@ from agent.apply import apply_intent, backend_now, decision_dict
 from agent.intents import expire_pending
 from agent.parser import parse_facts
 from agent.prompts import PARSE_VERSION, PLAN_SYSTEM, REFLECT_SYSTEM, parse_messages
-from agent.schema import DEFAULT_DURATION_S, ParsedIntent
+from agent.schema import DEFAULT_DURATION_S, NOTHING_TO_DO, ParsedIntent, clarify
 from agent.tools import AgentContext
 from store import intents
 from store.events import log_event
@@ -67,9 +67,12 @@ def llm_parse(llm, text: str) -> tuple[ParsedIntent | None, float, int]:
         reply = llm.chat(parse_messages(text), schema=ParsedIntent.model_json_schema())
         latency += reply.latency_s
         try:
-            return ParsedIntent.model_validate_json(reply.content), latency, attempt
+            facts = ParsedIntent.model_validate_json(reply.content)
         except ValidationError:
             continue
+        if facts.understood and not facts.states_something():
+            facts = clarify(NOTHING_TO_DO)  # "understood" with nothing to do is not understood
+        return facts, latency, attempt
     return None, latency, 2
 
 

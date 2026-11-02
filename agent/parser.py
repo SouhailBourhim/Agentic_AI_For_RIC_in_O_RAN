@@ -23,7 +23,7 @@ Rules, applied to the text in lower case and without accents, split into clauses
 import re
 import unicodedata
 
-from agent.schema import ParsedIntent, SliceNumbers
+from agent.schema import ParsedIntent, SliceNumbers, clarify
 from verifier.objective import SLICES
 
 
@@ -82,8 +82,7 @@ def parse_facts(text: str) -> ParsedIntent:
     priority: list[str] = []
     bound: float | None = None
 
-    def not_understood(question: str) -> ParsedIntent:
-        return ParsedIntent(understood=False, clarification=question)
+    not_understood = clarify
 
     for clause in CLAUSE_SPLIT.split(norm):
         here = slices_in(clause)
@@ -105,8 +104,9 @@ def parse_facts(text: str) -> ParsedIntent:
         return not_understood("no throughput target, latency bound or priority found: what should change?")
     return ParsedIntent(
         understood=True,
+        clarification=None,
         priority=priority[0] if priority else None,
-        min_thr_mbps=SliceNumbers(**targets),
+        min_thr_mbps=SliceNumbers(**{s: targets.get(s) for s in SLICES}),
         max_latency_ms=bound,
         duration_s=duration_s(norm),
     )

@@ -9,7 +9,7 @@
 
 import json
 
-PARSE_VERSION = "v1"
+PARSE_VERSION = "v2"  # v1: 19/20 on tune with qwen3:8b; v2 adds rule 7 (runs/m04b/)
 
 PARSE_SYSTEM = """You read an operator's request for a 5G cell with three network slices:
 - embb: mobile broadband (video, streaming, "haut débit")
@@ -29,7 +29,10 @@ Rules:
 6. If a number cannot be tied to one slice, if the request contradicts itself, asks for
    something impossible to express with these fields, or is not about these slices: set
    understood=false and write ONE short question in clarification (same language as the
-   request). Otherwise understood=true and clarification=null."""
+   request). Otherwise understood=true and clarification=null.
+7. understood=true needs at least one of priority, min_thr_mbps, max_latency_ms set. A
+   request that sets none of them (switch a slice off, cap a slice, anything else) cannot
+   be expressed: understood=false with a question."""
 
 # Worked examples: tuning split only (eval/intents/annotated.jsonl, ids t01, t02, t15).
 PARSE_EXAMPLES = [
