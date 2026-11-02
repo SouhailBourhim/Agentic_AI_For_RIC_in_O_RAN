@@ -40,7 +40,7 @@ RAM in WSL, RTX 5070 Laptop with 8151 MiB VRAM, about 1.5 GB of it used by Windo
 | M04b Agent | LLM client (Ollama, swappable), LangGraph graph, parsing prompt, annotated-intent template | M04a | 3–4 | 8B model tool calling and JSON output are unreliable |
 | M05a Gateway | MCP server with exactly 3 tools, calling only the agent HTTP API; 3-case demo with a CLI client | M04b | 1–2 | Low |
 | M06 Testbed | 3 S-NSSAIs end to end (core config + database, gNB `snssaiList`, UEs), one UE per slice, traffic scripts, ordered start/stop script | spike | 3–5 | KPM style-4 reports filter on one S-NSSAI, so probably one subscription per slice. **Done 2026-11-02** (`docs/learn/M06-testbed.md`): confirmed, the stock xApp gets only cell-level reports with SD-tagged slices, so M07a subscribes per slice |
-| M07a KPM | KPM xApp (one long-lived process) writing per-slice records into the KPI store | M06, M04a | 3–5 | E2 state is fragile across xApp/RIC restarts (seen in the spike) |
+| M07a KPM | KPM xApp (one long-lived process) writing per-slice records into the KPI store | M06, M04a | 3–5 | E2 state is fragile across xApp/RIC restarts (seen in the spike). **Done 2026-11-03** (`docs/learn/M07a-kpm.md`): restarts are clean (the RIC deletes the old subscriptions); found and patched an OAI KPM bug with several subscriptions, so our gNB image (`agentic-ric/oai-gnb:v3.0.0-kpmfix`) now exists for M07b |
 | M05b Hermes | Hermes config (3-tool whitelist, general tools off, isolated container), demo through Hermes. Timeboxed; can be cut | M05a | 2–3 | Install/config (H1, H3); VRAM when Hermes and LangGraph share one model |
 | M07b Control | PRB-split control on the real gNB, FlexRICBackend, RL runner on the testbed | M07a, M02 | 5–10 | **No PRB-split control over E2 in OAI v3.0.0** (SLICE is a stub): needs a custom gNB build: option 1 decided, see §7 |
 | M08a Eval sim | 4 controllers × 3 scenarios on the simulator, repeated runs | M04b, M02 | 3–4 | Runs must be cheap enough to repeat |
@@ -134,6 +134,11 @@ M05b → M07b → M08a → M08b → M08c.**
   - `dl_thr_mbps` = Σ `DRB.UEThpDl` (kbps) / 1000
   - `prb_used` = (Σ `RRU.PrbTotDl` (% of cell) / 100) / `prb_share_alloc`
   - `latency_ms` = max `DRB.RlcSduDelayDl` (µs) / 1000. It rises clearly under overload.
+    It is the gNB's RLC queueing delay (~0.5 ms below capacity, ping ~22 ms), not end-to-end
+    latency (M07a).
+  - **M07a, for M07b:** a full cell reads ~73–75 % in `RRU.PrbTotDl`, so testbed `prb_used`
+    saturates near 0.74 where the simulator reaches 1.0; decide whether to rescale before the
+    policy sees it. Until M07b `prb_share_alloc` = 1.0 and `offered_load_mbps` is NULL.
   - The first report after each subscription is cumulative and is discarded. RSRP/SINR
     reports are invalid and unused.
 

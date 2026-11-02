@@ -31,7 +31,7 @@
   <rect x="160" y="40" width="250" height="6" fill="#2a78d6"/>
   <text x="176" y="72" class="title">Language layer</text>
   <text x="176" y="90" class="sub">LLM: understands and proposes (seconds)</text>
-  <rect x="185" y="108" width="200" height="64" rx="8" class="box planned"/>
+  <rect x="185" y="108" width="200" height="64" rx="8" class="box"/>
   <text x="285" y="135" text-anchor="middle" class="name">MCP gateway</text>
   <text x="285" y="155" text-anchor="middle" class="note">exactly 3 tools</text>
   <rect x="185" y="196" width="200" height="64" rx="8" class="box"/>
@@ -109,7 +109,8 @@
 
   <!-- measurements and feedback -->
   <path d="M1075,220 V250 H1172 V438" class="edge" marker-end="url(#a)"/>
-  <path d="M1075,340 V438" class="edge planned" marker-end="url(#a)"/>
+  <path d="M1075,340 V438" class="edge" marker-end="url(#a)"/>
+  <text x="1083" y="425" class="label">KPM xApp</text>
   <path d="M835,440 V326" class="feedback" marker-end="url(#ag)"/>
   <text x="843" y="420" class="label">state</text>
   <path d="M300,440 V370" class="feedback" marker-end="url(#ag)"/>

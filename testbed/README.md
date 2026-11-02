@@ -11,7 +11,8 @@ change we made. How it works and what was measured: `docs/learn/M06-testbed.md` 
 | Folder | What | Network |
 |---|---|---|
 | `oai-cn5g/` | mysql, NRF, UDR, UDM, AUSF, AMF, SMF, UPF, ext-dn (traffic endpoint with `iperf3 -s`) | creates `oai-cn5g-public-net` 192.168.70.128/26 |
-| `rfsim-flexric/` | nearRT-RIC, KPM + MAC/RLC/PDCP/GTP monitor xApps, gNB (E2 agent), one nrUE per slice | joins `oai-cn5g-public-net` |
+| `rfsim-flexric/` | nearRT-RIC, our KPM xApp `xapp-kpm-slices` (+ the stock monitor xApps, not started), gNB (E2 agent), one nrUE per slice | joins `oai-cn5g-public-net` |
+| `gnb/` | `kpm-per-ue.patch` (OAI v3.0.0 KPM fix, M07a) and `build.sh` (our gNB image with OAI's own Dockerfiles) | |
 
 ## Slices
 
@@ -28,9 +29,14 @@ One AMF, SMF and UPF serve all three. The slices are configured in `oai-cn5g/con
 PRB control is M07b.
 
 Addresses: AMF .132, SMF .133, UPF .134, ext-dn .135, nearRT-RIC .150, gNB .151,
-UEs .152 (eMBB) / .153 (URLLC) / .158 (BE). UE IPs come from the SMF at attach time.
+UEs .152 (eMBB) / .153 (URLLC) / .158 (BE), KPM xApp .156. UE IPs come from the SMF at attach time.
 
 ## Prerequisites
+
+- Two images we build (once, long): `testbed/gnb/build.sh` (gNB with the KPM patch,
+  `agentic-ric/oai-gnb:v3.0.0-kpmfix`) and `docker build -t agentic-ric/xapp-kpm-slices:v3.0.0 xapps/kpm`.
+  `GNB_IMAGE=oaisoftwarealliance/oai-gnb:v3.0.0 testbed/up.sh` runs the stock gNB instead (its KPM
+  values are wrong with one subscription per slice: `docs/learn/M07a-kpm.md`).
 
 - Docker with Compose ≥ 2.36 (Docker Desktop with WSL integration works).
 - The SCTP kernel module, needed by N2 (gNB ↔ AMF) and E2 (gNB ↔ RIC). It is lost after a WSL
@@ -39,16 +45,18 @@ UEs .152 (eMBB) / .153 (URLLC) / .158 (BE). UE IPs come from the SMF at attach t
 ## Start, use, stop
 
 ```bash
-testbed/up.sh            # core -> RIC -> gNB -> UEs, waits for each, prints slice / UE IP / ping
+testbed/up.sh            # core -> RIC -> gNB -> UEs -> KPM xApp, waits for each, prints slice / UE IP / ping
+uv run python -m xapps.kpm_monitor                         # KPM reports -> var/ric-testbed.db (M07a)
 uv run python testbed/traffic.py idle                     # RTT per slice
 uv run python testbed/traffic.py alone --rate 200M        # capacity, one slice at a time
 uv run python testbed/traffic.py together 40M 40M 40M     # eMBB URLLC BE at once (+ RTT, docker stats)
 uv run python testbed/plot_m06.py                         # figures in docs/learn/img/
-docker compose -f testbed/rfsim-flexric/docker-compose.yml up -d xapp-kpm-moni   # stock KPM xApp
 testbed/down.sh          # reverse order
 ```
 
 The stock `xapp-kpm-moni` gets only cell-level reports with these slices (its per-UE
-subscription filters on SST 1 without SD); M07a's own xApp subscribes per slice.
+subscription filters on SST 1 without SD, which OAI matches only against UEs with no SD).
+Our `xapp-kpm-slices` subscribes once per slice with the full S-NSSAI (M07a).
+`traffic.py --results testbed/results/m07a` writes elsewhere than the M06 folder.
 
 Packet captures go to `testbed/captures/` (not in git) and measurement outputs to `testbed/results/`.

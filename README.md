@@ -115,16 +115,29 @@ annotated intents, under a selection rule written down before the run.
 - Parsing takes about 1.3 s. A held-out set of 20 intents was written before the prompt
   existed, and it is reserved for the final evaluation.
 
-**A real 5G testbed on a laptop.** It runs the OAI 5G core, an OAI gNB in RF-simulator mode,
-the FlexRIC near-RT RIC and three UEs (one per slice), all from official Docker images.
-- Measured capacity: about 75 Mb/s. The simulator is calibrated to it.
-- Main finding: per-slice monitoring (KPM) works out of the box, but **PRB-split control over E2
-  does not exist in OAI v3.0.0**. The plan therefore includes a small custom gNB build, which
-  is documented as a decision.
+**A real 5G testbed on a laptop, with three slices end to end.** It runs the OAI 5G core, an OAI
+gNB in RF-simulator mode, the FlexRIC near-RT RIC and three UEs, one per slice (eMBB, URLLC, best
+effort, each with its own S-NSSAI, DNN and subnet).
+- Measured capacity: about 71–75 Mb/s. The simulator is calibrated to it.
+- With the stock scheduler, slices do not matter: in overload each gets an equal 23–25 Mb/s and
+  a 16 s queue, URLLC included. That is the gap the RL xApp is meant to close.
+- **PRB-split control over E2 does not exist in OAI v3.0.0**, so the plan includes a small custom
+  gNB build, documented as a decision.
+
+**Real per-slice KPIs over E2, after fixing a bug in the gNB.** Our KPM xApp subscribes once per
+slice and writes the same KPI record as the simulator. The agent, the MCP gateway and Grafana
+then read testbed data with no change.
+- With one subscription per slice, OAI v3.0.0's gNB computes each slice's throughput against
+  another slice's counter (left: up to 34 000 Mb/s for 10 Mb/s of traffic). A patch of about 50
+  lines keeps the previous values per UE.
+- On our patched gNB, KPM matches iperf3 to a median 2.5 % per second (right), and its RLC delay
+  tracks the ping RTT up to 15 s in overload.
+
+![KPM per slice on the stock and the patched gNB](docs/learn/img/M07a-stock-vs-patched.png)
 
 ## Engineering practices
 
-- **298 automated tests**, run by GitHub Actions on every push. No GPU, LLM or testbed is
+- **346 automated tests**, run by GitHub Actions on every push. No GPU, LLM or testbed is
   needed: the LLM is replaced by a scripted fake.
 - **Pre-registration.** Pass/fail criteria, model-selection rules and held-out sets are
   committed before the experiment runs. Failed criteria stay in the record.
@@ -152,8 +165,8 @@ the FlexRIC near-RT RIC and three UEs (one per slice), all from official Docker 
 | M06-spike | OAI + FlexRIC testbed reconnaissance and simulator calibration | Done |
 | M05a | MCP gateway with exactly three tools, CLI MCP client, live demo of the three cases | Done |
 | M06 | Three network slices end to end on the testbed (OAI core, gNB, one UE per slice), capacity and load measured | Done |
-| M07a | KPM monitoring xApp (one subscription per slice) | Next |
-| M05b | Hermes Agent as the chat interface, isolated | Planned (can be cut) |
+| M07a | KPM monitoring xApp (one subscription per slice), patched gNB KPM, testbed KPIs in the store | Done |
+| M05b | Hermes Agent as the chat interface, isolated | Next (can be cut) |
 | M07b | PRB-split control on the real gNB (custom build), FlexRIC backend | Planned |
 | M08a–c | Four-controller comparison (static, RL only, LLM only, LLM + RL) on the simulator and the testbed; extraction accuracy on the held-out intents | Planned |
 
@@ -177,7 +190,7 @@ Requires [uv](https://docs.astral.sh/uv/), which installs the right Python by it
 
 ```bash
 uv sync                              # install the locked dependencies
-uv run pytest -q                     # 336 tests; no GPU, LLM or Docker needed
+uv run pytest -q                     # 346 tests; no GPU, LLM or Docker needed
 uv run python -m gateway.client tools # the MCP gateway's three tools
 uv run python -m rl.plot_runner      # one intent through the whole chain, simulated (~10 s)
 ```
@@ -195,6 +208,10 @@ the console) is described step by step in
 the same demo through the MCP gateway is in
 [docs/learn/M05a-gateway.md](docs/learn/M05a-gateway.md#5-how-to-run-it-and-check-it-works).
 
+The testbed needs Docker, the SCTP kernel module and two images we build (the patched gNB and
+the KPM xApp). [testbed/README.md](testbed/README.md) has the commands; `testbed/up.sh` starts
+everything in order, and `uv run python -m xapps.kpm_monitor` fills the KPI store from it.
+
 ## Repository layout
 
 | Folder | Contents |
@@ -209,7 +226,8 @@ the same demo through the MCP gateway is in
 | [eval/](eval/) | Annotated intents, extraction scorer, model benchmark |
 | [mlops/](mlops/) | MLflow tracking, registry, promotion gate |
 | [monitoring/](monitoring/) | Prometheus exporter, Prometheus and Grafana configuration and dashboard |
-| [testbed/](testbed/) | OAI and FlexRIC configurations, measurements, packet captures |
+| [xapps/](xapps/) | KPM monitoring xApp: C subscriber on FlexRIC plus the Python writer to the KPI store |
+| [testbed/](testbed/) | OAI and FlexRIC configurations, gNB patch and build, traffic scripts, measurements |
 | [notebooks/](notebooks/) | marimo notebooks to explore the simulator and the policy |
 | [tests/](tests/) | pytest, including one test per hard invariant |
 | [docs/](docs/) | Plan, decisions, learning notes, design document |
