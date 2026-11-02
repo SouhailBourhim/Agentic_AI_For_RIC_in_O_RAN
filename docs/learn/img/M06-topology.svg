@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1250 660" width="1250" height="660" font-family="Helvetica, Arial, sans-serif">
+<!-- M06 testbed topology. Source of docs/learn/img/M06-topology.png (exported with a headless browser).
+     Addresses and ports: testbed/oai-cn5g/docker-compose.yaml, testbed/rfsim-flexric/docker-compose.yml,
+     config.yaml; E2/E42 ports read from the spike's E2 capture. -->
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3a3a38"/></marker>
+<style>.zone{fill:#f6f6f3;stroke:#e2e1dc;stroke-width:1.2}.zname{font-size:13px;font-weight:700;fill:#52514e}
+.box{fill:#fff;stroke-width:1.6}.name{font-size:14px;font-weight:700;fill:#0b0b0b}.sub{font-size:11.5px;fill:#52514e}
+.cp{stroke:#3a3a38;stroke-width:1.5;fill:none}.up{stroke:#3a3a38;stroke-width:3.2;fill:none}.e2{stroke:#3a3a38;stroke-width:1.5;fill:none;stroke-dasharray:6 4}
+.label{font-size:12px;fill:#0b0b0b;paint-order:stroke;stroke:#f6f6f3;stroke-width:5px;stroke-linejoin:round}.legend{font-size:12px;fill:#52514e}</style></defs>
+<rect width="1250" height="660" rx="14" fill="#fff"/>
+
+<!-- zones -->
+<rect x="14" y="60" width="500" height="380" rx="12" class="zone"/>
+<text x="30" y="84" class="zname">RAN (OAI v3.0.0, RF simulator)</text>
+<rect x="560" y="18" width="676" height="370" rx="12" class="zone"/>
+<text x="576" y="42" class="zname">5G core (OAI CN5G v2.2.1): one AMF, SMF and UPF for the three slices</text>
+<rect x="14" y="460" width="740" height="150" rx="12" class="zone"/>
+<text x="30" y="484" class="zname">near-RT RIC (FlexRIC v3.0.0)</text>
+
+<!-- UEs, coloured by slice -->
+<rect x="30" y="104" width="220" height="76" rx="8" class="box" stroke="#2a78d6" stroke-width="2.4"/>
+<text x="140" y="128" text-anchor="middle" class="name">UE eMBB</text>
+<text x="140" y="148" text-anchor="middle" class="sub">S-NSSAI (1, 000001) · DNN embb</text>
+<text x="140" y="166" text-anchor="middle" class="sub">IP 10.0.1.2 · 5QI 9 · container .152</text>
+<rect x="30" y="214" width="220" height="76" rx="8" class="box" stroke="#eb6834" stroke-width="2.4"/>
+<text x="140" y="238" text-anchor="middle" class="name">UE URLLC</text>
+<text x="140" y="258" text-anchor="middle" class="sub">S-NSSAI (2, 000001) · DNN urllc</text>
+<text x="140" y="276" text-anchor="middle" class="sub">IP 10.0.2.2 · 5QI 7 · container .153</text>
+<rect x="30" y="324" width="220" height="76" rx="8" class="box" stroke="#1baf7a" stroke-width="2.4"/>
+<text x="140" y="348" text-anchor="middle" class="name">UE best effort</text>
+<text x="140" y="368" text-anchor="middle" class="sub">S-NSSAI (1, 000002) · DNN be</text>
+<text x="140" y="386" text-anchor="middle" class="sub">IP 10.0.3.2 · 5QI 9 · container .158</text>
+
+<!-- gNB -->
+<rect x="330" y="200" width="170" height="104" rx="8" class="box" stroke="#3a3a38"/>
+<text x="415" y="228" text-anchor="middle" class="name">gNB</text>
+<text x="415" y="248" text-anchor="middle" class="sub">monolithic (no F1)</text>
+<text x="415" y="266" text-anchor="middle" class="sub">E2 agent · .151</text>
+<text x="415" y="284" text-anchor="middle" class="sub">stock scheduler: PF</text>
+
+<!-- Uu (rfsim) -->
+<line x1="250" y1="142" x2="328" y2="226" class="cp" marker-end="url(#a)"/>
+<line x1="250" y1="252" x2="328" y2="252" class="cp" marker-end="url(#a)"/>
+<line x1="250" y1="362" x2="328" y2="280" class="cp" marker-end="url(#a)"/>
+<text x="289" y="200" text-anchor="middle" class="label">Uu</text>
+<text x="289" y="420" text-anchor="middle" class="sub">Uu = radio as I/Q samples over TCP</text>
+
+<!-- core boxes -->
+<rect x="590" y="62" width="230" height="64" rx="8" class="box" stroke="#3a3a38"/>
+<text x="705" y="88" text-anchor="middle" class="name">NRF · UDM · UDR · AUSF</text>
+<text x="705" y="108" text-anchor="middle" class="sub">registry, subscribers, keys</text>
+<rect x="880" y="62" width="160" height="64" rx="8" class="box" stroke="#3a3a38"/>
+<text x="960" y="88" text-anchor="middle" class="name">mysql</text>
+<text x="960" y="108" text-anchor="middle" class="sub">subscribed slices · .131</text>
+<rect x="590" y="176" width="230" height="70" rx="8" class="box" stroke="#3a3a38"/>
+<text x="705" y="204" text-anchor="middle" class="name">AMF · .132</text>
+<text x="705" y="224" text-anchor="middle" class="sub">registration, allowed NSSAI</text>
+<rect x="880" y="176" width="230" height="70" rx="8" class="box" stroke="#3a3a38"/>
+<text x="995" y="204" text-anchor="middle" class="name">SMF · .133</text>
+<text x="995" y="224" text-anchor="middle" class="sub">slice → DNN, subnet, 5QI</text>
+<rect x="880" y="300" width="230" height="70" rx="8" class="box" stroke="#3a3a38"/>
+<text x="995" y="328" text-anchor="middle" class="name">UPF · .134</text>
+<text x="995" y="348" text-anchor="middle" class="sub">GTP-U tunnels, NAT</text>
+
+<!-- data network -->
+<rect x="1060" y="430" width="176" height="76" rx="8" class="box" stroke="#3a3a38"/>
+<text x="1148" y="458" text-anchor="middle" class="name">ext-dn · .135</text>
+<text x="1148" y="478" text-anchor="middle" class="sub">data network</text>
+<text x="1148" y="494" text-anchor="middle" class="sub">iperf3 -s, ping target</text>
+
+<!-- RIC -->
+<rect x="330" y="500" width="170" height="80" rx="8" class="box" stroke="#3a3a38"/>
+<text x="415" y="528" text-anchor="middle" class="name">near-RT RIC</text>
+<text x="415" y="548" text-anchor="middle" class="sub">.150</text>
+<rect x="560" y="500" width="176" height="80" rx="8" class="box" stroke="#3a3a38" stroke-dasharray="6 4"/>
+<text x="648" y="528" text-anchor="middle" class="name">xApps</text>
+<text x="648" y="548" text-anchor="middle" class="sub">KPM monitor (M07a)</text>
+<text x="648" y="566" text-anchor="middle" class="sub">RL slice control (M07b)</text>
+
+<!-- control plane -->
+<path d="M500,222 C545,222 545,211 588,211" class="cp" marker-end="url(#a)"/>
+<text x="545" y="204" text-anchor="middle" class="label">N2</text>
+<line x1="705" y1="176" x2="705" y2="128" class="cp" marker-end="url(#a)"/>
+<text x="705" y="156" text-anchor="middle" class="label">SBI</text>
+<line x1="820" y1="211" x2="878" y2="211" class="cp" marker-end="url(#a)"/>
+<text x="849" y="204" text-anchor="middle" class="label">SBI</text>
+<line x1="820" y1="94" x2="878" y2="94" class="cp" marker-end="url(#a)"/>
+<line x1="995" y1="246" x2="995" y2="298" class="cp" marker-end="url(#a)"/>
+<text x="995" y="276" text-anchor="middle" class="label">N4 · PFCP</text>
+
+<!-- user plane -->
+<path d="M500,286 C640,286 740,335 878,335" class="up" marker-end="url(#a)"/>
+<text x="700" y="358" text-anchor="middle" class="label">N3 · GTP-U, one tunnel per PDU session</text>
+<path d="M1110,350 C1150,350 1148,380 1148,428" class="up" marker-end="url(#a)"/>
+<text x="1160" y="396" text-anchor="start" class="label">N6</text>
+
+<!-- E2 -->
+<line x1="415" y1="304" x2="415" y2="498" class="e2" marker-end="url(#a)"/>
+<text x="425" y="480" text-anchor="start" class="label">E2 · E2AP / SCTP 36421</text>
+<line x1="500" y1="540" x2="558" y2="540" class="e2" marker-end="url(#a)"/>
+<text x="529" y="532" text-anchor="middle" class="label">E42 · 36422</text>
+
+<!-- legend -->
+<line x1="790" y1="560" x2="830" y2="560" class="cp"/><text x="840" y="564" class="legend">control plane (N2 NGAP/SCTP 38412, SBI HTTP/2, N4)</text>
+<line x1="790" y1="584" x2="830" y2="584" class="up"/><text x="840" y="588" class="legend">user plane (N3 GTP-U UDP 2152, N6)</text>
+<line x1="790" y1="608" x2="830" y2="608" class="e2"/><text x="840" y="612" class="legend">RIC interfaces (E2, E42)</text>
+<text x="790" y="640" class="legend">All containers on oai-cn5g-public-net 192.168.70.128/26</text>
+<text x="30" y="640" class="legend">UE outline colour = slice. F1 is not used: the gNB is monolithic.</text>
+</svg>

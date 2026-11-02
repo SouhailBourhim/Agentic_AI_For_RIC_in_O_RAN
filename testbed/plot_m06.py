@@ -4,7 +4,11 @@ Run with:  uv run python testbed/plot_m06.py
 Reads testbed/results/m06/ (written by testbed/traffic.py) and writes
 - docs/learn/img/M06-slices.png: received throughput (top) and RTT (bottom, log scale) per slice,
   for one slice alone / idle, three slices below capacity, three slices in overload;
-- docs/learn/img/M06-resources.png: CPU and memory per container group, idle and in overload.
+- docs/learn/img/M06-resources.png: CPU and memory per container group, idle and in overload;
+- docs/learn/img/M06-asked-vs-got.png: offered vs received throughput per slice, with the capacity;
+- docs/learn/img/M06-rtt-cdf.png: RTT distribution per slice, idle / below capacity / overload;
+- docs/learn/img/M06-attach.png: the three UEs attaching, phase by phase, from the N2 capture
+  (testbed/results/m06/n2_events.tsv, extracted from the pcap with tshark).
 Every number comes from those files; nothing is typed in by hand.
 """
 
@@ -22,11 +26,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # testbed/, for plot_s
 
 from plot_spike import load_run  # noqa: E402
 from sim.plot import LINE_WIDTH, SLICE_COLOURS, SLICE_LABELS, SURFACE, TEXT, TEXT_MUTED, _style  # noqa: E402
-from traffic import PING_INTERVAL_S, SLICES  # noqa: E402
+from traffic import PING_INTERVAL_S, SLICES, STEADY_AFTER_S  # noqa: E402
 
 RESULTS = Path("testbed/results/m06")
 OUT_SLICES = Path("docs/learn/img/M06-slices.png")
 OUT_RESOURCES = Path("docs/learn/img/M06-resources.png")
+OUT_ASKED = Path("docs/learn/img/M06-asked-vs-got.png")
+OUT_CDF = Path("docs/learn/img/M06-rtt-cdf.png")
+OUT_ATTACH = Path("docs/learn/img/M06-attach.png")
+# (sst, sd) -> slice, as configured (tests/test_testbed_config.py)
+SLICE_OF_SNSSAI = {(1, 0x000001): "embb", (2, 0x000001): "urllc", (1, 0x000002): "be"}
 # (column title, iperf3 run label or None, ping run label)
 COLUMNS = [
     ("Each slice alone (200 Mb/s offered) / idle", "alone_200M", "idle"),
@@ -119,11 +128,141 @@ def plot_resources() -> Figure:
     return fig
 
 
+def plot_asked_vs_got() -> Figure:
+    """Offered (outline) vs received (filled) throughput per slice, for the three runs."""
+    runs = [("each slice alone", "alone_200M"), ("3 × 20 Mb/s", "together_20M_20M_20M"),
+            ("3 × 40 Mb/s (overload)", "together_40M_40M_40M")]
+    capacity = float(np.mean([load_run(RESULTS / f"alone_200M_{n}.json")["steady_mbps"] for n in SLICES]))
+    top = 95.0
+    fig = Figure(figsize=(10, 4.2), facecolor=SURFACE, layout="constrained")
+    ax = fig.subplots()
+    width = 0.8
+    for g, (title, label) in enumerate(runs):
+        total = 0.0
+        for k, name in enumerate(SLICES):
+            x = g * 4 + k
+            r = load_run(RESULTS / f"{label}_{name}.json")
+            total += r["steady_mbps"]
+            offered = r["offered_mbps"]
+            ax.bar(x, min(offered, top), width=width, fill=False, edgecolor=TEXT_MUTED, linewidth=1.2,
+                   linestyle="--", label="offered" if (g, k) == (0, 0) else None)
+            if offered > top:
+                ax.annotate(f"offered {offered:.0f} ↑", (x, top), xytext=(0, -12), textcoords="offset points",
+                            ha="center", fontsize=7, color=TEXT_MUTED)
+            ax.bar(x, r["steady_mbps"], width=width - 0.22, color=SLICE_COLOURS[name], edgecolor=SURFACE,
+                   linewidth=1.5, label=SLICE_LABELS[name] if g == 0 else None)
+            ax.annotate(f"{r['steady_mbps']:.0f}", (x, r["steady_mbps"]), xytext=(0, 3), textcoords="offset points",
+                        ha="center", fontsize=8, color=TEXT)
+        if label.startswith("together"):
+            ax.annotate(f"sum {total:.0f} Mb/s", (g * 4 + 1, 0), xytext=(0, -28), textcoords="offset points",
+                        ha="center", fontsize=8, color=TEXT_MUTED, annotation_clip=False)
+    ax.axhline(capacity, color=TEXT, linestyle=":", linewidth=1.2)
+    ax.annotate(f"cell capacity ≈ {capacity:.0f} Mb/s (mean of the 'alone' runs)", (10.6, capacity),
+                xytext=(0, 4), textcoords="offset points", ha="right", fontsize=8, color=TEXT)
+    ax.set_xticks([g * 4 + 1 for g in range(len(runs))], [t for t, _ in runs])
+    ax.set_ylim(0, top)
+    ax.set_xlim(-0.8, 10.8)
+    _style(ax, "throughput (Mb/s, steady part)")
+    ax.grid(False, axis="x")
+    ax.legend(frameon=False, fontsize=8, ncols=4, loc="upper center")
+    fig.suptitle("What each slice asked for and what it got: in overload, equal thirds whatever the slice",
+                 color=TEXT, fontsize=12, x=0.01, ha="left")
+    return fig
+
+
+def plot_rtt_cdf() -> Figure:
+    """Empirical CDF of the RTT per slice: idle, below capacity and overload (after the start-up)."""
+    panels = [("idle", "idle", 0.0), ("3 × 20 Mb/s, after the first 15 s", "together_20M_20M_20M", STEADY_AFTER_S),
+              ("3 × 40 Mb/s (overload), after the first 15 s", "together_40M_40M_40M", STEADY_AFTER_S)]
+    fig = Figure(figsize=(12, 3.8), facecolor=SURFACE, layout="constrained")
+    axes = fig.subplots(1, 3, sharey=True, sharex=True)
+    for ax, (title, label, after) in zip(axes, panels):
+        for name in SLICES:
+            t, rtt = ping_series(RESULTS / f"{label}_ping_{name}.txt")
+            values = np.sort(rtt[t >= after])
+            share = np.arange(1, len(values) + 1) / len(values)
+            median = float(np.median(values))
+            ax.step(values, share, where="post", color=SLICE_COLOURS[name], linewidth=LINE_WIDTH,
+                    label=f"{SLICE_LABELS[name]}: median {median:,.0f} ms")
+        ax.set_xscale("log")
+        ax.set_xlim(5, 30_000)
+        ax.set_ylim(0, 1.02)
+        ax.set_title(title, color=TEXT, fontsize=10, loc="left")
+        _style(ax, "share of pings with RTT ≤ x" if ax is axes[0] else "")
+        ax.set_xlabel("RTT UE → ext-dn (ms, log)", color=TEXT_MUTED, fontsize=8)
+        ax.legend(frameon=False, fontsize=8, loc="lower right" if label != "together_40M_40M_40M" else "upper left")
+    fig.suptitle("RTT distribution per slice: in overload every slice waits ~17 s, URLLC included",
+                 color=TEXT, fontsize=12, x=0.01, ha="left")
+    return fig
+
+
+def attach_phases() -> dict[str, dict]:
+    """Per slice: the phase boundaries (s) of its attach and its PDU session's S-NSSAI and 5QI,
+    from the N2 events. The capture starts with the old contexts being released (UE restart);
+    RAN UE ids are reused, so only events after each UE's Registration request are used."""
+    rows = list(csv.DictReader((RESULTS / "n2_events.tsv").open(), delimiter="\t"))
+    by_ue = defaultdict(list)
+    for row in rows:
+        by_ue[row["ran_ue_id"]].append(row)
+    phases = {}
+    for events in by_ue.values():
+        start = next(i for i, e in enumerate(events) if e["procedure_code"] == "15")  # InitialUEMessage
+        events = events[start:]
+        t = lambda pred: next(float(e["t_s"]) for e in events if pred(e))  # noqa: E731
+        pdu = next(e for e in events if e["procedure_code"] == "29" and e["sst"])
+        slice_name = SLICE_OF_SNSSAI[(int(pdu["sst"]), int(pdu["sd"], 16))]
+        phases[slice_name] = {
+            "bounds": [t(lambda e: e["procedure_code"] == "15"),
+                       t(lambda e: e["nas_mm_type"] == "0x57"),  # authentication response
+                       t(lambda e: e["procedure_code"] == "14"),  # initial context setup request
+                       t(lambda e: e["info"].startswith("InitialContextSetupResponse")),
+                       t(lambda e: e["procedure_code"] == "29"),  # PDU session resource setup request
+                       t(lambda e: e["info"].startswith("PDUSessionResourceSetupResponse"))],
+            "label": f"S-NSSAI ({int(pdu['sst'])}, {pdu['sd']}), 5QI {pdu['five_qi']}",
+        }
+    return phases
+
+
+def plot_attach() -> Figure:
+    phase_names = ["registration + authentication", "security mode", "context setup (allowed NSSAI)",
+                   "PDU session request (NAS)", "PDU session resource setup (N2, N3 tunnel)"]
+    shades = ["#d9d8d2", "#b8b7b0", "#97968f", "#6f6e68", "#3a3a38"]  # one neutral ramp: ordered phases
+    phases = attach_phases()
+    fig = Figure(figsize=(11, 3.4), facecolor=SURFACE, layout="constrained")
+    ax = fig.subplots()
+    order = [n for n in SLICES if n in phases]
+    for row, name in enumerate(order):
+        bounds = phases[name]["bounds"]
+        t0 = bounds[0]
+        for k in range(len(phase_names)):
+            left, right = (bounds[k] - t0) * 1000, (bounds[k + 1] - t0) * 1000
+            ax.barh(row, right - left, left=left, height=0.5, color=shades[k], edgecolor=SURFACE, linewidth=1.5,
+                    label=phase_names[k] if row == 0 else None)
+        total = (bounds[-1] - t0) * 1000
+        ax.annotate(f"{phases[name]['label']}  ·  {total:.0f} ms  ·  starts at t = {t0:.2f} s",
+                    (total, row), xytext=(8, 0), textcoords="offset points", va="center", fontsize=8, color=TEXT)
+    ax.set_yticks(range(len(order)), [f"UE {SLICE_LABELS[n]}" for n in order])
+    for tick, name in zip(ax.get_yticklabels(), order):
+        tick.set_color(SLICE_COLOURS[name])
+    ax.invert_yaxis()
+    ax.set_xlim(0, 420)
+    _style(ax, "")
+    ax.grid(False, axis="y")
+    ax.set_xlabel("ms since the UE's Registration request (InitialUEMessage on N2)", color=TEXT_MUTED, fontsize=8)
+    ax.legend(frameon=False, fontsize=8, ncols=3, loc="upper center", bbox_to_anchor=(0.5, -0.28))
+    fig.suptitle("The three UEs attaching after a restart, from the N2 capture: each gets its own slice and 5QI",
+                 color=TEXT, fontsize=12, x=0.01, ha="left")
+    return fig
+
+
 def main() -> None:
     OUT_SLICES.parent.mkdir(parents=True, exist_ok=True)
     plot_slices().savefig(OUT_SLICES, dpi=120)
     plot_resources().savefig(OUT_RESOURCES, dpi=120)
-    print(f"wrote {OUT_SLICES} and {OUT_RESOURCES}")
+    plot_asked_vs_got().savefig(OUT_ASKED, dpi=120)
+    plot_rtt_cdf().savefig(OUT_CDF, dpi=120)
+    plot_attach().savefig(OUT_ATTACH, dpi=120)
+    print(f"wrote {OUT_SLICES}, {OUT_RESOURCES}, {OUT_ASKED}, {OUT_CDF}, {OUT_ATTACH}")
 
 
 if __name__ == "__main__":

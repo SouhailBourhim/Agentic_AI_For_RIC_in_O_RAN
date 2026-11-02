@@ -81,7 +81,11 @@ two slices of the same type, so best effort is an eMBB-type slice with its own S
 2. **Each subscriber has its slice**
    ([oai_db.sql:157](../../testbed/oai-cn5g/database/oai_db.sql#L157)).
    `AccessAndMobilitySubscriptionData.nssai` lists the subscribed S-NSSAI per IMSI, as in
-   oai-cn5g-fed v2.2.1 `database/oai_db2.sql`.
+   oai-cn5g-fed v2.2.1 `database/oai_db2.sql`. **What the N2 capture shows, though:** every UE's
+   InitialContextSetupRequest carries an *Allowed NSSAI* with all three slices, and the UEs'
+   Registration requests carry no Requested NSSAI. So in this setup the subscription rows do not
+   narrow anything. The slice a UE uses comes from its own PDU session request (step 4). Why the
+   AMF does not restrict it (its own logic, or the UDM data it fetches) was not investigated.
 3. **The gNB announces the three slices to the AMF** in its NG Setup
    ([gnb.conf:21](../../testbed/rfsim-flexric/conf/gnb.conf#L21)). The AMF rejects a gNB or a UE
    whose slices it does not support.
@@ -110,22 +114,11 @@ two slices of the same type, so best effort is an eMBB-type slice with its own S
 
 ## 4. Diagram
 
-```mermaid
-flowchart LR
-    subgraph RAN["RAN (rfsim)"]
-      UE1["UE eMBB<br/>10.0.1.2"] --- G
-      UE2["UE URLLC<br/>10.0.2.2"] --- G
-      UE3["UE BE<br/>10.0.3.2"] --- G
-      G["gNB<br/>.151"]
-    end
-    G -- "N2 NGAP / SCTP" --> AMF["AMF .132"]
-    G == "N3 GTP-U" ==> UPF["UPF .134"]
-    G -- "E2 / SCTP" --> RIC["near-RT RIC .150"]
-    AMF -- SBI --> SMF["SMF .133"]
-    AMF -- SBI --> UDM["UDM / UDR / AUSF"] --> DB[(mysql)]
-    SMF -- "N4 PFCP" --> UPF
-    UPF == "N6" ==> DN["ext-dn .135<br/>iperf3 -s"]
-```
+![The testbed: containers, addresses and 3GPP interfaces](img/M06-topology.png)
+
+The source is [img/M06-topology.svg](img/M06-topology.svg), drawn by hand like the README's
+figures. The PNG is a headless-browser export. UE outlines carry the slice colours. Thin lines are
+control plane, thick lines user plane, dashed lines the RIC interfaces.
 
 One PDU session, as captured on N2 ([results/m06/n2_pdu_session_setup.txt](../../testbed/results/m06/n2_pdu_session_setup.txt)):
 
@@ -139,7 +132,7 @@ sequenceDiagram
     UE->>G: RRC setup
     G->>AMF: InitialUEMessage (NAS Registration request, requested NSSAI)
     AMF->>UE: Authentication, Security mode (NAS via gNB)
-    AMF->>G: InitialContextSetupRequest (allowed NSSAI)
+    AMF->>G: InitialContextSetupRequest (allowed NSSAI: all three slices)
     UE->>AMF: PDU session request: DNN urllc, S-NSSAI (2, 000001)
     AMF->>SMF: create SM context (SBI)
     SMF->>UPF: PFCP session (N4): tunnel + UE IP 10.0.2.2
@@ -208,7 +201,8 @@ uv run pytest -q tests/test_testbed_config.py               # 11 passed, no test
 
 ![Three slices: throughput and RTT, alone/idle, below capacity, overload](img/M06-slices.png)
 
-Produced by `uv run python testbed/plot_m06.py` from `testbed/results/m06/`. How to read it:
+All figures in this section are produced by `uv run python testbed/plot_m06.py` from
+`testbed/results/m06/` (no testbed needed). How to read the first one:
 - **Columns:** one slice at a time (and the idle RTT), three slices below capacity, three slices
   in overload.
 - **Top row:** received throughput per second. In overload the three lines are on top of each
@@ -216,6 +210,38 @@ Produced by `uv run python testbed/plot_m06.py` from `testbed/results/m06/`. How
 - **Bottom row:** RTT, on a log scale.
   - Below capacity, the start-up hump (link adaptation) drains by 15 s.
   - In overload, all three slices climb together to ~17 s. Nothing protects URLLC.
+
+![Offered vs received throughput per slice](img/M06-asked-vs-got.png)
+
+**What each slice asked for and what it got** (steady part of each run). Dashed outlines are the
+offered rate, filled bars what arrived.
+- Alone, every slice is capped by the cell, at about 71 Mb/s (dotted line).
+- At 3 × 20 Mb/s everything fits (sum 63 Mb/s).
+- At 3 × 40 Mb/s the sum stays at the capacity (69 Mb/s) and is cut into **equal thirds**. URLLC
+  gets the same 23 Mb/s as best effort. This is the picture M07b should change: once the RL
+  xApp sets the split, the URLLC bar should reach its target and best effort should absorb the
+  shortfall.
+
+![RTT distribution per slice](img/M06-rtt-cdf.png)
+
+**RTT distributions** (empirical CDFs; the y value is the share of pings at or below the x value).
+- Idle and below capacity, all slices sit between ~10 and ~40 ms (medians 17–29 ms).
+- In overload the three curves jump together to ~16.6 s. The vertical line at the right means
+  every ping waited about the same time: a full queue, the same for every slice.
+- The x axis is logarithmic. The overload curves are three orders of magnitude to the right.
+
+![The three UEs attaching, phase by phase](img/M06-attach.png)
+
+**The three attaches, from the N2 capture.** One row per UE, in ms since its Registration request.
+Each phase is a stretch between two NGAP messages, from
+[n2_events.tsv](../../testbed/results/m06/n2_events.tsv) (extracted from the pcap with tshark).
+- Registration + authentication, security mode, the initial context setup (where the AMF sends
+  the allowed NSSAI), the PDU session request in NAS, then the PDU session resource setup that
+  creates the N3 tunnel.
+- Each attach takes about 205–240 ms. The UEs attached one after another (URLLC first, at
+  t = 3.90 s, after the restart).
+- The label on the right is read from that UE's PDU session setup in the capture: its own
+  S-NSSAI and 5QI.
 
 ![CPU and memory per container group](img/M06-resources.png)
 
@@ -275,10 +301,12 @@ per slice, with that slice's S-NSSAI in the filter.
    and E2 (gNB ↔ RIC). Without the module the gNB cannot open them: no NG Setup, no UE can
    register, and no KPM. `up.sh` checks `/proc/modules` and stops before starting anything.
 2. **Where does the AMF learn which slices exist, and which a UE may use?** Which slices exist:
-   its own `plmn_support_list.nssai`, checked against the gNB's NG Setup. Which a UE may use: its
-   subscription in the UDM (the `AccessAndMobilitySubscriptionData.nssai` row for that IMSI),
-   checked against the slices the UE requests. The result is the allowed NSSAI sent in
-   InitialContextSetupRequest.
+   its own `plmn_support_list.nssai`, checked against the gNB's NG Setup. Which a UE may use: in
+   principle its subscription in the UDM (the `AccessAndMobilitySubscriptionData.nssai` row),
+   checked against the slices the UE requests, giving the Allowed NSSAI of the
+   InitialContextSetupRequest. In our capture the Allowed NSSAI lists all three slices for every
+   UE, and the UEs request none. So here the slice is set by the UE's PDU session request, and the
+   core's per-slice DNN, subnet and 5QI follow from it.
 3. **In the N2 capture, how do you tell which UE is URLLC?** In its
    `PDUSessionResourceSetupRequest`: `sST 02, sD 000001` and `fiveQI 7`. The other two have
    SST 01, with SD 000001 or 000002, and 5QI 9.

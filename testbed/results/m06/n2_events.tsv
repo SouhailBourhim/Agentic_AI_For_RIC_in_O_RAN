@@ -1,0 +1,49 @@
+t_s	ran_ue_id	procedure_code	nas_mm_type	sst	sd	five_qi	info
+0.000000000	2	46					UplinkNASTransport
+0.000796000	1	46					UplinkNASTransport
+0.000938000	3	46					UplinkNASTransport
+0.003375000	2	4	0x46				DownlinkNASTransport, Deregistration accept (UE originating)
+0.204130000	2	41					UEContextReleaseCommand [Cause: Nas=deregister]
+0.206126000	1	4	0x46				DownlinkNASTransport, Deregistration accept (UE originating)
+0.293934000	2	41					UEContextReleaseComplete
+0.406381000	1	41					UEContextReleaseCommand [Cause: Nas=deregister]
+0.407830000	3	4	0x46				DownlinkNASTransport, Deregistration accept (UE originating)
+0.608114000	3	41					UEContextReleaseCommand [Cause: Nas=deregister]
+1.370877000	1	41					UEContextReleaseComplete
+1.371457000	3	41					UEContextReleaseComplete
+3.903755000	1	15	0x41				InitialUEMessage, Registration request [RRCEstablishmentCause=mo-Signalling]
+3.918920000	1	4	0x56				DownlinkNASTransport, Authentication request
+3.942523000	1	46	0x57				UplinkNASTransport, Authentication response
+3.953643000	1	4	0x5d				DownlinkNASTransport, Security mode command
+3.982224000	1	46					UplinkNASTransport
+3.988064000	1	14		01,02,01	000001,000001,000002		InitialContextSetupRequest
+4.046119000	1	44					UERadioCapabilityInfoIndication
+4.046181000	1	14					InitialContextSetupResponse
+4.070021000	1	46					UplinkNASTransport
+4.070644000	1	46					UplinkNASTransport
+4.079329000	1	29		02	000001	7	PDUSessionResourceSetupRequest
+4.108832000	1	29					PDUSessionResourceSetupResponse
+4.940257000	2	15	0x41				InitialUEMessage, Registration request [RRCEstablishmentCause=mo-Signalling]
+4.956109000	2	4	0x56				DownlinkNASTransport, Authentication request
+4.993127000	2	46	0x57				UplinkNASTransport, Authentication response
+5.004932000	2	4	0x5d				DownlinkNASTransport, Security mode command
+5.037929000	2	46					UplinkNASTransport
+5.042960000	2	14		01,02,01	000001,000001,000002		InitialContextSetupRequest
+5.107483000	2	44					UERadioCapabilityInfoIndication
+5.107534000	2	14					InitialContextSetupResponse
+5.137487000	2	46					UplinkNASTransport
+5.137837000	2	46					UplinkNASTransport
+5.144781000	2	29		01	000002	9	PDUSessionResourceSetupRequest
+5.178262000	2	29					PDUSessionResourceSetupResponse
+5.466736000	3	15	0x41				InitialUEMessage, Registration request [RRCEstablishmentCause=mo-Signalling]
+5.477955000	3	4	0x56				DownlinkNASTransport, Authentication request
+5.510743000	3	46	0x57				UplinkNASTransport, Authentication response
+5.522145000	3	4	0x5d				DownlinkNASTransport, Security mode command
+5.553438000	3	46					UplinkNASTransport
+5.557897000	3	14		01,02,01	000001,000001,000002		InitialContextSetupRequest
+5.627204000	3	44					UERadioCapabilityInfoIndication
+5.627338000	3	14					InitialContextSetupResponse
+5.660446000	3	46					UplinkNASTransport
+5.661052000	3	46					UplinkNASTransport
+5.666778000	3	29		01	000001	9	PDUSessionResourceSetupRequest
+5.697146000	3	29					PDUSessionResourceSetupResponse
