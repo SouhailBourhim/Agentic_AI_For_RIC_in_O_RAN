@@ -59,3 +59,19 @@ def test_exporter_serves_last_snapshot_when_the_database_is_busy(ric_db, tiny_po
     second = generate_latest(registry).decode()
     assert "ric_backend_clock_seconds 5.0" in second  # the last good snapshot, not an empty scrape
     assert "ric_exporter_db_errors_total 1.0" in second
+
+
+def test_exporter_counts_gateway_tool_calls(ric_db, tiny_policy_file) -> None:
+    """M05a: the gateway's tool_call events become ric_gateway_tool_calls_total{tool,outcome}."""
+    from store.events import log_event
+
+    start_cell(ric_db, tiny_policy_file).run(2)
+    for tool, outcome in [("submit_intent", "ok"), ("get_status", "ok"), ("get_status", "ok"),
+                          ("get_kpis", "invalid_args")]:
+        log_event("gateway", "tool_call", data={"tool": tool, "outcome": outcome})
+    log_event("agent", "received", "i0001")  # other sources are not counted
+    text = scrape(db_path())
+    for line in ['ric_gateway_tool_calls_total{outcome="ok",tool="submit_intent"} 1.0',
+                 'ric_gateway_tool_calls_total{outcome="ok",tool="get_status"} 2.0',
+                 'ric_gateway_tool_calls_total{outcome="invalid_args",tool="get_kpis"} 1.0']:
+        assert line in text, line

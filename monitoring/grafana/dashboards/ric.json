@@ -2,7 +2,7 @@
   "uid": "ric",
   "title": "Agentic RIC \u2014 live (M04a)",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "refresh": "2s",
   "time": {
     "from": "now-10m",
@@ -960,6 +960,50 @@
           "color": {
             "mode": "fixed",
             "fixedColor": "#6250d6"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "bargauge",
+      "title": "MCP gateway: tool calls in this time range, by tool and outcome",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 24,
+        "h": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "round(increase(ric_gateway_tool_calls_total[$__range]))",
+          "legendFormat": "{{tool}} \u00b7 {{outcome}}",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#52514e"
           }
         },
         "overrides": []

@@ -3,8 +3,8 @@
     {"ts_wall": 1730000000.12, "ts_backend": 412.0, "source": "agent", "event": "verified",
      "intent_id": "i0003", "data": {...}}
 
-source is 'runner' | 'agent' | 'verifier' | 'console' (later also 'gateway'). M08b computes its
-interface metrics from this file, so events are never edited or removed, only appended.
+source is 'runner' | 'agent' | 'verifier' | 'console' | 'gateway' (M05a: one 'tool_call' per MCP
+call). M08b computes its interface metrics from this file, so events are never edited or removed, only appended.
 """
 
 import json

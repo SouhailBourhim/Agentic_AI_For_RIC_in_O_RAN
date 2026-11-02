@@ -16,6 +16,7 @@ Metrics (all gauges, current values; Prometheus keeps the history):
   ric_intents{state}                     number of intents per state
   ric_verifier_decisions{check}          intents per deciding verifier check ('ok' = accepted)
   ric_exporter_db_errors_total           scrapes that served the previous snapshot (database busy)
+  ric_gateway_tool_calls_total{tool,outcome}  MCP gateway calls, from var/events.jsonl (M05a)
 """
 
 import argparse
@@ -31,6 +32,7 @@ from prometheus_client.core import REGISTRY, CounterMetricFamily, GaugeMetricFam
 from prometheus_client.registry import Collector
 
 from store.db import db_path
+from store.events import events_path, read_events
 from store.intents import STATES
 from verifier.objective import DEFAULT_OBJECTIVE, SLICES
 
@@ -57,8 +59,9 @@ class RicCollector(Collector):
 
     DB_TIMEOUT_S = 0.2
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, events: Path | None = None) -> None:
         self.path = path
+        self.events = events or events_path()
         self.last_good: list[GaugeMetricFamily] = []
         self.db_errors = 0
 
@@ -79,6 +82,18 @@ class RicCollector(Collector):
         yield from families
         yield CounterMetricFamily("ric_exporter_db_errors", "Scrapes that could not read var/ric.db and served"
                                   " the previous snapshot", value=self.db_errors)
+        yield self.gateway_metrics()
+
+    def gateway_metrics(self) -> CounterMetricFamily:
+        """Gateway calls per tool and outcome. A counter: the event log is append-only, so the
+        count never goes down (it spans every run kept in the log)."""
+        calls = Counter((e["data"]["tool"], e["data"]["outcome"]) for e in read_events(self.events)
+                        if e["source"] == "gateway" and e["event"] == "tool_call")
+        family = CounterMetricFamily("ric_gateway_tool_calls", "MCP gateway tool calls, by tool and outcome",
+                                     labels=["tool", "outcome"])
+        for (tool, outcome), n in sorted(calls.items()):
+            family.add_metric([tool, outcome], n)
+        return family
 
     def slice_metrics(self, conn: sqlite3.Connection) -> Iterator[GaugeMetricFamily]:
         ts = conn.execute("SELECT MAX(ts) FROM kpi").fetchone()[0]
