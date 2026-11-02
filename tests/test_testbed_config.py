@@ -89,3 +89,16 @@ def test_each_subscriber_is_subscribed_to_its_slice() -> None:
     rows = re.findall(r"\('(\d{15})', '00101', '\{\\\"defaultSingleNssais\\\": \[\{\\\"sst\\\": (\d+), "
                       r"\\\"sd\\\": \\\"([0-9A-Fa-f]{6})\\\"\}\]\}'\)", DATABASE.read_text())
     assert {imsi: (int(sst), int(sd, 16)) for imsi, sst, sd in rows} == {s["imsi"]: s["snssai"] for s in SLICES.values()}
+
+
+XAPP_SOURCE = Path(__file__).resolve().parent.parent / "xapps/kpm/xapp_kpm_slices.c"
+
+
+def test_kpm_xapp_subscribes_to_exactly_the_three_slices() -> None:
+    """M07a: the KPM xApp's subscription table (one per slice) must match the testbed slices,
+    with the same names the KPI store uses."""
+    table = re.search(r"static const slice_t slices\[\] = \{(.*?)\};", XAPP_SOURCE.read_text(), re.S).group(1)
+    entries = re.findall(r'\{"(\w+)",\s*(\d+),\s*0x([0-9a-fA-F]{6})\}', table)
+    assert {name: (int(sst), int(sd, 16)) for name, sst, sd in entries} == {
+        name: s["snssai"] for name, s in SLICES.items()
+    }

@@ -1,0 +1,8 @@
+
+# --- agentic-ric M07a: appended to examples/xApp/c/monitor/CMakeLists.txt by xapps/kpm/Dockerfile.
+# Same sources and libraries as the stock xapp_kpm_moni target above it.
+add_executable(xapp_kpm_slices
+               xapp_kpm_slices.c
+               ../../../../src/util/alg_ds/alg/defer.c
+              )
+target_link_libraries(xapp_kpm_slices PUBLIC e42_xapp -pthread -lsctp -ldl)
