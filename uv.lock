@@ -52,6 +52,7 @@ dev = [
     { name = "httpx2" },
     { name = "marimo" },
     { name = "pytest" },
+    { name = "pyyaml" },
     { name = "tensorboard" },
 ]
 
@@ -77,6 +78,7 @@ dev = [
     { name = "httpx2", specifier = ">=2.16.0" },
     { name = "marimo", specifier = ">=0.25.2" },
     { name = "pytest", specifier = ">=8" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "tensorboard", specifier = ">=2.21.0" },
 ]
 

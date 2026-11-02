@@ -1,4 +1,6 @@
-# Source: https://github.com/duranta-project/openairinterface5g (tag v3.0.0), doc/tutorial_resources/oai-cn5g/conf/config.yaml (unchanged)
+# Source: https://github.com/duranta-project/openairinterface5g (tag v3.0.0), doc/tutorial_resources/oai-cn5g/conf/config.yaml
+# Changes (M06): three slices served by one AMF/SMF/UPF, one DNN and subnet per slice, following
+# oai-cn5g-fed v2.2.1 docker-compose/conf/basic_nrf_config.yaml and docs/CONFIGURATION.md (sd: 6-digit hex, no 0x).
 # SPDX-License-Identifier: LicenseRef-CSSL-1.0
 
 # OAI CN Configuration File
@@ -102,8 +104,15 @@ database:
 ## general single_nssai configuration
 ## Defines YAML anchors, which are reused in the config file
 snssais:
-  - &embb_slice
+  - &embb_slice     # eMBB: standard SST 1
     sst: 1
+    sd: 000001
+  - &urllc_slice    # URLLC: standard SST 2
+    sst: 2
+    sd: 000001
+  - &be_slice       # best effort: an eMBB-type slice told apart by its SD
+    sst: 1
+    sd: 000002
 
 ############## NF-specific configuration
 amf:
@@ -130,6 +139,8 @@ amf:
       tac: 0x0001
       nssai:
         - *embb_slice
+        - *urllc_slice
+        - *be_slice
   supported_integrity_algorithms:
     - "NIA1"
     - "NIA2"
@@ -162,31 +173,31 @@ smf:
     sNssaiSmfInfoList:
       - sNssai: *embb_slice
         dnnSmfInfoList:
-          - dnn: "oai"
-          - dnn: "openairinterface"
-          - dnn: "ims"
-          - dnn: "default"
+          - dnn: "embb"
+      - sNssai: *urllc_slice
+        dnnSmfInfoList:
+          - dnn: "urllc"
+      - sNssai: *be_slice
+        dnnSmfInfoList:
+          - dnn: "be"
+  # One QoS profile per slice (use_local_subscription_info: yes, so the database rows are not used
+  # for this). 5QI 7 for URLLC, 9 otherwise: carried in signalling only, the v3.0.0 gNB scheduler
+  # does not read it (docs/learn/M06-testbed.md).
   local_subscription_infos:
     - single_nssai: *embb_slice
-      dnn: "oai"
+      dnn: "embb"
       qos_profile:
         5qi: 9
         session_ambr_ul: "10Gbps"
         session_ambr_dl: "10Gbps"
-    - single_nssai: *embb_slice
-      dnn: "openairinterface"
+    - single_nssai: *urllc_slice
+      dnn: "urllc"
       qos_profile:
-        5qi: 9
+        5qi: 7
         session_ambr_ul: "10Gbps"
         session_ambr_dl: "10Gbps"
-    - single_nssai: *embb_slice
-      dnn: "ims"
-      qos_profile:
-        5qi: 9
-        session_ambr_ul: "10Gbps"
-        session_ambr_dl: "10Gbps"
-    - single_nssai: *embb_slice
-      dnn: "default"
+    - single_nssai: *be_slice
+      dnn: "be"
       qos_profile:
         5qi: 9
         session_ambr_ul: "10Gbps"
@@ -203,10 +214,13 @@ upf:
     sNssaiUpfInfoList:
       - sNssai: *embb_slice
         dnnUpfInfoList:
-          - dnn: "oai"
-          - dnn: "openairinterface"
-          - dnn: "ims"
-          - dnn: "default"
+          - dnn: "embb"
+      - sNssai: *urllc_slice
+        dnnUpfInfoList:
+          - dnn: "urllc"
+      - sNssai: *be_slice
+        dnnUpfInfoList:
+          - dnn: "be"
 
 lmf:
   http_threads_count: 8
@@ -224,18 +238,12 @@ lmf:
 
 ## DNN configuration
 dnns:
-  - dnn: "oai"
+  - dnn: "embb"
     pdu_session_type: "IPV4"
-    ipv4_subnet: "10.0.0.0/24"
-  - dnn: "openairinterface"
-    pdu_session_type: "IPV4V6"
     ipv4_subnet: "10.0.1.0/24"
-    ipv6_prefix: "2001:1:2::/64"
-  - dnn: "ims"
-    pdu_session_type: "IPV4V6"
-    ipv4_subnet: "10.0.9.0/24"
-    ipv6_prefix: "2001:1:2::/64"
-  - dnn: "default"
-    pdu_session_type: "IPV4V6"
-    ipv4_subnet: "10.0.255.0/24"
-    ipv6_prefix: "2001:1:2::/64"
+  - dnn: "urllc"
+    pdu_session_type: "IPV4"
+    ipv4_subnet: "10.0.2.0/24"
+  - dnn: "be"
+    pdu_session_type: "IPV4"
+    ipv4_subnet: "10.0.3.0/24"
