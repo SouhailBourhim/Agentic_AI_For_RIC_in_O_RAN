@@ -16,7 +16,7 @@ Metrics (all gauges, current values; Prometheus keeps the history):
   ric_intents{state}                     number of intents per state
   ric_verifier_decisions{check}          intents per deciding verifier check ('ok' = accepted)
   ric_exporter_db_errors_total           scrapes that served the previous snapshot (database busy)
-  ric_gateway_tool_calls_total{tool,outcome}  MCP gateway calls, from var/events.jsonl (M05a)
+  ric_gateway_tool_calls_total{tool,outcome}  MCP gateway calls (ok, invalid_args, error), from var/events.jsonl (M05a)
 """
 
 import argparse
@@ -44,7 +44,14 @@ SLICE_FIELDS = {  # kpi column -> (metric name, help)
     "prb_used": ("ric_slice_prb_used", "Fraction of the slice's own PRBs that carried data"),
     "buffer_bytes": ("ric_slice_buffer_bytes", "Data queued for the slice at the end of the last tick"),
 }
+GATEWAY_TOOLS = ("submit_intent", "get_status", "get_kpis")
+GATEWAY_OUTCOMES = ("ok", "invalid_args", "error")
 CHECKS = ("ok", "schema", "window", "latency_physics", "budget", "floor", "training_range", "conflict", "step")
+
+
+def gateway_outcome(outcome: str) -> str:
+    """'ok' and 'invalid_args' as logged; 'http_503', 'unreachable'... become 'error'."""
+    return outcome if outcome in ("ok", "invalid_args") else "error"
 
 
 class RicCollector(Collector):
@@ -86,13 +93,19 @@ class RicCollector(Collector):
 
     def gateway_metrics(self) -> CounterMetricFamily:
         """Gateway calls per tool and outcome. A counter: the event log is append-only, so the
-        count never goes down (it spans every run kept in the log)."""
-        calls = Counter((e["data"]["tool"], e["data"]["outcome"]) for e in read_events(self.events)
+        count never goes down (it spans every run kept in the log).
+
+        Every tool x outcome series is published from the start, at 0. Otherwise a series would
+        first appear already at 1, and Prometheus' increase() would miss that first call (seen in
+        the M05a live demo). That needs a fixed set of outcomes, so the HTTP errors and the
+        unreachable agent are grouped as 'error' (the exact one stays in the log)."""
+        calls = Counter((e["data"]["tool"], gateway_outcome(e["data"]["outcome"])) for e in read_events(self.events)
                         if e["source"] == "gateway" and e["event"] == "tool_call")
         family = CounterMetricFamily("ric_gateway_tool_calls", "MCP gateway tool calls, by tool and outcome",
                                      labels=["tool", "outcome"])
-        for (tool, outcome), n in sorted(calls.items()):
-            family.add_metric([tool, outcome], n)
+        for tool in GATEWAY_TOOLS:
+            for outcome in GATEWAY_OUTCOMES:
+                family.add_metric([tool, outcome], calls.get((tool, outcome), 0))
         return family
 
     def slice_metrics(self, conn: sqlite3.Connection) -> Iterator[GaugeMetricFamily]:

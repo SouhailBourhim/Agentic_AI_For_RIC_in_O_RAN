@@ -1,0 +1,472 @@
+submit_intent(text)
+    Submit the operator's intent, word for word (French or English), for example "Garantis 10 Mb/s au slice URLLC pendant 10 minutes." This only creates a request; it changes nothing on the network. The agent interprets it, the deterministic verifier checks it, and in demo mode an operator confirms it in a separate console. Returns the intent id and its first state ('received'): follow it with get_status.
+
+get_kpis(slice, window_s)
+    Recent KPIs per slice (throughput, PRB share, latency): mean, p95 and last value over the last window_s seconds of the cell's clock. slice is 'embb', 'urllc' or 'be'; omit it for all three. Read only.
+
+get_status(intent_id)
+    Where an intent stands: received, processing, interpreted, rejected (with the reason), awaiting_confirmation, applied, expired or cancelled; the objective it carries and whether it is in force. Without intent_id: the objective timetable and the recent intents. Read only.
+
+a1_policy rows before case 1: 0
+[20:12:35] submit_intent:
+{
+  "intent_id": "i0001",
+  "text": "Garantis 10 Mb/s au slice URLLC pendant 10 minutes.",
+  "state": "received",
+  "reason": null,
+  "objective": null,
+  "verifier": null,
+  "confirmed_by": null,
+  "confirm_deadline_wall": null,
+  "state_times_wall": {
+    "received": 1793646755.4781582
+  },
+  "backend_now": 139.0,
+  "in_effect": false,
+  "merged_with": [],
+  "supersedes": null,
+  "agent_steps": []
+}
+[20:12:48] get_status:
+{
+  "intent_id": "i0001",
+  "text": "Garantis 10 Mb/s au slice URLLC pendant 10 minutes.",
+  "state": "awaiting_confirmation",
+  "reason": "accepted; once applied, the RL xApp follows the merge of i0001",
+  "objective": {
+    "weights": {
+      "embb": 0.16666666666666666,
+      "urllc": 0.6666666666666666,
+      "be": 0.16666666666666674
+    },
+    "min_thr_mbps": {
+      "embb": 0.0,
+      "urllc": 10.0,
+      "be": 0.0
+    },
+    "max_latency_ms": null,
+    "valid_from": 151.0,
+    "valid_until": 751.0
+  },
+  "verifier": {
+    "accepted": true,
+    "check": "ok",
+    "reason": "accepted; once applied, the RL xApp follows the merge of i0001"
+  },
+  "confirmed_by": null,
+  "confirm_deadline_wall": 1793646887.0456276,
+  "state_times_wall": {
+    "received": 1793646755.4781582,
+    "processing": 1793646764.5509844,
+    "interpreted": 1793646767.0456276,
+    "awaiting_confirmation": 1793646767.0456276
+  },
+  "backend_now": 152.0,
+  "in_effect": false,
+  "merged_with": [],
+  "supersedes": null,
+  "agent_steps": [
+    {
+      "node": "parse",
+      "backend_t": 148.0,
+      "prompt": "v2",
+      "latency_s": 8.7,
+      "attempts": 1,
+      "facts": {
+        "understood": true,
+        "clarification": null,
+        "priority": null,
+        "min_thr_mbps": {
+          "embb": null,
+          "urllc": 10.0,
+          "be": null
+        },
+        "max_latency_ms": null,
+        "duration_s": 600.0
+      }
+    },
+    {
+      "node": "plan",
+      "backend_t": 151.0,
+      "latency_s": 2.49,
+      "tool": "set_rl_objective",
+      "arguments": {
+        "importance": {
+          "be": 2,
+          "embb": 2,
+          "urllc": 8
+        },
+        "min_thr_mbps": {
+          "be": null,
+          "embb": null,
+          "urllc": 10
+        },
+        "duration_s": 600
+      }
+    },
+    {
+      "node": "act",
+      "backend_t": 151.0,
+      "tool": "set_rl_objective",
+      "arguments": {
+        "importance": {
+          "be": 2,
+          "embb": 2,
+          "urllc": 8
+        },
+        "min_thr_mbps": {
+          "be": null,
+          "embb": null,
+          "urllc": 10
+        },
+        "duration_s": 600
+      },
+      "verifier": {
+        "accepted": true,
+        "check": "ok",
+        "reason": "accepted; once applied, the RL xApp follows the merge of i0001"
+      }
+    }
+  ]
+}
+backend clock: 153 s
+
+PENDING (confirm or refuse):
+  i0001  "Garantis 10 Mb/s au slice URLLC pendant 10 minutes."  (118 s left)
+         weights [0.16666666666666666, 0.6666666666666666, 0.16666666666666674]  min Mb/s [0.0, 10.0, 0.0]  latency bound None ms  until t=751 s
+         verifier: accepted; once applied, the RL xApp follows the merge of i0001
+i0001: applied (accepted; once applied, the RL xApp follows the merge of i0001)
+[20:12:58] get_status:
+  "state": "applied",
+  "in_effect": true,
+[20:13:32] get_kpis:
+{
+  "ts": 196.0,
+  "window_s": 20.0,
+  "slices": {
+    "embb": {
+      "dl_thr_mbps": {
+        "mean": 36.92433663278473,
+        "p95": 45.08128099022387,
+        "last": 34.69174701950142
+      },
+      "prb_share_alloc": {
+        "mean": 0.49232448843712967,
+        "p95": 0.6010837465363182,
+        "last": 0.46255662692668564
+      },
+      "prb_used": {
+        "mean": 1.0,
+        "p95": 1.0,
+        "last": 1.0
+      },
+      "latency_ms": {
+        "mean": 879.6014246711981,
+        "p95": 1389.8188336621754,
+        "last": 1085.0494581862351
+      },
+      "offered_load_mbps": {
+        "mean": 37.58995659555135,
+        "p95": 39.022165480762474,
+        "last": 35.995710852435224
+      },
+      "buffer_bytes": {
+        "mean": 3148101.5292463806,
+        "p95": 5018848.110616657,
+        "last": 3837988.9878929597
+      }
+    },
+    "urllc": {
+      "dl_thr_mbps": {
+        "mean": 30.67368921717391,
+        "p95": 35.07579328418076,
+        "last": 31.102908375830268
+      },
+      "prb_share_alloc": {
+        "mean": 0.4142546362930887,
+        "p95": 0.4782329499721527,
+        "last": 0.4425427284647321
+      },
+      "prb_used": {
+        "mean": 0.9886448891466472,
+        "p95": 1.0,
+        "last": 0.9370969588626282
+      },
+      "latency_ms": {
+        "mean": 144.0561882555284,
+        "p95": 334.78849881756463,
+        "last": 14.773458304333879
+      },
+      "offered_load_mbps": {
+        "mean": 30.210943236786694,
+        "p95": 31.99791205279584,
+        "last": 28.697416204871217
+      },
+      "buffer_bytes": {
+        "mean": 419637.48215544067,
+        "p95": 1114075.9131366566,
+        "last": 0.0
+      }
+    },
+    "be": {
+      "dl_thr_mbps": {
+        "mean": 7.006565645233623,
+        "p95": 15.047845244407654,
+        "last": 7.117548345643667
+      },
+      "prb_share_alloc": {
+        "mean": 0.09342087526978163,
+        "p95": 0.20063793659210205,
+        "last": 0.09490064460858222
+      },
+      "prb_used": {
+        "mean": 1.0,
+        "p95": 1.0,
+        "last": 1.0
+      },
+      "latency_ms": {
+        "mean": 9612.07637225606,
+        "p95": 13733.333333333334,
+        "last": 7424.890815192392
+      },
+      "offered_load_mbps": {
+        "mean": 22.46923082122894,
+        "p95": 24.196398169890532,
+        "last": 22.978568729048426
+      },
+      "buffer_bytes": {
+        "mean": 6250000.0,
+        "p95": 6250000.0,
+        "last": 6250000.0
+      }
+    }
+  }
+}
+[20:13:51] submit_intent:
+{
+  "intent_id": "i0002",
+  "text": "Garantis 500 Mb/s au slice URLLC.",
+  "state": "received",
+  "reason": null,
+  "objective": null,
+  "verifier": null,
+  "confirmed_by": null,
+  "confirm_deadline_wall": null,
+  "state_times_wall": {
+    "received": 1793646831.912218
+  },
+  "backend_now": 216.0,
+  "in_effect": false,
+  "merged_with": [],
+  "supersedes": null,
+  "agent_steps": []
+}
+[20:13:52] get_status:
+{
+  "intent_id": "i0002",
+  "text": "Garantis 500 Mb/s au slice URLLC.",
+  "state": "processing",
+  "reason": null,
+  "objective": null,
+  "verifier": null,
+  "confirmed_by": null,
+  "confirm_deadline_wall": null,
+  "state_times_wall": {
+    "received": 1793646831.912218,
+    "processing": 1793646832.3031526
+  },
+  "backend_now": 217.0,
+  "in_effect": false,
+  "merged_with": [],
+  "supersedes": null,
+  "agent_steps": []
+}
+[20:13:58] get_status:
+{
+  "intent_id": "i0002",
+  "text": "Garantis 500 Mb/s au slice URLLC.",
+  "state": "rejected",
+  "reason": "agent: The minimum target of 500 Mb/s for URLLC requires 667% of the PRBs, which exceeds the cell's capacity. The request cannot be fulfilled in demo mode.",
+  "objective": null,
+  "verifier": null,
+  "confirmed_by": null,
+  "confirm_deadline_wall": null,
+  "state_times_wall": {
+    "received": 1793646831.912218,
+    "processing": 1793646833.5719502,
+    "rejected": 1793646837.3448834
+  },
+  "backend_now": 223.0,
+  "in_effect": false,
+  "merged_with": [],
+  "supersedes": null,
+  "agent_steps": [
+    {
+      "node": "parse",
+      "backend_t": 217.0,
+      "prompt": "v2",
+      "latency_s": 1.26,
+      "attempts": 1,
+      "facts": {
+        "understood": true,
+        "clarification": null,
+        "priority": null,
+        "min_thr_mbps": {
+          "embb": null,
+          "urllc": 500.0,
+          "be": null
+        },
+        "max_latency_ms": null,
+        "duration_s": null
+      }
+    },
+    {
+      "node": "plan",
+      "backend_t": 219.0,
+      "latency_s": 2.2,
+      "tool": "set_rl_objective",
+      "arguments": {
+        "duration_s": 217,
+        "importance": {
+          "be": 2,
+          "embb": 2,
+          "urllc": 8
+        },
+        "min_thr_mbps": {
+          "be": null,
+          "embb": null,
+          "urllc": 500
+        }
+      }
+    },
+    {
+      "node": "act",
+      "backend_t": 219.0,
+      "tool": "set_rl_objective",
+      "arguments": {
+        "duration_s": 217,
+        "importance": {
+          "be": 2,
+          "embb": 2,
+          "urllc": 8
+        },
+        "min_thr_mbps": {
+          "be": null,
+          "embb": null,
+          "urllc": 500
+        }
+      },
+      "verifier": {
+        "accepted": false,
+        "check": "budget",
+        "reason": "the minimum targets need 667% of the PRBs (urllc 667%), more than the cell has"
+      }
+    },
+    {
+      "node": "plan",
+      "backend_t": 221.0,
+      "latency_s": 1.57,
+      "tool": "finish",
+      "arguments": {
+        "reason": "The minimum target of 500 Mb/s for URLLC requires 667% of the PRBs, which exceeds the cell's capacity. The request cannot be fulfilled in demo mode."
+      }
+    },
+    {
+      "node": "act",
+      "backend_t": 221.0,
+      "tool": "finish",
+      "reason": "The minimum target of 500 Mb/s for URLLC requires 667% of the PRBs, which exceeds the cell's capacity. The request cannot be fulfilled in demo mode."
+    },
+    {
+      "outcome": "rejected",
+      "reason": "agent: The minimum target of 500 Mb/s for URLLC requires 667% of the PRBs, which exceeds the cell's capacity. The request cannot be fulfilled in demo mode.",
+      "steps": 2,
+      "revisions": 0,
+      "active_id": null
+    }
+  ]
+}
+BEFORE case 3: {"a1_policy_rows": 1, "last_row": ["1", "1", "{\"weights\":{\"embb\":0.16666666666666666,\"urllc\":0.6666666666666666,\"be\":0.1666666", "rl", "None", "[\"i0001\"]", "{\"accepted\": true, \"check\": \"ok\", \"reason\": \"accepted; once applied, the RL xApp", "console", "161.0", "161.0", "761.0"], "t": 233.0, "shares": "embb=0.298,urllc=0.477,be=0.225"}
+[20:14:20] submit_intent:
+{
+  "intent_id": "i0003",
+  "text": "Fixe le partage des PRB à 90/5/5.",
+  "state": "received",
+  "reason": null,
+  "objective": null,
+  "verifier": null,
+  "confirmed_by": null,
+  "confirm_deadline_wall": null,
+  "state_times_wall": {
+    "received": 1793646860.613521
+  },
+  "backend_now": 244.0,
+  "in_effect": false,
+  "merged_with": [],
+  "supersedes": null,
+  "agent_steps": []
+}
+[20:14:24] get_status:
+{
+  "intent_id": "i0003",
+  "text": "Fixe le partage des PRB à 90/5/5.",
+  "state": "rejected",
+  "reason": "needs clarification: Quel est le sens de 'PRB' et comment cela se rapporte aux slices eMBB, URLLC et best effort ?",
+  "objective": null,
+  "verifier": null,
+  "confirmed_by": null,
+  "confirm_deadline_wall": null,
+  "state_times_wall": {
+    "received": 1793646860.613521,
+    "processing": 1793646860.8562384,
+    "rejected": 1793646863.090728
+  },
+  "backend_now": 248.0,
+  "in_effect": false,
+  "merged_with": [],
+  "supersedes": null,
+  "agent_steps": [
+    {
+      "node": "parse",
+      "backend_t": 247.0,
+      "prompt": "v2",
+      "latency_s": 2.23,
+      "attempts": 1,
+      "facts": {
+        "understood": false,
+        "clarification": "Quel est le sens de 'PRB' et comment cela se rapporte aux slices eMBB, URLLC et best effort ?",
+        "priority": null,
+        "min_thr_mbps": {
+          "embb": null,
+          "urllc": null,
+          "be": null
+        },
+        "max_latency_ms": null,
+        "duration_s": null
+      }
+    },
+    {
+      "outcome": "rejected",
+      "reason": "needs clarification: Quel est le sens de 'PRB' et comment cela se rapporte aux slices eMBB, URLLC et best effort ?",
+      "steps": 0,
+      "revisions": 0,
+      "active_id": null
+    }
+  ]
+}
+AFTER case 3: {"a1_policy_rows": [[1, "[\"i0001\"]"]], "t": 270.0, "policy_ids_in_force_since_t245": [[1]], "shares": "embb=0.521,urllc=0.429,be=0.05"}
+[20:14:47] get_kpis: ERROR Error executing tool get_kpis: invalid arguments: slice must be one of embb, urllc, be
+[('i0003', 'rejected'), ('i0002', 'rejected'), ('i0001', 'applied')]
+Counter({('get_status', 'ok'): 8, ('submit_intent', 'ok'): 3, ('get_kpis', 'ok'): 1, ('get_kpis', 'invalid_args'): 1})
+--- second pass (after the exporter fix)
+[20:16:35] get_status:
+[20:16:36] get_kpis:
+[20:16:37] get_status: ERROR Error executing tool get_status: invalid arguments: intent_id looks like 'i0001'
+[20:16:38] submit_intent:
+  "intent_id": "i0004",
+[20:16:39] get_status:
+  "state": "processing",
+  "reason": null,
+[20:16:41] get_status:
+  "state": "rejected",
+  "reason": "needs clarification: What does 'PRB split' refer to? Which slices are being addressed?",

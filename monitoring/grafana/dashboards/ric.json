@@ -2,7 +2,7 @@
   "uid": "ric",
   "title": "Agentic RIC \u2014 live (M04a)",
   "schemaVersion": 39,
-  "version": 3,
+  "version": 4,
   "refresh": "2s",
   "time": {
     "from": "now-10m",
@@ -987,7 +987,7 @@
         "x": 0,
         "y": 27,
         "w": 24,
-        "h": 6
+        "h": 9
       },
       "targets": [
         {
@@ -1003,7 +1003,7 @@
           "min": 0,
           "color": {
             "mode": "fixed",
-            "fixedColor": "#52514e"
+            "fixedColor": "#6250d6"
           }
         },
         "overrides": []

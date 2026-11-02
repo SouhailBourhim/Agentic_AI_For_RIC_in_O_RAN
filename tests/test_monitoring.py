@@ -67,11 +67,14 @@ def test_exporter_counts_gateway_tool_calls(ric_db, tiny_policy_file) -> None:
 
     start_cell(ric_db, tiny_policy_file).run(2)
     for tool, outcome in [("submit_intent", "ok"), ("get_status", "ok"), ("get_status", "ok"),
-                          ("get_kpis", "invalid_args")]:
+                          ("get_kpis", "invalid_args"), ("get_kpis", "http_503"), ("get_kpis", "unreachable")]:
         log_event("gateway", "tool_call", data={"tool": tool, "outcome": outcome})
     log_event("agent", "received", "i0001")  # other sources are not counted
     text = scrape(db_path())
     for line in ['ric_gateway_tool_calls_total{outcome="ok",tool="submit_intent"} 1.0',
                  'ric_gateway_tool_calls_total{outcome="ok",tool="get_status"} 2.0',
-                 'ric_gateway_tool_calls_total{outcome="invalid_args",tool="get_kpis"} 1.0']:
+                 'ric_gateway_tool_calls_total{outcome="invalid_args",tool="get_kpis"} 1.0',
+                 'ric_gateway_tool_calls_total{outcome="error",tool="get_kpis"} 2.0',
+                 # every series exists from the start, so Prometheus' increase() sees the first call
+                 'ric_gateway_tool_calls_total{outcome="error",tool="submit_intent"} 0.0']:
         assert line in text, line
