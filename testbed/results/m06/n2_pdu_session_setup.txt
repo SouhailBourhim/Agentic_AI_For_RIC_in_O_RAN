@@ -1,0 +1,29 @@
+# tshark -r testbed/captures/m06_n2_ngap.pcap -Y 'ngap.procedureCode == 29' -V | grep ... (M06, 3 UEs re-attaching)
+# transportLayerAddress c0a84686 = 192.168.70.134 (UPF, N3), c0a84697 = 192.168.70.151 (gNB, N3)
+  PDUSessionResourceSetupRequest
+  RAN-UE-NGAP-ID: 1
+  sST: 02
+  sD: 000001
+  transportLayerAddress: c0a84686
+  fiveQI: 7
+  PDUSessionResourceSetupResponse
+  RAN-UE-NGAP-ID: 1
+  transportLayerAddress: c0a84697
+  PDUSessionResourceSetupRequest
+  RAN-UE-NGAP-ID: 2
+  sST: 01
+  sD: 000002
+  transportLayerAddress: c0a84686
+  fiveQI: 9
+  PDUSessionResourceSetupResponse
+  RAN-UE-NGAP-ID: 2
+  transportLayerAddress: c0a84697
+  PDUSessionResourceSetupRequest
+  RAN-UE-NGAP-ID: 3
+  sST: 01
+  sD: 000001
+  transportLayerAddress: c0a84686
+  fiveQI: 9
+  PDUSessionResourceSetupResponse
+  RAN-UE-NGAP-ID: 3
+  transportLayerAddress: c0a84697
