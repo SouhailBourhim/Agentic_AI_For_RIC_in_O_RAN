@@ -258,4 +258,19 @@ explicitly as not E2. M02–M05 are unaffected: they run on the simulator.
   PRBs moved per tick under the default objective (no targets, no bound), against 0.3 % under
   an explicit objective and ~2 % averaged over random objectives in M02. Options to weigh then:
   a different default objective, or a smaller filter alpha only for the default.
+- **Over-serving the favoured slice (look at in M08a).** M04b live demo, URLLC surge, "at
+  least 20 Mb/s and under 10 ms" with the LLM's importance 8/2/2: the policy gave URLLC its whole
+  load (30.9 Mb/s, 79 % of the PRBs), so eMBB got 12 of its 37 Mb/s (p95 latency 5.3 s) and best
+  effort sat at the 5 % floor. The target was met, but the cost to the other slices is
+  higher than needed. M08a should report this cost, not only target compliance. Levers to weigh:
+  the importance the plan step chooses (6 instead of 8), a reward term for share above target,
+  or a revision triggered by over-compliance.
+- **May the agent relax a target the operator stated? (decide before M05a.)** M04b live demo:
+  for "garantir 60 Mb/s au slice URLLC", the verifier rejected 60 Mb/s and the LLM replanned with
+  30 Mb/s (the largest allowed), which the verifier accepted; the console showed it and the
+  operator refused. Options: (a) keep it, and make the console flag "differs from the request";
+  (b) forbid it: the plan prompt and a code check keep every stated number, so a verifier
+  rejection of a stated value ends the intent with the verifier's reason; (c) allow it only in
+  eval mode. Safety holds in every option (verifier + console); the question is fidelity to
+  the operator.
 

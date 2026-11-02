@@ -85,7 +85,7 @@ only place an LLM runs, and it never touches the RAN:
       ([verifier/verify.py:273](../../verifier/verify.py#L273)): the parent is ignored for
       conflicts, but the step limit is measured from it, since that is what the runner follows.
     - Applying it rebuilds the timetable without the parent and cancels the parent in the same
-      transaction ([agent/apply.py:105](../../agent/apply.py#L105)).
+      transaction ([agent/apply.py:114](../../agent/apply.py#L114)).
 12. **The LLM-only baseline.** `set_slice_share` ([agent/tools.py:156](../../agent/tools.py#L156))
     refuses to run outside `llm_only` mode and outside eval mode.
     - `verify_shares` ([verifier/verify.py:349](../../verifier/verify.py#L349)) checks it: finite
@@ -137,7 +137,7 @@ flowchart LR
 ## 5. How to run it and check it works
 
 ```bash
-uv run pytest -q                                    # expected: 292 passed (no GPU, no Ollama)
+uv run pytest -q                                    # expected: 294 passed (no GPU, no Ollama)
 uv run python -m eval.extraction --parser qwen3:8b --split tune   # 20/20 with prompt v2, ~1.3 s per parse
 uv run python -m eval.benchmark_models              # ~5 min: the model choice (runs/m04b/model_benchmark.json)
 uv run python -m agent.plot_trace                   # ~1 min with Ollama: the figure and trace below
@@ -185,6 +185,63 @@ Produced by `uv run python -m agent.plot_trace`. How to read it:
   - The vertical line at t = 170 s is where the agent observed and reflected.
   - Best effort stays at the 5 % floor.
 - At speed 0 the 20 s observation costs almost no wall time; in the live demo it takes 20 s.
+
+### The live demo, as it ran (2026-11-02, real time, qwen3:8b, champion v7)
+
+The six processes above, with the screenshots taken by a headless browser on the Grafana
+dashboard. Timeline, on the backend clock:
+
+| t (s) | what happened |
+|---|---|
+| 0 | runner, service, worker and exporter started |
+| 120 | URLLC surge starts (scenario) |
+| 195 | screenshot "before" |
+| 208 | intent submitted |
+| 211–213 | worker: parse 3.7 s (model loading), plan 1.8 s, verifier accepts → awaiting confirmation |
+| 225 | confirmed in the console; objective in force t = 225–525 (the full 5 minutes, see below) |
+| 245–246 | observe: URLLC target met 100 %, latency bound 90 % → reflect "done" (1.0 s) |
+| 380 | screenshot "after" |
+| 405 | "Garantir 60 Mb/s au slice URLLC pendant 10 minutes." submitted, see below |
+| 525 | objective ends; the runner falls back to the default objective by itself |
+| 560 | screenshot "end" |
+
+**Before** (t = 195 s): the surge has started, the default objective is in force (policy 0),
+and URLLC latency has jumped from about 5 ms to hundreds of ms.
+![Grafana before the intent](img/M04b-grafana-before.png)
+
+**After** (t = 380 s): policy 1 is in force.
+- URLLC gets about 80 % of the PRBs, and its latency is back under the dashed 10 ms bound.
+- The objective panels show the 20 Mb/s minimum and the 0.67 URLLC weight decided by the LLM.
+- eMBB and best effort pay for it (best effort at the 5 % floor, latencies in seconds); see
+  PLAN §8, "over-serving the favoured slice".
+
+![Grafana with the intent applied](img/M04b-grafana-after.png)
+
+**End** (t = 560 s): the objective ended at t = 525. The panels show the whole 300 s window,
+and the split goes back to the default behaviour while the surge continues. One intent is
+`applied`, one `rejected` (the refused one below), and the verifier counts two `ok` decisions.
+
+![Grafana after the objective ended](img/M04b-grafana-end.png)
+
+**What the live run found, and what was fixed:**
+- **The duration started at the proposal, not at the confirmation.** In the first run a
+  5-minute intent confirmed 105 s late ran for only 195 s. `apply_intent` now moves the window
+  to start at the apply, with the same length (`starting_at`,
+  [agent/apply.py:105](../../agent/apply.py#L105)), and re-verifies the moved objective. In
+  this run it was proposed for t = 213–513 and ran t = 225–525.
+- **A new i0001 showed the old i0001's steps.** The runner empties ric.db at startup and ids
+  restart, but the event log keeps every run. `status` now returns only the events written
+  since the intent was created (`agent_steps` in
+  [agent/intents.py](../../agent/intents.py)).
+- **The agent lowered a target the verifier refused.**
+  1. For "60 Mb/s URLLC", the verifier rejected 60 Mb/s (training range).
+  2. The LLM replanned and proposed 30 Mb/s, the largest value allowed, which the verifier
+     accepted.
+  3. The console showed the operator's text next to "min Mb/s 30", and the operator refused it.
+
+  Nothing unsafe can happen: the verifier and the console both stand in the way. But the agent
+  changed a number the operator stated. Whether it may do that is an open design question,
+  recorded in [PLAN §8](../PLAN.md).
 
 ### Choosing the model and tuning the prompt
 

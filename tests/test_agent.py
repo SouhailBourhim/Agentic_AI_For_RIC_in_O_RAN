@@ -81,6 +81,19 @@ def test_demo_mode_waits_for_console_then_applies(ric_db, tiny_policy_file) -> N
     assert runner.row is not None and runner.row.intent_ids == ("i0001",)
 
 
+def test_the_duration_starts_at_the_confirmation(ric_db, tiny_policy_file) -> None:
+    """M04b live demo: a 5-minute intent confirmed later must still run 5 minutes."""
+    runner = start_cell(ric_db, tiny_policy_file)
+    runner.run(5)
+    record = run_agent(ric_db, "garantir 10 Mb/s au slice URLLC pendant 5 minutes", "demo", 1000.0)
+    assert (record.objective.valid_from, record.objective.valid_until) == (5.0, 305.0)  # as proposed
+    runner.run(40)  # the operator takes 40 backend seconds to confirm
+    record = apply_intent(ric_db, record.intent_id, now_wall=1040.0, confirmed_by="console")
+    assert (record.objective.valid_from, record.objective.valid_until) == (45.0, 345.0)
+    segments = [(r.valid_from, r.expires_at) for r in a1_policy.current_schedule(ric_db)]
+    assert segments == [(45.0, 345.0)]
+
+
 def test_pending_intent_expires_and_cannot_be_confirmed(ric_db, tiny_policy_file) -> None:
     start_cell(ric_db, tiny_policy_file).run(5)
     record = run_agent(ric_db, URLLC_10, 'demo', 1000.0)
@@ -152,6 +165,22 @@ def test_confirmation_reverifies_against_what_is_applied_now(ric_db, tiny_policy
 
 
 # ------------------------------------------------------------------ timetable, cancel, status
+
+
+def test_status_ignores_steps_of_a_previous_run_with_the_same_id(ric_db, tiny_policy_file) -> None:
+    """The event log keeps every run; ids restart at i0001 when the runner empties ric.db."""
+    import json
+    import os
+    import time
+
+    old = {"ts_wall": time.time() - 3600, "ts_backend": 1.0, "source": "agent", "event": "agent_step",
+           "intent_id": "i0001", "data": {"node": "parse", "from": "previous run"}}
+    with open(os.environ["RIC_EVENTS"], "a", encoding="utf-8") as f:
+        f.write(json.dumps(old) + "\n")
+    start_cell(ric_db, tiny_policy_file).run(5)
+    record = run_agent(ric_db, URLLC_10, "eval", time.time())
+    steps = machine.status(ric_db, record.intent_id, now_wall=time.time())["agent_steps"]
+    assert record.intent_id == "i0001" and steps and all(s.get("from") != "previous run" for s in steps)
 
 
 def test_timetable_merges_and_status_shows_merged_with(ric_db, tiny_policy_file) -> None:

@@ -84,13 +84,24 @@ def status(conn: sqlite3.Connection, intent_id: str, now_wall: float) -> dict | 
         "in_effect": in_effect,
         "merged_with": [i for i in row.intent_ids if i != intent_id] if in_effect else [],
         "supersedes": record.supersedes,
-        "agent_steps": [e["data"] for e in read_events() if e["intent_id"] == intent_id
-                        and e["event"] in ("agent_step", "agent_done")],
+        "agent_steps": agent_steps(record),
     }
     if record.state == "applied" and not in_effect and record.objective is not None:
         until = record.objective.valid_until
         result["note"] = "ended" if until is not None and now >= until else "scheduled, not started yet"
     return result
+
+
+def agent_steps(record: intents.IntentRecord) -> list[dict]:
+    """The agent's steps for this intent, from the event log.
+
+    The log keeps every run, and ids restart at i0001 when the runner empties ric.db: only events
+    written since this intent was created belong to it (seen in the M04b live demo, where a new
+    i0001 showed the steps of the previous run's i0001).
+    """
+    created = min(record.state_times.values(), default=0.0)
+    return [e["data"] for e in read_events() if e["intent_id"] == record.intent_id
+            and e["event"] in ("agent_step", "agent_done") and e["ts_wall"] >= created]
 
 
 def overview(conn: sqlite3.Connection, now_wall: float) -> dict:

@@ -102,6 +102,15 @@ def write_timetable(
     return decision
 
 
+def starting_at(objective: RLObjective, now_s: float) -> RLObjective:
+    """The same objective with its window moved to start at now_s, same length (never earlier)."""
+    shift = now_s - objective.valid_from
+    if shift <= 0:
+        return objective
+    until = None if objective.valid_until is None else objective.valid_until + shift
+    return objective.model_copy(update={"valid_from": now_s, "valid_until": until})
+
+
 def apply_intent(conn: sqlite3.Connection, intent_id: str, now_wall: float, confirmed_by: str) -> IntentRecord:
     """Re-verify, then apply an intent: new timetable, intent state 'applied'.
 
@@ -112,6 +121,11 @@ def apply_intent(conn: sqlite3.Connection, intent_id: str, now_wall: float, conf
     A revision (record.supersedes set, M04b) is verified as replacing its parent (conflicts
     without it, step from what runs now), and the parent is cancelled in the same transaction:
     at no moment are both, or neither, in the timetable.
+
+    The objective's window starts at the apply, not at the proposal: the time spent waiting for
+    the console is not taken out of the duration the operator asked for (seen in the M04b live
+    demo: a 5-minute request confirmed after 105 s ran for 195 s). The shifted objective is the
+    one re-verified and stored.
     """
     conn.execute("BEGIN IMMEDIATE")
     try:
@@ -133,7 +147,8 @@ def apply_intent(conn: sqlite3.Connection, intent_id: str, now_wall: float, conf
             return record
 
         state = verifier_state(conn)
-        decision = verify(record.objective, state, new_intent_id=intent_id, replacing=record.supersedes)
+        objective = starting_at(record.objective, state.now_s)
+        decision = verify(objective, state, new_intent_id=intent_id, replacing=record.supersedes)
         log_event("verifier", "reverified", intent_id, state.now_s, decision_dict(decision))
         if not decision.accepted:
             record = intents.set_state(conn, intent_id, "rejected", now_wall, verifier=decision_dict(decision),
@@ -142,7 +157,7 @@ def apply_intent(conn: sqlite3.Connection, intent_id: str, now_wall: float, conf
             conn.execute("COMMIT")
             return record
 
-        new = ActiveIntent(intent_id=intent_id, issued_at=state.now_s, objective=record.objective)
+        new = ActiveIntent(intent_id=intent_id, issued_at=state.now_s, objective=objective)
         staying = [i for i in state.active if i.intent_id != record.supersedes]  # a revision replaces its parent
         write_timetable(conn, [*staying, new], state, confirmed_by, f"apply {intent_id}")
         if record.supersedes is not None:
@@ -150,7 +165,7 @@ def apply_intent(conn: sqlite3.Connection, intent_id: str, now_wall: float, conf
                               reason=f"superseded by its revision {intent_id}")
         record = intents.set_state(conn, intent_id, "applied", now_wall, confirmed_by=confirmed_by,
                                    applied_backend=state.now_s, confirm_deadline=None,
-                                   reason=decision.reason)
+                                   reason=decision.reason, objective=objective)
         conn.execute("COMMIT")
     except BaseException:
         if conn.in_transaction:
