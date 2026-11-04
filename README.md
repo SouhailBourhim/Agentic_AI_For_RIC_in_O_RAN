@@ -135,9 +135,19 @@ then read testbed data with no change.
 
 ![KPM per slice on the stock and the patched gNB](docs/learn/img/M07a-stock-vs-patched.png)
 
+**A chat interface that can do almost nothing, checked from outside.** Hermes Agent runs on an
+internal Docker network whose only exits are two relays, to the gateway and to Ollama.
+- A capture of its LLM requests shows exactly three tools offered. Ten hostile requests produced
+  no call outside them, and from inside the container only those two ports answer.
+- The model's *words* were less reliable: it replied "Remembered" with memory off. That is why safety
+  rests on what it can reach, not on what it says.
+- 17 of 20 texts reached the gateway character for character, none was altered, and 3 got no reply.
+- Hermes demands a 64K context this GPU cannot serve, so the setup declares a number that is not true
+  and keeps sessions short. The cost is measured and documented.
+
 ## Engineering practices
 
-- **346 automated tests**, run by GitHub Actions on every push. No GPU, LLM or testbed is
+- **353 automated tests**, run by GitHub Actions on every push. No GPU, LLM or testbed is
   needed: the LLM is replaced by a scripted fake.
 - **Pre-registration.** Pass/fail criteria, model-selection rules and held-out sets are
   committed before the experiment runs. Failed criteria stay in the record.
@@ -166,8 +176,8 @@ then read testbed data with no change.
 | M05a | MCP gateway with exactly three tools, CLI MCP client, live demo of the three cases | Done |
 | M06 | Three network slices end to end on the testbed (OAI core, gNB, one UE per slice), capacity and load measured | Done |
 | M07a | KPM monitoring xApp (one subscription per slice), patched gNB KPM, testbed KPIs in the store | Done |
-| M05b | Hermes Agent as the chat interface, isolated | Next (can be cut) |
-| M07b | PRB-split control on the real gNB (custom build), FlexRIC backend | Planned |
+| M05b | Hermes Agent as the chat interface, isolated: exactly three tools, reaches only the gateway and Ollama | Done |
+| M07b | PRB-split control on the real gNB (custom build), FlexRIC backend | Next |
 | M08a–c | Four-controller comparison (static, RL only, LLM only, LLM + RL) on the simulator and the testbed; extraction accuracy on the held-out intents | Planned |
 
 The full plan, with interfaces, risks and how each hypothesis gets tested, is in
@@ -190,7 +200,7 @@ Requires [uv](https://docs.astral.sh/uv/), which installs the right Python by it
 
 ```bash
 uv sync                              # install the locked dependencies
-uv run pytest -q                     # 346 tests; no GPU, LLM or Docker needed
+uv run pytest -q                     # 353 tests; no GPU, LLM or Docker needed
 uv run python -m gateway.client tools # the MCP gateway's three tools
 uv run python -m rl.plot_runner      # one intent through the whole chain, simulated (~10 s)
 ```
@@ -208,6 +218,9 @@ the console) is described step by step in
 the same demo through the MCP gateway is in
 [docs/learn/M05a-gateway.md](docs/learn/M05a-gateway.md#5-how-to-run-it-and-check-it-works).
 
+Hermes runs in Docker next to that stack; the commands are in
+[docs/learn/M05b-hermes.md](docs/learn/M05b-hermes.md#5-how-to-run-it-and-check-it-works).
+
 The testbed needs Docker, the SCTP kernel module and two images we build (the patched gNB and
 the KPM xApp). [testbed/README.md](testbed/README.md) has the commands; `testbed/up.sh` starts
 everything in order, and `uv run python -m xapps.kpm_monitor` fills the KPI store from it.
@@ -219,6 +232,7 @@ everything in order, and `uv run python -m xapps.kpm_monitor` fills the KPI stor
 | [sim/](sim/) | Gymnasium environment: one cell, three slices, traffic scenarios |
 | [rl/](rl/) | Training, goal-conditioned policy, oracle and goal test, RL runner (the xApp) |
 | [verifier/](verifier/) | Objective schema, the eight checks, multi-intent merge (no LLM) |
+| [gateway/](gateway/) | MCP gateway (exactly three tools), CLI client, isolated Hermes configuration |
 | [agent/](agent/) | LangGraph agent, LLM client, internal tools, FastAPI service, worker |
 | [store/](store/) | Shared state: KPI table, `a1_policy` timetable, intents, event log |
 | [backends/](backends/) | The backend interface and the simulator backend (FlexRIC backend planned) |

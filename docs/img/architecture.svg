@@ -25,6 +25,8 @@
   <!-- operator -->
   <rect x="20" y="168" width="110" height="64" rx="32" class="box"/>
   <text x="75" y="206" text-anchor="middle" class="name">Operator</text>
+  <text x="75" y="252" text-anchor="middle" class="note">chat: Hermes</text>
+  <text x="75" y="268" text-anchor="middle" class="note">(isolated)</text>
 
   <!-- language layer -->
   <rect x="160" y="40" width="250" height="350" rx="10" class="panel"/>

@@ -190,9 +190,9 @@ This is not O-RAN A1: FlexRIC has no Non-RT RIC.
 
 | H | Settled in | How |
 |---|---|---|
-| H1 Hermes installs and runs on WSL2 | M05b | Pin a version, install it (container preferred), connect it to the gateway, call all 3 tools. Fails within the timebox → CLI client |
-| H2 Hermes passes the text verbatim and can use the local Ollama model | M05b, measured in M08b | Gateway logs the received text; compare it with the typed text (fidelity %). Hermes configured on the same Ollama tag as the agent |
-| H3 general tools can be disabled, Hermes isolated | M05b | Disable toolsets in config. Ask Hermes to run a shell command or read a file → no tool available. Container network reaches gateway + Ollama only; `curl` to FlexRIC/OAI fails |
+| H1 Hermes installs and runs on WSL2 | M05b | Pin a version, install it (container preferred), connect it to the gateway, call all 3 tools. Fails within the timebox → CLI client. **Confirmed 2026-11-04:** v0.22.7 image, `docs/learn/M05b-hermes.md` |
+| H2 Hermes passes the text verbatim and can use the local Ollama model | M05b, measured in M08b | Gateway logs the received text; compare it with the typed text (fidelity %). Hermes configured on the same Ollama tag as the agent. **Preview 2026-11-04, tune split:** 17/20 exact, none altered, 3 not sent (empty model answers) |
+| H3 general tools can be disabled, Hermes isolated | M05b | Disable toolsets in config. Ask Hermes to run a shell command or read a file → no tool available. Container network reaches gateway + Ollama only; `curl` to FlexRIC/OAI fails. **Confirmed 2026-11-04:** 3 tools on the wire, 17/17 network targets as expected with the testbed up; the same probe from the testbed network reaches them |
 | H4 separate console with timeout | M04a (tests), shown in M05a | Test: awaiting_confirmation → expired after T. Eval mode skips confirmation. The console is its own CLI process |
 | H5 gateway only talks to the agent HTTP API | M05a, rechecked in M07b | Import test (the gateway imports none of `backends`, `xapps`, `rl`, `sqlite3`). One configured URL. Network test on the testbed |
 | H6 `set_slice_share` only in LLM-only mode | M04b | Test of the tool list per mode. Gateway test that it is never exposed |
