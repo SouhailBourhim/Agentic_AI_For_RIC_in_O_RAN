@@ -1,0 +1,48 @@
+# Hermes Agent, isolated (M05b). docs/learn/M05b-hermes.md explains the layout.
+#
+# `hermes` is only on an internal network: no internet and no route to the host or the testbed. Its
+# only exits are two relays, each forwarding one port to one address. Both target ports are on the
+# host: the MCP gateway (uv run python -m gateway --http ...) and Ollama.
+#
+#   docker compose -f gateway/hermes/docker-compose.yml up -d
+#   docker compose -f gateway/hermes/docker-compose.yml exec -it hermes hermes chat
+
+services:
+  hermes:
+    image: nousresearch/hermes-agent:v0.22.7@sha256:e6d81ae52ebf6a43efa529701405509f20054ba818f179ddd748bed4f8af584c
+    # Not the image's entrypoint: its supervisor brings up a messaging gateway with an API server and
+    # a dashboard slot. This container only waits for `exec hermes chat`; nothing runs or listens.
+    entrypoint: ["sleep", "infinity"]
+    user: hermes
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [hermes-only]
+    volumes:
+      - hermes-data:/opt/data
+      - ./config.yaml:/opt/data/config.yaml:ro
+      - ./SOUL.md:/opt/data/SOUL.md:ro
+
+  gateway-relay:
+    image: alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e
+    command: ["TCP-LISTEN:8100,fork,reuseaddr", "TCP:host.docker.internal:8100"]
+    networks: [hermes-only, outside]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+
+  ollama-relay:
+    image: alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e
+    command: ["TCP-LISTEN:11434,fork,reuseaddr", "TCP:host.docker.internal:11434"]
+    networks:
+      hermes-only:
+        # Ollama refuses a Host like "ollama-relay" but accepts *.internal. Hermes does not count this
+        # name as a local server, so it trusts model.context_length (see config.yaml).
+        aliases: [ollama.internal]
+      outside: {}
+    extra_hosts: ["host.docker.internal:host-gateway"]
+
+networks:
+  hermes-only:
+    internal: true
+  outside: {}
+
+volumes:
+  hermes-data: {}

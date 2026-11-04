@@ -1,0 +1,55 @@
+# Hermes Agent v0.22.7 configuration for this project (M05b). See docs/learn/M05b-hermes.md.
+# Hermes is only the chat interface: it can call the gateway's three tools and nothing else.
+
+model:
+  default: qwen3:8b               # the same Ollama tag as the agent: only one model fits in VRAM
+  provider: custom
+  base_url: http://ollama.internal:11434/v1
+  # Hermes refuses a window under 64,000 tokens, twice: at startup, and before every turn if it knows
+  # the real window is smaller (agent/agent_init.py, agent/conversation_loop.py). This model and GPU
+  # serve 4096 (agent/llm.py: a larger KV cache spills out of the 8 GB GPU). So we declare 64000 and
+  # use a server name Hermes does not treat as local, so it does not look up the real window or send
+  # num_ctx. Ollama keeps its 4096. THE 64000 IS NOT TRUE: see docs/learn/M05b-hermes.md section 6.
+  context_length: 64000
+
+mcp_servers:
+  ric:
+    url: http://gateway-relay:8100/mcp
+    tools:
+      include: [submit_intent, get_kpis, get_status]
+      resources: false
+      prompts: false
+    sampling:
+      enabled: false              # the gateway never asks the client's LLM for anything
+    elicitation:
+      enabled: false
+
+# Only the gateway's tools. An explicit list adds exactly what it names (model_tools.py).
+toolsets: [mcp-ric]
+platform_toolsets:
+  cli: [mcp-ric]
+
+tools:
+  tool_search:
+    enabled: "off"                # no tool_search / tool_describe / tool_call bridge: the model gets the three tools themselves
+
+# Hermes's default prompt coaches a coding agent ("keep calling tools until verified"). This one is a
+# relay, and every token counts in a 4096 window.
+agent:
+  reasoning_effort: none
+  task_completion_guidance: false
+  parallel_tool_call_guidance: false
+  tool_use_enforcement: false
+  execution_guidance: false
+  environment_probe: false
+
+auxiliary:
+  title_generation:
+    enabled: false                # no extra LLM call to name each session
+
+memory:
+  memory_enabled: false
+  user_profile_enabled: false
+
+auth:
+  adopt_external_logins: false    # never borrow another tool's credentials
