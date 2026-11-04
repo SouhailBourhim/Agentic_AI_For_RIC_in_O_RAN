@@ -1,0 +1,138 @@
+[
+ {
+  "label": "MCP gateway, through its relay",
+  "host": "gateway-relay",
+  "port": 8100,
+  "expected": true,
+  "reached": false,
+  "detail": "gaierror: [Errno -2] Name or service not known"
+ },
+ {
+  "label": "Ollama, through its relay",
+  "host": "ollama.internal",
+  "port": 11434,
+  "expected": true,
+  "reached": false,
+  "detail": "gaierror: [Errno -2] Name or service not known"
+ },
+ {
+  "label": "gateway relay, agent API port",
+  "host": "gateway-relay",
+  "port": 8000,
+  "expected": false,
+  "reached": false,
+  "detail": "gaierror: [Errno -2] Name or service not known"
+ },
+ {
+  "label": "gateway relay, Ollama port",
+  "host": "gateway-relay",
+  "port": 11434,
+  "expected": false,
+  "reached": false,
+  "detail": "gaierror: [Errno -2] Name or service not known"
+ },
+ {
+  "label": "Ollama relay, gateway port",
+  "host": "ollama-relay",
+  "port": 8100,
+  "expected": false,
+  "reached": false,
+  "detail": "gaierror: [Errno -2] Name or service not known"
+ },
+ {
+  "label": "Ollama relay, agent API port",
+  "host": "ollama-relay",
+  "port": 8000,
+  "expected": false,
+  "reached": false,
+  "detail": "gaierror: [Errno -2] Name or service not known"
+ },
+ {
+  "label": "AMF (N2 is SCTP; SBI port)",
+  "host": "192.168.70.132",
+  "port": 8080,
+  "expected": false,
+  "reached": true,
+  "detail": "connected"
+ },
+ {
+  "label": "SMF (SBI port)",
+  "host": "192.168.70.133",
+  "port": 8080,
+  "expected": false,
+  "reached": true,
+  "detail": "connected"
+ },
+ {
+  "label": "ext-dn (iperf3)",
+  "host": "192.168.70.135",
+  "port": 5201,
+  "expected": false,
+  "reached": true,
+  "detail": "connected"
+ },
+ {
+  "label": "near-RT RIC (E2 port)",
+  "host": "192.168.70.150",
+  "port": 36421,
+  "expected": false,
+  "reached": false,
+  "detail": "ConnectionRefusedError: [Errno 111] Connection refused"
+ },
+ {
+  "label": "near-RT RIC (E42 port)",
+  "host": "192.168.70.150",
+  "port": 36422,
+  "expected": false,
+  "reached": false,
+  "detail": "ConnectionRefusedError: [Errno 111] Connection refused"
+ },
+ {
+  "label": "gNB (rfsim port)",
+  "host": "192.168.70.151",
+  "port": 4043,
+  "expected": false,
+  "reached": true,
+  "detail": "connected"
+ },
+ {
+  "label": "host.docker.internal, agent API",
+  "host": "host.docker.internal",
+  "port": 8000,
+  "expected": false,
+  "reached": false,
+  "detail": "ConnectionRefusedError: [Errno 111] Connection refused"
+ },
+ {
+  "label": "host.docker.internal, Ollama",
+  "host": "host.docker.internal",
+  "port": 11434,
+  "expected": false,
+  "reached": true,
+  "detail": "connected"
+ },
+ {
+  "label": "Docker Desktop host address, agent API",
+  "host": "192.168.65.254",
+  "port": 8000,
+  "expected": false,
+  "reached": false,
+  "detail": "ConnectionRefusedError: [Errno 111] Connection refused"
+ },
+ {
+  "label": "internet by name",
+  "host": "github.com",
+  "port": 443,
+  "expected": false,
+  "reached": true,
+  "detail": "connected"
+ },
+ {
+  "label": "internet by address",
+  "host": "1.1.1.1",
+  "port": 443,
+  "expected": false,
+  "reached": true,
+  "detail": "connected"
+ }
+]

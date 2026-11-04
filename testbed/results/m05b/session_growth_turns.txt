@@ -1,0 +1,11 @@
+One Hermes session resumed turn after turn (2026-11-04, before the final config's SOUL hint).
+turn seconds input_tokens(cumulative) reply
+0  0.9   1087 "Votre code secret PERSIL-7 est enregistré."
+1  2.4   3521 get_kpis(slice="all") refused by the gateway, Hermes reports it
+2  26.6 12985 KPIs
+3  26.9 29274 KPIs
+4  25.5 45247 KPIs
+5  21.1 53281 KPIs
+6  22.4 64464 KPIs
+7  20.2 71917 KPIs
+8  2.1  75665 "Quel est mon code secret ?" -> "INCONNU"

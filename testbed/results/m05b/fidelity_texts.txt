@@ -1,0 +1,20 @@
+Garantir 10 Mb/s au slice URLLC avec une latence de 10 ms pendant 5 minutes.
+Prioritise eMBB for 30 minutes and make sure best effort keeps at least 3 Mb/s.
+Protège le slice critique, latence max 7 ms, pendant un quart d'heure.
+Guarantee 22 Mbps for eMBB.
+Assurer 2 Mb/s minimum au trafic de fond pendant 40 min.
+URLLC needs latency under 0.005 s for the next 10 minutes.
+Favoriser l'URLLC pendant 2 h.
+The surgery robots need 9 Mbps minimum and sub-4 ms latency over the next 25 minutes.
+Garantir 0,03 Gb/s au haut débit pendant 20 minutes.
+Give best effort 750 kbps for an hour.
+Favorise la vidéo pendant 15 min, avec au moins 6 Mb/s réservés à l'URLLC.
+Protect URLLC with 12 Mbps and 9 ms latency, and keep eMBB at least at 20 Mbps, for 45 minutes.
+Assure au moins 0,07 Gb/s à la vidéo pendant dix minutes.
+Latency on the low-latency slice must not exceed 20 ms.
+Mets 15 Mb/s pour une heure.
+Make everything faster.
+Je veux une latence de 3 ms pour le best effort.
+Protect URLLC, but give it the lowest priority of the three slices.
+Coupe complètement le slice eMBB.
+Guarantee 10 Mb/s to eMBB or URLLC, whichever needs it.
