@@ -32,7 +32,7 @@ if ! docker info > /dev/null 2>&1; then
   exit 1
 fi
 
-for image in "${GNB_IMAGE:-agentic-ric/oai-gnb:v3.0.0-kpmfix}" agentic-ric/xapp-kpm-slices:v3.0.0; do
+for image in "${GNB_IMAGE:-agentic-ric/oai-gnb:v3.0.0-slice}" agentic-ric/xapp-kpm-slices:v3.0.0; do
   if ! docker image inspect "$image" > /dev/null 2>&1; then
     echo "Image $image not found: build it first (see the top of this script)." >&2
     exit 1
@@ -65,7 +65,7 @@ echo "2/5 near-RT RIC"
 docker compose -f "$RAN" up -d nearRT-RIC
 wait_healthy "$RAN"
 
-echo "3/5 gNB (rfsim, E2 agent): ${GNB_IMAGE:-agentic-ric/oai-gnb:v3.0.0-kpmfix}"
+echo "3/5 gNB (rfsim, E2 agent): ${GNB_IMAGE:-agentic-ric/oai-gnb:v3.0.0-slice}"
 docker compose -f "$RAN" up -d oai-gnb
 wait_healthy "$RAN"
 

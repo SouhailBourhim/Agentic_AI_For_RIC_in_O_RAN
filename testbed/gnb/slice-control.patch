@@ -1,0 +1,295 @@
+diff --git a/openair2/E2AP/RAN_FUNCTION/CUSTOMIZED/ran_func_slice.c b/openair2/E2AP/RAN_FUNCTION/CUSTOMIZED/ran_func_slice.c
+index 58a39a4..83537df 100644
+--- a/openair2/E2AP/RAN_FUNCTION/CUSTOMIZED/ran_func_slice.c
++++ b/openair2/E2AP/RAN_FUNCTION/CUSTOMIZED/ran_func_slice.c
+@@ -6,6 +6,9 @@
+ #include "../../flexric/test/rnd/fill_rnd_data_slice.h"
+ #include <assert.h>
+ #include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include "openair2/LAYER2/NR_MAC_gNB/nr_slice_policy.h"
+ 
+ bool read_slice_sm(void* data)
+ {
+@@ -26,28 +29,64 @@ void read_slice_setup_sm(void* data)
+   assert(0 !=0 && "Not supported");
+ }
+ 
+-sm_ag_if_ans_t write_ctrl_slice_sm(void const* data)
++/* agentic-ric M07b: a real control handler, replacing the stub that only printed the message type.
++ * ADD with three STATIC downlink slices (ids 0 eMBB, 1 URLLC, 2 BE; pos_low..pos_high = the
++ * slice's PRBs, inclusive) sets the ranges the MAC scheduler uses from the next slot; DEL goes back
++ * to the stock scheduler. Anything else is refused with a diagnostic, never an assert: a bad
++ * message must not take the gNB down. The answer travels back in the E2 RIC Control Acknowledge. */
++static sm_ag_if_ans_t slice_answer(bool ok, const char* text)
+ {
+-  assert(data != NULL);
+-//  assert(data->type == SLICE_CTRL_REQ_V0);
+-
+-  slice_ctrl_req_data_t const* slice_req_ctrl = (slice_ctrl_req_data_t const* )data; // &data->slice_req_ctrl;
+-  slice_ctrl_msg_t const* msg = &slice_req_ctrl->msg;
+-
+-  if(msg->type == SLICE_CTRL_SM_V0_ADD){
+-    printf("[E2 Agent]: SLICE CONTROL ADD rx\n");
+-  } else if (msg->type == SLICE_CTRL_SM_V0_DEL){
+-    printf("[E2 Agent]: SLICE CONTROL DEL rx\n");
+-  } else if (msg->type == SLICE_CTRL_SM_V0_UE_SLICE_ASSOC){
+-    printf("[E2 Agent]: SLICE CONTROL ASSOC rx\n");
+-  } else {
+-    assert(0!=0 && "Unknown msg_type!");
+-  }
+-
+   sm_ag_if_ans_t ans = {.type = CTRL_OUTCOME_SM_AG_IF_ANS_V0};
+   ans.ctrl_out.type = SLICE_AGENT_IF_CTRL_ANS_V0;
++  ans.ctrl_out.slice.ans = ok ? SLICE_CTRL_OUT_OK : SLICE_CTRL_OUT_ERROR;
++  ans.ctrl_out.slice.len_diag = strlen(text);
++  ans.ctrl_out.slice.diagnostic = ans.ctrl_out.slice.len_diag > 0 ? strdup(text) : NULL;
++  printf("[E2 Agent]: SLICE CONTROL %s: %s (retx waits since last control: %u)\n", ok ? "OK" : "REFUSED", text,
++         nr_slice_policy_retx_waits());
++  fflush(stdout);
+   return ans;
++}
+ 
++static sm_ag_if_ans_t add_slices(ul_dl_slice_conf_t const* dl)
++{
++  char why[160] = {0};
++  if (dl->len_slices != NR_SLICE_N) {
++    snprintf(why, sizeof(why), "expected %d DL slices, got %u", NR_SLICE_N, dl->len_slices);
++    return slice_answer(false, why);
++  }
++  uint32_t low[NR_SLICE_N] = {0}, high[NR_SLICE_N] = {0};
++  bool seen[NR_SLICE_N] = {false};
++  for (uint32_t i = 0; i < dl->len_slices; i++) {
++    fr_slice_t const* s = &dl->slices[i];
++    if (s->id >= NR_SLICE_N || seen[s->id]) {
++      snprintf(why, sizeof(why), "slice id %u unknown or repeated (expected 0, 1, 2)", s->id);
++      return slice_answer(false, why);
++    }
++    if (s->params.type != SLICE_ALG_SM_V0_STATIC) {
++      snprintf(why, sizeof(why), "slice %u: only STATIC ranges are supported", s->id);
++      return slice_answer(false, why);
++    }
++    seen[s->id] = true;
++    low[s->id] = s->params.u.sta.pos_low;
++    high[s->id] = s->params.u.sta.pos_high;
++  }
++  if (!nr_slice_policy_set(low, high, why, sizeof(why)))
++    return slice_answer(false, why);
++  snprintf(why, sizeof(why), "PRBs eMBB [%u,%u] URLLC [%u,%u] BE [%u,%u]", low[0], high[0], low[1], high[1], low[2], high[2]);
++  return slice_answer(true, why);
+ }
+ 
++sm_ag_if_ans_t write_ctrl_slice_sm(void const* data)
++{
++  assert(data != NULL);
++  slice_ctrl_req_data_t const* slice_req_ctrl = (slice_ctrl_req_data_t const* )data;
++  slice_ctrl_msg_t const* msg = &slice_req_ctrl->msg;
+ 
++  if (msg->type == SLICE_CTRL_SM_V0_ADD)
++    return add_slices(&msg->u.add_mod_slice.dl);
++  if (msg->type == SLICE_CTRL_SM_V0_DEL) {
++    nr_slice_policy_clear();
++    return slice_answer(true, "ranges removed, stock scheduler over the whole cell");
++  }
++  return slice_answer(false, "only ADD (STATIC ranges) and DEL are supported");
++}
+diff --git a/openair2/LAYER2/NR_MAC_gNB/gNB_scheduler_dlsch_default_policies.c b/openair2/LAYER2/NR_MAC_gNB/gNB_scheduler_dlsch_default_policies.c
+index 9d765c8..6878bce 100644
+--- a/openair2/LAYER2/NR_MAC_gNB/gNB_scheduler_dlsch_default_policies.c
++++ b/openair2/LAYER2/NR_MAC_gNB/gNB_scheduler_dlsch_default_policies.c
+@@ -328,3 +328,131 @@ void nr_dl_lcid_alloc_default(const gNB_MAC_INST *mac,
+   for (int lcid = 0; lcid < NR_MAX_NUM_LCID; lcid++)
+     lcid_alloc[lcid] = candidate->pending_bytes_per_lcid[lcid];
+ }
++
++/* ===== agentic-ric M07b: slice-aware RB allocation (see nr_slice_policy.h) ======================
++ *
++ * Each slice gets a fixed range of PRBs; inside it, its UEs are scheduled by the stock
++ * nr_dl_proportional_fair, which only places data on PRBs free in the vrb_map it is given. So we
++ * give it a copy of the map where every PRB outside the slice's range is marked busy, and merge
++ * what it allocated back. PRBs a slice does not use stay idle (hard cap, not work-conserving),
++ * like the simulator the RL policy was trained on.
++ * UEs whose first DRB has no slice we know (no DRB yet during attach, or an unknown S-NSSAI) are
++ * scheduled first, over the whole cell: that traffic is signalling, a few bytes.
++ */
++
++#include <stdatomic.h>
++#include "nr_slice_policy.h"
++
++static const nssai_t slice_nssai[NR_SLICE_N] = {{1, 0x000001}, {2, 0x000001}, {1, 0x000002}};
++#define UNSLICED NR_SLICE_N
++
++/* Bit 63: ranges active. Bits 16*i .. 16*i+15: slice i's range, low byte = first PRB, high byte =
++ * last PRB. 106 PRBs here, so 8 bits per bound is enough; nr_slice_policy_set checks < 256. */
++static _Atomic uint64_t slice_ranges = 0;
++static _Atomic int cell_bw = 0;               // carrier PRBs, learnt from the scheduler
++static _Atomic uint32_t retx_waits = 0;
++#define RANGES_ACTIVE (1ULL << 63)
++
++static int slice_of(const nr_dl_candidate_t *c)
++{
++  for (int s = 0; s < NR_SLICE_N; s++)
++    if (c->nssai.sst == slice_nssai[s].sst && c->nssai.sd == slice_nssai[s].sd)
++      return s;
++  return UNSLICED;
++}
++
++static int compare_slice(const void *a, const void *b)
++{
++  return slice_of(a) - slice_of(b);
++}
++
++bool nr_slice_policy_set(const uint32_t low[NR_SLICE_N], const uint32_t high[NR_SLICE_N], char *why, size_t len)
++{
++  int bw = atomic_load(&cell_bw);
++  if (bw == 0) {
++    snprintf(why, len, "cell bandwidth not known yet (no slot scheduled)");
++    return false;
++  }
++  uint64_t word = RANGES_ACTIVE;
++  for (int i = 0; i < NR_SLICE_N; i++) {
++    if (low[i] > high[i] || high[i] >= (uint32_t)bw) {
++      snprintf(why, len, "slice %d: range [%u, %u] not inside the cell's %d PRBs", i, low[i], high[i], bw);
++      return false;
++    }
++    if (high[i] - low[i] + 1 < NR_SLICE_MIN_PRB) {
++      snprintf(why, len, "slice %d: %u PRBs, fewer than %d", i, high[i] - low[i] + 1, NR_SLICE_MIN_PRB);
++      return false;
++    }
++    for (int j = 0; j < i; j++)
++      if (low[i] <= high[j] && low[j] <= high[i]) {
++        snprintf(why, len, "slices %d and %d overlap", j, i);
++        return false;
++      }
++    word |= ((uint64_t)(high[i] << 8 | low[i])) << (16 * i);
++  }
++  atomic_store(&slice_ranges, word);
++  return true;
++}
++
++void nr_slice_policy_clear(void)
++{
++  atomic_store(&slice_ranges, 0);
++}
++
++uint32_t nr_slice_policy_retx_waits(void)
++{
++  return atomic_exchange(&retx_waits, 0);
++}
++
++int nr_dl_slice_policy(const nr_dl_sched_params_t *params, nr_dl_candidate_t *candidates, int n_candidates)
++{
++  const NR_ServingCellConfigCommon_t *scc = params->cell->common_channels.ServingCellConfigCommon;
++  atomic_store(&cell_bw, scc->downlinkConfigCommon->frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth);
++
++  uint64_t word = atomic_load(&slice_ranges);  // one read per slot: all slices see the same split
++  if (!(word & RANGES_ACTIVE))
++    return nr_dl_proportional_fair(params, candidates, n_candidates);
++
++  /* Group the candidates by slice; the caller does not depend on their order (it already sorted
++   * them by beam, and later loops over all of them). All candidates here share one beam. */
++  qsort(candidates, n_candidates, sizeof(*candidates), compare_slice);
++  int beam = n_candidates > 0 ? candidates[0].alloc_beam_idx : 0;
++  uint16_t *vrb_map = params->vrb_map[beam];
++
++  int n_scheduled = 0;
++  int start = 0;
++  /* The unsliced group sorts last; schedule it first, over the whole cell. */
++  int first_unsliced = n_candidates;
++  while (first_unsliced > 0 && slice_of(&candidates[first_unsliced - 1]) == UNSLICED)
++    first_unsliced--;
++  if (first_unsliced < n_candidates)
++    n_scheduled += nr_dl_proportional_fair(params, candidates + first_unsliced, n_candidates - first_unsliced);
++
++  for (int s = 0; s < NR_SLICE_N && n_scheduled < params->max_num_ue; s++) {
++    int end = start;
++    while (end < first_unsliced && slice_of(&candidates[end]) == s)
++      end++;
++    if (end > start) {
++      int low = (word >> (16 * s)) & 0xFF;
++      int high = (word >> (16 * s + 8)) & 0xFF;
++      uint16_t masked[MAX_BWP_SIZE];
++      for (int rb = 0; rb < MAX_BWP_SIZE; rb++)
++        masked[rb] = (rb >= low && rb <= high) ? vrb_map[rb] : 0xFFFF;
++
++      nr_dl_sched_params_t p = *params;
++      p.vrb_map[beam] = masked;
++      for (int b = 0; b < p.num_beams; b++)
++        p.n_rb_avail[b] = high - low + 1;
++      p.max_num_ue = params->max_num_ue - n_scheduled;
++      n_scheduled += nr_dl_proportional_fair(&p, candidates + start, end - start);
++
++      for (int rb = low; rb <= high; rb++)
++        vrb_map[rb] |= masked[rb];
++      for (int c = start; c < end; c++)
++        if (candidates[c].is_retx && !candidates[c].scheduled && !candidates[c].skipped)
++          atomic_fetch_add(&retx_waits, 1);
++    }
++    start = end;
++  }
++  return n_scheduled;
++}
+diff --git a/openair2/LAYER2/NR_MAC_gNB/gNB_scheduler_dlsch_default_policies.h b/openair2/LAYER2/NR_MAC_gNB/gNB_scheduler_dlsch_default_policies.h
+index 2a1793e..b90ee01 100644
+--- a/openair2/LAYER2/NR_MAC_gNB/gNB_scheduler_dlsch_default_policies.h
++++ b/openair2/LAYER2/NR_MAC_gNB/gNB_scheduler_dlsch_default_policies.h
+@@ -22,6 +22,9 @@ int nr_dl_tda_select_default(const gNB_MAC_INST *mac, const nr_cell_sched_t *cel
+ 
+ int nr_dl_proportional_fair(const nr_dl_sched_params_t *params, nr_dl_candidate_t *candidates, int n_candidates);
+ 
++/* agentic-ric M07b: PF inside per-slice PRB ranges set over E2; plain PF until the first range. */
++int nr_dl_slice_policy(const nr_dl_sched_params_t *params, nr_dl_candidate_t *candidates, int n_candidates);
++
+ void nr_dl_lcid_alloc_default(const gNB_MAC_INST *mac,
+                               const nr_dl_candidate_t *candidate,
+                               int tbs_available,
+diff --git a/openair2/LAYER2/NR_MAC_gNB/main.c b/openair2/LAYER2/NR_MAC_gNB/main.c
+index 0366875..19f022f 100644
+--- a/openair2/LAYER2/NR_MAC_gNB/main.c
++++ b/openair2/LAYER2/NR_MAC_gNB/main.c
+@@ -325,7 +325,7 @@ void mac_top_init_gNB(ngran_node_t node_type,
+         RC.nrmac[i]->dl_mcs_select = nr_dl_mcs_select_default;
+         RC.nrmac[i]->dl_beam_select = nr_dl_beam_select_default;
+         RC.nrmac[i]->dl_tda_select = nr_dl_tda_select_default;
+-        RC.nrmac[i]->dl_rb_alloc = nr_dl_proportional_fair;
++        RC.nrmac[i]->dl_rb_alloc = nr_dl_slice_policy;  // agentic-ric M07b: PF per slice range
+       }
+       if (!IS_SOFTMODEM_NOSTATS)
+         threadCreate(&RC.nrmac[i]->stats_thread,
+diff --git a/openair2/LAYER2/NR_MAC_gNB/nr_slice_policy.h b/openair2/LAYER2/NR_MAC_gNB/nr_slice_policy.h
+new file mode 100644
+index 0000000..83b8412
+--- /dev/null
++++ b/openair2/LAYER2/NR_MAC_gNB/nr_slice_policy.h
+@@ -0,0 +1,30 @@
++/*
++ * agentic-ric M07b: per-slice downlink PRB ranges, set over E2 (SLICE service model control).
++ *
++ * The E2 agent thread calls nr_slice_policy_set / nr_slice_policy_clear; the MAC scheduler reads
++ * the ranges every slot in nr_dl_slice_policy (gNB_scheduler_dlsch_default_policies.c). The ranges
++ * travel between the two threads as ONE 64-bit atomic word, so the scheduler never takes a lock.
++ * Kept free of MAC types so the E2 code can include it without the scheduler headers.
++ */
++
++#ifndef NR_SLICE_POLICY_H
++#define NR_SLICE_POLICY_H
++
++#include <stdbool.h>
++#include <stddef.h>
++#include <stdint.h>
++
++#define NR_SLICE_N 3          // slice ids 0, 1, 2 = eMBB, URLLC, BE (table in the .c file)
++#define NR_SLICE_MIN_PRB 5    // the PF policy never allocates fewer than 5 PRBs (min_rbSize)
++
++/* Use PRBs [low[i], high[i]] (inclusive, cell PRB index) for slice i from the next slot on.
++ * Returns false and writes the reason into `why` if the ranges are invalid; nothing changes then. */
++bool nr_slice_policy_set(const uint32_t low[NR_SLICE_N], const uint32_t high[NR_SLICE_N], char *why, size_t len);
++
++/* Back to the stock proportional-fair scheduler over the whole cell. */
++void nr_slice_policy_clear(void);
++
++/* HARQ retransmissions that found no room in their slice's range since the last call (then reset). */
++uint32_t nr_slice_policy_retx_waits(void);
++
++#endif /* NR_SLICE_POLICY_H */
