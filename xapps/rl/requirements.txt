@@ -1,0 +1,8 @@
+# What the RL runner imports on the testbed (rl/runner.py, rl/policy.py, sim/, store/, verifier/,
+# backends/). Versions come from uv.lock: build.sh exports it as constraints.txt next to this file.
+# No MLflow, no agent, no HTTP: the policy is a file in the image.
+gymnasium
+numpy
+pydantic
+stable-baselines3
+torch

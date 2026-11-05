@@ -5,7 +5,7 @@
 # MAC/RLC/PDCP/GTP monitor xApps; 3 UEs (IMSI ...02, ...03, ...04).
 # M06: one UE per slice (eMBB, URLLC, best effort), each with its own conf (IMSI + PDU session slice).
 # M07a: our KPM xApp (xapp-kpm-slices, one subscription per slice) and our gNB image (OAI v3.0.0 +
-# testbed/gnb/kpm-per-ue.patch); GNB_IMAGE=oaisoftwarealliance/oai-gnb:v3.0.0 gives the stock gNB.
+# testbed/gnb/kpm-per-ue.patch and slice-control.patch); GNB_IMAGE=oaisoftwarealliance/oai-gnb:v3.0.0 gives the stock gNB.
 
 services:
     nearRT-RIC:
@@ -54,6 +54,21 @@ services:
             interval: 10s
             timeout: 5s
 
+    rl-xapp:   # M07b: RL runner + champion policy + slice-control xApp; not started by up.sh
+        profiles: [control]
+        image: ${RL_XAPP_IMAGE:-agentic-ric/rl-xapp:latest}   # xapps/rl/build.sh tags :v<version> and :latest
+        container_name: rl-xapp
+        depends_on:
+            - nearRT-RIC
+            - oai-gnb
+        user: "${RL_XAPP_USER:-1000:1000}"   # the files it writes in var/ stay yours
+        networks:
+            public_net:
+                ipv4_address: 192.168.70.159
+        volumes:
+            - ./conf/flexric.conf:/usr/local/etc/flexric/flexric.conf
+            - ../../var:/app/var   # var/ric-testbed.db, var/events.jsonl, shared with WSL
+
     xapp-gtp-mac-rlc-pdcp-moni:
         image: ${REGISTRY-oaisoftwarealliance/}oai-flexric:${FLEXRIC_TAG:-v3.0.0}
         command: "stdbuf -o0 /usr/local/flexric/xApp/c/monitor/xapp_gtp_mac_rlc_pdcp_moni"
@@ -72,7 +87,7 @@ services:
             timeout: 5s
 
     oai-gnb:
-        image: ${GNB_IMAGE:-agentic-ric/oai-gnb:v3.0.0-kpmfix}   # built by testbed/gnb/build.sh
+        image: ${GNB_IMAGE:-agentic-ric/oai-gnb:v3.0.0-slice}   # built by testbed/gnb/build.sh
         privileged: true
         container_name: rfsim5g-oai-gnb
         environment:
