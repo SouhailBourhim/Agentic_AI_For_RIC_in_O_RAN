@@ -1,0 +1,8 @@
+[E2 Agent]: SLICE CONTROL OK: ranges removed, stock scheduler over the whole cell (retx waits since last control: 0)
+[E2 Agent]: SLICE CONTROL OK: PRBs eMBB [0,35] URLLC [36,70] BE [71,105] (retx waits since last control: 0)
+[E2 Agent]: SLICE CONTROL OK: PRBs eMBB [0,63] URLLC [64,95] BE [96,105] (retx waits since last control: 0)
+[E2 Agent]: SLICE CONTROL OK: PRBs eMBB [0,10] URLLC [11,94] BE [95,105] (retx waits since last control: 0)
+[E2 Agent]: SLICE CONTROL OK: PRBs eMBB [0,4] URLLC [5,9] BE [10,105] (retx waits since last control: 0)
+[E2 Agent]: SLICE CONTROL OK: PRBs eMBB [0,20] URLLC [21,41] BE [42,105] (retx waits since last control: 0)
+[E2 Agent]: SLICE CONTROL OK: PRBs eMBB [0,84] URLLC [85,100] BE [101,105] (retx waits since last control: 0)
+[E2 Agent]: SLICE CONTROL OK: ranges removed, stock scheduler over the whole cell (retx waits since last control: 0)

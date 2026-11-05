@@ -1,0 +1,8 @@
+{"run": "stock", "line": "del", "sent_wall": 1793841315.2741046, "ack": {"event": "ack", "cmd": "del", "sent_us": 1793841315274595, "rtt_ms": 0.758}}
+{"run": "equal", "line": "36 35 35", "sent_wall": 1793841376.1707463, "ack": {"event": "ack", "cmd": "add", "prbs": [36, 35, 35], "sent_us": 1793841376171251, "rtt_ms": 1.791}}
+{"run": "s60_30_10", "line": "64 32 10", "sent_wall": 1793841439.1574225, "ack": {"event": "ack", "cmd": "add", "prbs": [64, 32, 10], "sent_us": 1793841439158106, "rtt_ms": 0.717}}
+{"run": "s10_80_10", "line": "11 84 11", "sent_wall": 1793841524.9210098, "ack": {"event": "ack", "cmd": "add", "prbs": [11, 84, 11], "sent_us": 1793841524921622, "rtt_ms": 0.835}}
+{"run": "s05_05_90", "line": "5 5 96", "sent_wall": 1793841604.635966, "ack": {"event": "ack", "cmd": "add", "prbs": [5, 5, 96], "sent_us": 1793841604636459, "rtt_ms": 1.017}}
+{"run": "s20_20_60", "line": "21 21 64", "sent_wall": 1793841740.4977086, "ack": {"event": "ack", "cmd": "add", "prbs": [21, 21, 64], "sent_us": 1793841740498527, "rtt_ms": 0.857}}
+{"run": "s80_15_05", "line": "85 16 5", "sent_wall": 1793841809.6766558, "ack": {"event": "ack", "cmd": "add", "prbs": [85, 16, 5], "sent_us": 1793841809677148, "rtt_ms": 0.825}}
+{"run": "end", "line": "del", "sent_wall": 1793841945.2038243, "ack": {"event": "ack", "cmd": "del", "sent_us": 1793841945204302, "rtt_ms": 0.843}}

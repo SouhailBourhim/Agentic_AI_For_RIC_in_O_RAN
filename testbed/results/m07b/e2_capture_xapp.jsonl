@@ -1,0 +1,5 @@
+{"event":"ready"}
+{"event":"ack","cmd":"add","prbs":[64,32,10],"sent_us":1793843719006539,"rtt_ms":0.859}
+{"event":"ack","cmd":"add","prbs":[3,50,53],"sent_us":1793843720444093,"rtt_ms":0.758}
+{"event":"ack","cmd":"del","sent_us":1793843722445552,"rtt_ms":0.810}
+{"event":"stopped"}

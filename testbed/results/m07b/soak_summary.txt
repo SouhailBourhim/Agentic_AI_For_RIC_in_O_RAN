@@ -1,0 +1,5 @@
+controls acknowledged: 1441; ack RTT median 0.90 ms, max 2.03 ms
+runner starts: 2; xApp exits: 1; kpm stale: 0
+gNB 'SLICE CONTROL OK': 1442, 'REFUSED': 0, 'Assertion': 0, restarts during the soak: 0
+HARQ retransmissions that waited for room in their slice: 0
+kpi rows: 5778

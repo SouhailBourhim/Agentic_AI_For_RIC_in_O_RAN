@@ -1,0 +1,3 @@
+{"run": "iso_stock", "line": "del", "sent_wall": 1793841964.7331166, "ack": {"event": "ack", "cmd": "del", "sent_us": 1793841964733526, "rtt_ms": 0.744}}
+{"run": "iso_capped", "line": "53 27 26", "sent_wall": 1793842000.2880602, "ack": {"event": "ack", "cmd": "add", "prbs": [53, 27, 26], "sent_us": 1793842000288507, "rtt_ms": 0.67}}
+{"run": "end", "line": "del", "sent_wall": 1793842048.1690323, "ack": {"event": "ack", "cmd": "del", "sent_us": 1793842048169489, "rtt_ms": 0.746}}

@@ -1,0 +1,3 @@
+[E2 Agent]: SLICE CONTROL OK: PRBs eMBB [0,63] URLLC [64,95] BE [96,105] (retx waits since last control: 0)
+[E2 Agent]: SLICE CONTROL REFUSED: slice 0: 3 PRBs, fewer than 5 (retx waits since last control: 0)
+[E2 Agent]: SLICE CONTROL OK: ranges removed, stock scheduler over the whole cell (retx waits since last control: 0)

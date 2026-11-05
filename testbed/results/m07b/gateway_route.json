@@ -1,0 +1,51 @@
+[
+ {
+  "target": "AMF, SBI",
+  "host": "192.168.70.132",
+  "port": 8080,
+  "from_wsl": "TimeoutError",
+  "from_testbed_network": "connected"
+ },
+ {
+  "target": "SMF, SBI",
+  "host": "192.168.70.133",
+  "port": 8080,
+  "from_wsl": "TimeoutError",
+  "from_testbed_network": "connected"
+ },
+ {
+  "target": "UPF, SBI",
+  "host": "192.168.70.134",
+  "port": 8080,
+  "from_wsl": "TimeoutError",
+  "from_testbed_network": "refused"
+ },
+ {
+  "target": "ext-dn, iperf3",
+  "host": "192.168.70.135",
+  "port": 5201,
+  "from_wsl": "TimeoutError",
+  "from_testbed_network": "connected"
+ },
+ {
+  "target": "near-RT RIC, E2",
+  "host": "192.168.70.150",
+  "port": 36421,
+  "from_wsl": "TimeoutError",
+  "from_testbed_network": "refused"
+ },
+ {
+  "target": "near-RT RIC, E42",
+  "host": "192.168.70.150",
+  "port": 36422,
+  "from_wsl": "TimeoutError",
+  "from_testbed_network": "refused"
+ },
+ {
+  "target": "gNB, rfsim",
+  "host": "192.168.70.151",
+  "port": 4043,
+  "from_wsl": "TimeoutError",
+  "from_testbed_network": "connected"
+ }
+]

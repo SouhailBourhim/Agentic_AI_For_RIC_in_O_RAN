@@ -1,0 +1,21 @@
+PING 192.168.70.135 (192.168.70.135) from 10.0.3.2 oaitun_ue1: 56(84) bytes of data.
+64 bytes from 192.168.70.135: icmp_seq=1 ttl=63 time=45.9 ms
+64 bytes from 192.168.70.135: icmp_seq=2 ttl=63 time=46.5 ms
+64 bytes from 192.168.70.135: icmp_seq=3 ttl=63 time=4697 ms
+64 bytes from 192.168.70.135: icmp_seq=4 ttl=63 time=9303 ms
+64 bytes from 192.168.70.135: icmp_seq=5 ttl=63 time=13627 ms
+64 bytes from 192.168.70.135: icmp_seq=6 ttl=63 time=18753 ms
+64 bytes from 192.168.70.135: icmp_seq=7 ttl=63 time=23441 ms
+64 bytes from 192.168.70.135: icmp_seq=8 ttl=63 time=27792 ms
+64 bytes from 192.168.70.135: icmp_seq=9 ttl=63 time=32521 ms
+64 bytes from 192.168.70.135: icmp_seq=11 ttl=63 time=40720 ms
+64 bytes from 192.168.70.135: icmp_seq=12 ttl=63 time=45098 ms
+64 bytes from 192.168.70.135: icmp_seq=13 ttl=63 time=49338 ms
+64 bytes from 192.168.70.135: icmp_seq=14 ttl=63 time=53162 ms
+64 bytes from 192.168.70.135: icmp_seq=15 ttl=63 time=57846 ms
+64 bytes from 192.168.70.135: icmp_seq=16 ttl=63 time=61716 ms
+64 bytes from 192.168.70.135: icmp_seq=17 ttl=63 time=65978 ms
+
+--- 192.168.70.135 ping statistics ---
+125 packets transmitted, 16 received, 87.2% packet loss, time 25289ms
+rtt min/avg/max/mdev = 45.871/31505.282/65977.950/21801.209 ms, pipe 118
