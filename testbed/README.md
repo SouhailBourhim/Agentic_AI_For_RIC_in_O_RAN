@@ -25,16 +25,20 @@ change we made. How it works and what was measured: `docs/learn/M06-testbed.md` 
 One AMF, SMF and UPF serve all three. The slices are configured in `oai-cn5g/conf/config.yaml`,
 `oai-cn5g/database/oai_db.sql`, `rfsim-flexric/conf/gnb.conf` and
 `rfsim-flexric/conf/nrue-<slice>.conf`; `tests/test_testbed_config.py` checks they agree.
-**The stock OAI v3.0.0 scheduler ignores slices and 5QI** (equal shares in overload): per-slice
-PRB control is M07b.
+**The stock OAI v3.0.0 scheduler ignores slices and 5QI** (equal shares in overload). Our gNB
+image adds per-slice PRB ranges set over E2 (M07b, `gnb/slice-control.patch`); until the first
+control message it schedules exactly like the stock one.
 
 Addresses: AMF .132, SMF .133, UPF .134, ext-dn .135, nearRT-RIC .150, gNB .151,
-UEs .152 (eMBB) / .153 (URLLC) / .158 (BE), KPM xApp .156. UE IPs come from the SMF at attach time.
+UEs .152 (eMBB) / .153 (URLLC) / .158 (BE), KPM xApp .156, RL xApp .159 (M07b, started on demand).
+UE IPs come from the SMF at attach time.
 
 ## Prerequisites
 
-- Two images we build (once, long): `testbed/gnb/build.sh` (gNB with the KPM patch,
-  `agentic-ric/oai-gnb:v3.0.0-kpmfix`) and `docker build -t agentic-ric/xapp-kpm-slices:v3.0.0 xapps/kpm`.
+- Three images we build: `testbed/gnb/build.sh` (gNB with the KPM and slice-control patches,
+  `agentic-ric/oai-gnb:v3.0.0-slice`; long the first time), `docker build -t
+  agentic-ric/xapp-kpm-slices:v3.0.0 xapps/kpm`, and `xapps/rl/build.sh` (the RL xApp with the
+  registry's champion, `agentic-ric/rl-xapp:v<version>` and `:latest`).
   `GNB_IMAGE=oaisoftwarealliance/oai-gnb:v3.0.0 testbed/up.sh` runs the stock gNB instead (its KPM
   values are wrong with one subscription per slice: `docs/learn/M07a-kpm.md`).
 
@@ -52,6 +56,16 @@ uv run python testbed/traffic.py alone --rate 200M        # capacity, one slice 
 uv run python testbed/traffic.py together 40M 40M 40M     # eMBB URLLC BE at once (+ RTT, docker stats)
 uv run python testbed/plot_m06.py                         # figures in docs/learn/img/
 testbed/down.sh          # reverse order
+```
+
+PRB-split control (M07b, `docs/learn/M07b-slice-control.md`):
+
+```bash
+testbed/run_loop_m07b.sh loop_rl rl                       # KPM writer + RL xApp + the URLLC surge (~8 min)
+uv run python testbed/measure_m07b.py cap                 # bench: splits sent straight to the xApp
+uv run python testbed/check_gateway_route.py              # invariant 2: no route from the gateway's side
+testbed/soak_m07b.sh                                      # 30 min under the RL xApp, then a restart
+docker logs rfsim5g-oai-gnb 2>&1 | grep "SLICE CONTROL"   # every command, OK or REFUSED with the reason
 ```
 
 The stock `xapp-kpm-moni` gets only cell-level reports with these slices (its per-UE

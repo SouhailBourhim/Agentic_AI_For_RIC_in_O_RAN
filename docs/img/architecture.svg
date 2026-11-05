@@ -80,7 +80,7 @@
   <rect x="990" y="150" width="170" height="70" rx="8" class="box"/>
   <text x="1075" y="180" text-anchor="middle" class="name">Simulator</text>
   <text x="1075" y="200" text-anchor="middle" class="note">1 cell, 3 slices</text>
-  <rect x="990" y="270" width="170" height="70" rx="8" class="box planned"/>
+  <rect x="990" y="270" width="170" height="70" rx="8" class="box"/>
   <text x="1075" y="300" text-anchor="middle" class="name">OAI gNB + FlexRIC</text>
   <text x="1075" y="320" text-anchor="middle" class="note">real 5G testbed</text>
 
@@ -106,8 +106,8 @@
   <path d="M918,240 H962 V185 H988" class="edge" marker-end="url(#a)"/>
   <text x="923" y="219" class="label">PRB</text>
   <text x="923" y="232" class="label">split</text>
-  <path d="M918,290 H962 V305 H988" class="edge planned" marker-end="url(#a)"/>
-  <text x="921" y="284" class="label" font-size="11">planned</text>
+  <path d="M918,290 H962 V305 H988" class="edge" marker-end="url(#a)"/>
+  <text x="923" y="284" class="label" font-size="11">E2 control</text>
 
   <!-- measurements and feedback -->
   <path d="M1075,220 V250 H1172 V438" class="edge" marker-end="url(#a)"/>
@@ -120,8 +120,6 @@
   <path d="M1075,490 V524" class="edge" marker-end="url(#a)"/>
 
   <!-- legend -->
-  <rect x="20" y="526" width="34" height="16" rx="3" class="box planned"/>
-  <text x="62" y="539" class="note">planned or partly built</text>
   <path d="M20,566 H54" class="feedback"/>
   <text x="62" y="570" class="note">measurement feedback</text>
 </svg>

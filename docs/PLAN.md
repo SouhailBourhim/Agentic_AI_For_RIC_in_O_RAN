@@ -42,7 +42,7 @@ RAM in WSL, RTX 5070 Laptop with 8151 MiB VRAM, about 1.5 GB of it used by Windo
 | M06 Testbed | 3 S-NSSAIs end to end (core config + database, gNB `snssaiList`, UEs), one UE per slice, traffic scripts, ordered start/stop script | spike | 3–5 | KPM style-4 reports filter on one S-NSSAI, so probably one subscription per slice. **Done 2026-11-02** (`docs/learn/M06-testbed.md`): confirmed, the stock xApp gets only cell-level reports with SD-tagged slices, so M07a subscribes per slice |
 | M07a KPM | KPM xApp (one long-lived process) writing per-slice records into the KPI store | M06, M04a | 3–5 | E2 state is fragile across xApp/RIC restarts (seen in the spike). **Done 2026-11-03** (`docs/learn/M07a-kpm.md`): restarts are clean (the RIC deletes the old subscriptions); found and patched an OAI KPM bug with several subscriptions, so our gNB image (`agentic-ric/oai-gnb:v3.0.0-kpmfix`) now exists for M07b |
 | M05b Hermes | Hermes config (3-tool whitelist, general tools off, isolated container), demo through Hermes. Timeboxed; can be cut | M05a | 2–3 | Install/config (H1, H3); VRAM when Hermes and LangGraph share one model |
-| M07b Control | PRB-split control on the real gNB, FlexRICBackend, RL runner on the testbed | M07a, M02 | 5–10 | **No PRB-split control over E2 in OAI v3.0.0** (SLICE is a stub): needs a custom gNB build: option 1 decided, see §7 |
+| M07b Control | PRB-split control on the real gNB, FlexRICBackend, RL runner on the testbed | M07a, M02 | 5–10 | **No PRB-split control over E2 in OAI v3.0.0** (SLICE is a stub): needs a custom gNB build: option 1 decided, see §7. **Done 2026-11-05** (`docs/learn/M07b-slice-control.md`): option 1 works over E2; cap linear (0.654 Mb/s per PRB); the sim-trained policy oscillates on the testbed (one tick of extra measurement delay), not retrained |
 | M08a Eval sim | 4 controllers × 3 scenarios on the simulator, repeated runs | M04b, M02 | 3–4 | Runs must be cheap enough to repeat |
 | M08b Eval interface | annotated intents, extraction accuracy, gateway/verifier counts, Hermes latency and fidelity (if kept) | M05 | 2–3 | Annotation effort; small sample |
 | M08c Eval testbed | same controllers and scenarios on the testbed | M07b, M08a | 3–5 | Real-time runs are slow and noisy |
@@ -139,6 +139,11 @@ M05b → M07b → M08a → M08b → M08c.**
   - **M07a, for M07b:** a full cell reads ~73–75 % in `RRU.PrbTotDl`, so testbed `prb_used`
     saturates near 0.74 where the simulator reaches 1.0; decide whether to rescale before the
     policy sees it. Until M07b `prb_share_alloc` = 1.0 and `offered_load_mbps` is NULL.
+  - **Decided in M07b:** the 0.74 is the TDD downlink fraction, (7 + 6/14) / 10 = 0.743, because
+    the counter averages over all slots; `prb_used` = (Σ `RRU.PrbTotDl` / 100) / 0.743 /
+    `prb_share_alloc`, with `prb_share_alloc` the split in force during the report.
+    `offered_load_mbps` = the iperf3 rate the traffic script writes (an oracle; KPM has no
+    offered load). Per-slice KPM values go through `kpm_latest`; the runner writes `kpi`.
   - The first report after each subscription is cumulative and is discarded. RSRP/SINR
     reports are invalid and unused.
 
@@ -194,7 +199,7 @@ This is not O-RAN A1: FlexRIC has no Non-RT RIC.
 | H2 Hermes passes the text verbatim and can use the local Ollama model | M05b, measured in M08b | Gateway logs the received text; compare it with the typed text (fidelity %). Hermes configured on the same Ollama tag as the agent. **Preview 2026-11-04, tune split:** 17/20 exact, none altered, 3 not sent (empty model answers) |
 | H3 general tools can be disabled, Hermes isolated | M05b | Disable toolsets in config. Ask Hermes to run a shell command or read a file → no tool available. Container network reaches gateway + Ollama only; `curl` to FlexRIC/OAI fails. **Confirmed 2026-11-04:** 3 tools on the wire, 17/17 network targets as expected with the testbed up; the same probe from the testbed network reaches them |
 | H4 separate console with timeout | M04a (tests), shown in M05a | Test: awaiting_confirmation → expired after T. Eval mode skips confirmation. The console is its own CLI process |
-| H5 gateway only talks to the agent HTTP API | M05a, rechecked in M07b | Import test (the gateway imports none of `backends`, `xapps`, `rl`, `sqlite3`). One configured URL. Network test on the testbed |
+| H5 gateway only talks to the agent HTTP API | M05a, rechecked in M07b | Import test (the gateway imports none of `backends`, `xapps`, `rl`, `sqlite3`). One configured URL. Network test on the testbed. **Confirmed 2026-11-05 (M07b):** with the testbed up, all 7 RAN addresses time out from WSL (where the gateway runs) and answer from the testbed network (`testbed/check_gateway_route.py`) |
 | H6 `set_slice_share` only in LLM-only mode | M04b | Test of the tool list per mode. Gateway test that it is never exposed |
 | H7 4-controller comparison without Hermes | M08a | Runners inject intents straight into the agent API. Only intents with verified extraction are kept |
 | H8 ~40 annotated intents are enough | M04b (template), M08b | With 40 intents the 95% CI on accuracy is about ±15 points. If extraction becomes a headline result, aim for 60–80 |
@@ -249,6 +254,11 @@ and every candidate carries its `nssai`.
 E2. The M07b plan fixes the timebox. If the E2 SLICE handler cannot be finished within it, the
 fallback is option 2: the same scheduler policy driven through a side channel, reported
 explicitly as not E2. M02–M05 are unaffected: they run on the simulator.
+
+**Outcome (M07b, 2026-11-05): option 1 works**, well within the timebox (the handler worked at the
+first build). The gNB accepts or refuses each SLICE control with a reason, carried in the RIC
+Control Acknowledge; FlexRIC's RIC drops that answer before the xApp, so the xApp sees only that an
+acknowledge arrived.
 
 ## 8. Open questions
 

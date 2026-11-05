@@ -121,8 +121,8 @@ effort, each with its own S-NSSAI, DNN and subnet).
 - Measured capacity: about 71–75 Mb/s. The simulator is calibrated to it.
 - With the stock scheduler, slices do not matter: in overload each gets an equal 23–25 Mb/s and
   a 16 s queue, URLLC included. That is the gap the RL xApp is meant to close.
-- **PRB-split control over E2 does not exist in OAI v3.0.0**, so the plan includes a small custom
-  gNB build, documented as a decision.
+- **PRB-split control over E2 does not exist in OAI v3.0.0**, so we added it with a small gNB
+  patch (below).
 
 **Real per-slice KPIs over E2, after fixing a bug in the gNB.** Our KPM xApp subscribes once per
 slice and writes the same KPI record as the simulator. The agent, the MCP gateway and Grafana
@@ -134,6 +134,20 @@ then read testbed data with no change.
   tracks the ping RTT up to 15 s in overload.
 
 ![KPM per slice on the stock and the patched gNB](docs/learn/img/M07a-stock-vs-patched.png)
+
+**The RL xApp sets the PRB split of the real gNB over E2.** A gNB patch keeps each slice inside
+its own PRB range and replaces the stub E2 SLICE handler; the RL runner, policy, verifier and
+agent run on the testbed unchanged, with the champion policy packaged in the RL xApp image.
+- Throughput follows the PRBs given, from 5 to 96 PRBs: 0.654 Mb/s per PRB, close to the
+  simulator's line. Bad commands are refused with a reason; the gNB keeps running.
+- In a URLLC surge, URLLC received 28 of its 30 Mb/s against 15 on the stock scheduler; best
+  effort paid for it. An operator intent ("Garantis 20 Mb/s au slice URLLC…") through the gateway,
+  verifier and console raised the time URLLC met 20 Mb/s from 28 % to 95 %.
+- **The simulator-trained policy oscillates on the real cell** (period 10–12 s). The cause is
+  tested: the testbed shows a split's effect later than the simulator, and the same policy on the
+  simulator with its view delayed by 2 ticks swings the same way. Not retrained yet.
+
+![The surge on the real cell: stock scheduler, RL xApp, RL xApp without the offered rates](docs/learn/img/M07b-loop.png)
 
 **A chat interface that can do almost nothing, checked from outside.** Hermes Agent runs on an
 internal Docker network whose only exits are two relays, to the gateway and to Ollama.
@@ -147,7 +161,7 @@ internal Docker network whose only exits are two relays, to the gateway and to O
 
 ## Engineering practices
 
-- **353 automated tests**, run by GitHub Actions on every push. No GPU, LLM or testbed is
+- **367 automated tests**, run by GitHub Actions on every push. No GPU, LLM or testbed is
   needed: the LLM is replaced by a scripted fake.
 - **Pre-registration.** Pass/fail criteria, model-selection rules and held-out sets are
   committed before the experiment runs. Failed criteria stay in the record.
@@ -177,8 +191,8 @@ internal Docker network whose only exits are two relays, to the gateway and to O
 | M06 | Three network slices end to end on the testbed (OAI core, gNB, one UE per slice), capacity and load measured | Done |
 | M07a | KPM monitoring xApp (one subscription per slice), patched gNB KPM, testbed KPIs in the store | Done |
 | M05b | Hermes Agent as the chat interface, isolated: exactly three tools, reaches only the gateway and Ollama | Done |
-| M07b | PRB-split control on the real gNB (custom build), FlexRIC backend | Next |
-| M08a–c | Four-controller comparison (static, RL only, LLM only, LLM + RL) on the simulator and the testbed; extraction accuracy on the held-out intents | Planned |
+| M07b | PRB-split control on the real gNB over E2 (gNB patch), slice-control xApp, FlexRIC backend, RL xApp image | Done |
+| M08a–c | Four-controller comparison (static, RL only, LLM only, LLM + RL) on the simulator and the testbed; extraction accuracy on the held-out intents | Next |
 
 The full plan, with interfaces, risks and how each hypothesis gets tested, is in
 [docs/PLAN.md](docs/PLAN.md). The original design document (in French) is
@@ -200,7 +214,7 @@ Requires [uv](https://docs.astral.sh/uv/), which installs the right Python by it
 
 ```bash
 uv sync                              # install the locked dependencies
-uv run pytest -q                     # 353 tests; no GPU, LLM or Docker needed
+uv run pytest -q                     # 367 tests; no GPU, LLM or Docker needed
 uv run python -m gateway.client tools # the MCP gateway's three tools
 uv run python -m rl.plot_runner      # one intent through the whole chain, simulated (~10 s)
 ```
@@ -235,12 +249,12 @@ everything in order, and `uv run python -m xapps.kpm_monitor` fills the KPI stor
 | [gateway/](gateway/) | MCP gateway (exactly three tools), CLI client, isolated Hermes configuration |
 | [agent/](agent/) | LangGraph agent, LLM client, internal tools, FastAPI service, worker |
 | [store/](store/) | Shared state: KPI table, `a1_policy` timetable, intents, event log |
-| [backends/](backends/) | The backend interface and the simulator backend (FlexRIC backend planned) |
+| [backends/](backends/) | The backend interface, the simulator backend and the FlexRIC (testbed) backend |
 | [console/](console/) | Operator confirmation console |
 | [eval/](eval/) | Annotated intents, extraction scorer, model benchmark |
 | [mlops/](mlops/) | MLflow tracking, registry, promotion gate |
 | [monitoring/](monitoring/) | Prometheus exporter, Prometheus and Grafana configuration and dashboard |
-| [xapps/](xapps/) | KPM monitoring xApp: C subscriber on FlexRIC plus the Python writer to the KPI store |
+| [xapps/](xapps/) | KPM monitoring xApp (C subscriber + Python writer), slice-control xApp (C, E2 control), the RL xApp image |
 | [testbed/](testbed/) | OAI and FlexRIC configurations, gNB patch and build, traffic scripts, measurements |
 | [notebooks/](notebooks/) | marimo notebooks to explore the simulator and the policy |
 | [tests/](tests/) | pytest, including one test per hard invariant |
