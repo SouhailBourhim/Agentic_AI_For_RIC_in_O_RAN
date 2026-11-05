@@ -15,6 +15,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from verifier.objective import SLICES as OBJECTIVE_SLICES
+
 TESTBED = Path(__file__).resolve().parent.parent / "testbed"
 CORE_CONFIG = TESTBED / "oai-cn5g/conf/config.yaml"
 DATABASE = TESTBED / "oai-cn5g/database/oai_db.sql"
@@ -102,3 +104,39 @@ def test_kpm_xapp_subscribes_to_exactly_the_three_slices() -> None:
     assert {name: (int(sst), int(sd, 16)) for name, sst, sd in entries} == {
         name: s["snssai"] for name, s in SLICES.items()
     }
+
+
+SLICE_PATCH = TESTBED / "gnb/slice-control.patch"
+SLICE_XAPP = Path(__file__).resolve().parent.parent / "xapps/slice_ctrl/xapp_slice_ctrl.c"
+
+
+def test_gnb_slice_scheduler_knows_the_three_slices_in_order() -> None:
+    """M07b: slice id i in the E2 control = the i-th S-NSSAI in the gNB patch = SLICES[i]."""
+    table = re.search(r"slice_nssai\[NR_SLICE_N\] = \{(.*?)\};", SLICE_PATCH.read_text(), re.S).group(1)
+    entries = [(int(sst), int(sd, 16)) for sst, sd in re.findall(r"\{(\d+),\s*0x([0-9a-fA-F]{6})\}", table)]
+    assert entries == [SLICES[s]["snssai"] for s in OBJECTIVE_SLICES]
+
+
+def test_slice_control_xapp_sends_slices_in_the_same_order() -> None:
+    """The xApp's line "a b c" is eMBB, URLLC, BE: ids 0, 1, 2, the backend's SLICES order."""
+    table = re.search(r"labels\[\] = \{(.*?)\};", SLICE_XAPP.read_text(), re.S).group(1)
+    assert tuple(re.findall(r'"(\w+)"', table)) == OBJECTIVE_SLICES
+
+
+def test_backend_prb_count_is_the_gnb_carrier() -> None:
+    from backends.flexric import N_PRB
+
+    bandwidth = re.search(r"dl_carrierBandwidth\s*=\s*(\d+);", GNB_CONFIG.read_text()).group(1)
+    assert N_PRB == int(bandwidth)
+
+
+def test_prb_full_cell_is_the_downlink_share_of_the_tdd_pattern() -> None:
+    """RRU.PrbTotDl averages over all slots; the backend divides by the downlink fraction of the
+    TDD pattern written in gnb.conf (10 slots per 5 ms period at 30 kHz)."""
+    from backends.flexric import PRB_FULL_CELL
+
+    conf = GNB_CONFIG.read_text()
+    value = lambda key: int(re.search(rf"{key}\s*=\s*(\d+);", conf).group(1))  # noqa: E731
+    assert value("dl_UL_TransmissionPeriodicity") == 6  # 5 ms = 10 slots
+    dl = value("nrofDownlinkSlots") + value("nrofDownlinkSymbols") / 14
+    assert PRB_FULL_CELL == pytest.approx(dl / 10)

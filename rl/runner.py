@@ -16,10 +16,13 @@ objective, and KPI records that cannot be written are kept and written at the ne
 Run (the simulated cell lives inside this process):
   uv run python -m rl.runner --scenario demo --speed 1          live demo, one tick per second
   uv run python -m rl.runner --scenario urllc_spike --speed 0 --ticks 60
+On the testbed (M07b), inside the RL xApp container (xapps/rl/), with var/ric-testbed.db:
+  python -m rl.runner --backend flexric --policy-file /app/model/<file>.zip --model-label "..."
 """
 
 import argparse
 import json
+import os
 import shutil
 import sqlite3
 from dataclasses import dataclass
@@ -28,6 +31,7 @@ from pathlib import Path
 import numpy as np
 
 from backends.base import Backend, KpiRecord
+from backends.flexric import FlexRICBackend
 from backends.sim import SimBackend, scenario_traffic
 from rl.policy import SlicePolicy
 from sim.cell import CellConfig, apply_min_share
@@ -35,6 +39,7 @@ from sim.env import build_observation
 from store import a1_policy, db, kpi
 from store.events import log_event
 from verifier.objective import DEFAULT_OBJECTIVE, MIN_SLICE_SHARE, SLICES, RLObjective
+from xapps.kpm_monitor import DEFAULT_TESTBED_DB, cell_info
 
 POLICY_CACHE = Path("var/policy_cache")
 MAX_PENDING_TICKS = 600  # KPI ticks kept in memory while the database is busy (10 min at 1 s)
@@ -184,9 +189,10 @@ def clear_run_state(conn: sqlite3.Connection) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="RL xApp: the PRB-split control loop")
-    parser.add_argument("--backend", choices=["sim"], default="sim", help="flexric comes in M07b")
-    parser.add_argument("--scenario", default="demo", help="steady | urllc_spike | demo")
-    parser.add_argument("--speed", type=float, default=1.0, help="1 = real time, 0 = as fast as possible")
+    parser.add_argument("--backend", choices=["sim", "flexric"], default="sim")
+    parser.add_argument("--scenario", default="demo", help="sim: steady | urllc_spike | demo")
+    parser.add_argument("--speed", type=float, default=1.0, help="sim: 1 = real time, 0 = as fast as possible")
+    parser.add_argument("--model-label", default=None, help="version label of --policy-file (the RL xApp image's)")
     parser.add_argument("--ticks", type=int, default=None, help="stop after N ticks (default: run forever)")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--policy-file", type=Path, default=None, help="serve this SB3 file instead of the champion")
@@ -194,8 +200,16 @@ def main() -> None:
     args = parser.parse_args()
 
     policy, model_version = load_policy(args.policy_file)
+    if args.model_label is not None:
+        model_version = args.model_label
     cfg = CellConfig()
-    backend = SimBackend(cfg, scenario_traffic(args.scenario, cfg), seed=args.seed, speed=args.speed)
+    if args.backend == "flexric":
+        if "RIC_DB" not in os.environ:  # never the simulator's var/ric.db: the clocks differ
+            os.environ["RIC_DB"] = str(DEFAULT_TESTBED_DB)
+        backend = FlexRICBackend(db.connect(timeout_s=0.0), cell_info())
+        args.scenario, args.speed = "testbed", 1.0
+    else:
+        backend = SimBackend(cfg, scenario_traffic(args.scenario, cfg), seed=args.seed, speed=args.speed)
     setup = db.connect()  # startup may wait for other processes; the loop below never does
     if not args.keep_db:
         clear_run_state(setup)
@@ -209,6 +223,8 @@ def main() -> None:
         Runner(backend, policy, conn, cfg.dt_s).run(args.ticks)
     except KeyboardInterrupt:
         pass
+    if isinstance(backend, FlexRICBackend):
+        backend.close()
     log_event("runner", "run_stop", ts_backend=backend.now())
 
 

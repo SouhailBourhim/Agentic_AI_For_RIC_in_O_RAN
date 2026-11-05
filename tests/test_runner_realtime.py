@@ -16,8 +16,9 @@ from store.events import read_events
 from verifier.objective import RLObjective, SliceValues
 
 REPO = Path(__file__).resolve().parent.parent
-REALTIME_MODULES = ["rl/runner.py", "rl/policy.py", "backends/base.py", "backends/sim.py",
-                    "store/a1_policy.py", "store/kpi.py", "store/db.py", "store/events.py"]
+REALTIME_MODULES = ["rl/runner.py", "rl/policy.py", "backends/base.py", "backends/sim.py", "backends/flexric.py",
+                    "store/a1_policy.py", "store/kpi.py", "store/db.py", "store/events.py", "store/testbed.py",
+                    "xapps/kpm_monitor.py"]
 # Nothing on the real-time path may import these: the agent, the console, HTTP, LLM clients.
 FORBIDDEN_PREFIXES = ("agent", "console", "gateway", "fastapi", "uvicorn", "httpx", "requests",
                       "urllib", "ollama", "langchain", "langgraph", "openai", "anthropic", "mcp")
@@ -43,7 +44,7 @@ def test_only_the_runner_calls_apply_prb_split() -> None:
     """Invariant 4: the one call that changes the radio appears in rl/runner.py only."""
     callers = set()
     for path in REPO.rglob("*.py"):
-        if any(part in (".venv", "tests") for part in path.parts):
+        if any(part in (".venv", "tests", "var") for part in path.relative_to(REPO).parts):  # var/: git-ignored copies
             continue
         for node in ast.walk(ast.parse(path.read_text())):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \

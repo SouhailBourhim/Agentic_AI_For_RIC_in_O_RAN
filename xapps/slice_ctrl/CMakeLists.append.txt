@@ -1,0 +1,9 @@
+
+# --- agentic-ric M07b: appended to examples/xApp/c/slice/CMakeLists.txt by xapps/slice_ctrl/Dockerfile.
+# Same sources and libraries as the stock xapp_slice_moni_ctrl target above it.
+add_executable(xapp_slice_ctrl
+               xapp_slice_ctrl.c
+               ../../../../src/util/alg_ds/alg/defer.c
+               ../../../../src/util/time_now_us.c
+              )
+target_link_libraries(xapp_slice_ctrl PUBLIC e42_xapp -pthread -lsctp -ldl)

@@ -61,6 +61,21 @@ CREATE TABLE IF NOT EXISTS a1_policy (     -- the segments of each timetable (ap
     expires_at REAL                        -- backend clock, NULL = no end
 );
 
+CREATE TABLE IF NOT EXISTS kpm_latest (   -- testbed only (M07b): newest KPM values per slice
+    slice TEXT PRIMARY KEY,                -- written by `xapps.kpm_monitor --for-runner`,
+    report_wall REAL NOT NULL,             -- read by FlexRICBackend.read_kpis, which turns them
+    dl_thr_mbps REAL NOT NULL,             -- into KPI records with the split it applied
+    prb_cell REAL NOT NULL,                -- 0..1 of the WHOLE cell (sum of RRU.PrbTotDl / 100)
+    latency_ms REAL,
+    n_ue INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS traffic_target (  -- testbed only (M07b): the iperf3 rate each slice is
+    slice TEXT PRIMARY KEY,                  -- being sent, written by the traffic script. A real
+    offered_load_mbps REAL NOT NULL,         -- gNB does not know this (KPM does not measure it)
+    set_wall REAL NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS intents (
     intent_id TEXT PRIMARY KEY,            -- 'i0001', 'i0002', ...
     text TEXT NOT NULL,                    -- verbatim operator text

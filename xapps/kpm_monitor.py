@@ -10,6 +10,10 @@ Run from the repo root, with the testbed up and the xApp container running:
 
   uv run python -m xapps.kpm_monitor                   # live, into var/ric-testbed.db
   uv run python -m xapps.kpm_monitor --replay FILE     # offline, from saved JSON lines
+  uv run python -m xapps.kpm_monitor --for-runner      # M07b: into kpm_latest, for FlexRICBackend
+
+With --for-runner it does not write `kpi` itself: the RL runner does, from FlexRICBackend.read_kpis,
+which knows the split it applied (store/testbed.py). The default mode is M07a's, unchanged.
 
 Mapping from KPM to the record (decided in the spike, docs/learn/M06-spike.md section 6):
   dl_thr_mbps     = sum over the slice's UEs of DRB.UEThpDl (kb/s) / 1000
@@ -31,7 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from sim.cell import CellConfig
-from store import db, kpi
+from store import db, kpi, testbed
 from store.events import log_event
 from store.kpi import CellInfo, KpiRecord
 from verifier.objective import SLICES
@@ -234,7 +238,19 @@ def docker_lines(container: str) -> Iterator[str]:
     yield from proc.stdout
 
 
-def run_live(container: str, conn, raw_out: Path | None) -> None:
+def write_kpi(conn, records: list[KpiRecord]) -> None:
+    """M07a mode: the records go straight to `kpi` (nothing controls the split)."""
+    kpi.write_records(conn, records, policy_id=None)
+
+
+def write_for_runner(conn, records: list[KpiRecord]) -> None:
+    """M07b mode: the newest values per slice, for FlexRICBackend. PRB_SHARE_ALLOC is 1.0, so the
+    record's prb_used is the share of the whole cell."""
+    testbed.write_latest(conn, [testbed.SliceReport(r.slice, r.ts, r.dl_thr_mbps, r.prb_used, r.latency_ms, r.n_ue)
+                                for r in records])
+
+
+def run_live(container: str, conn, raw_out: Path | None, write=write_kpi) -> None:
     """A reader thread feeds the aggregator; the main loop writes one tick per second."""
     agg = SliceAggregator(cell_info().capacity_mbps)
     lock = threading.Lock()
@@ -260,7 +276,7 @@ def run_live(container: str, conn, raw_out: Path | None) -> None:
         with lock:
             records = agg.tick(next_tick)
         if records:
-            kpi.write_records(conn, records, policy_id=None)
+            write(conn, records)
         next_tick += TICK_S
 
 
@@ -269,10 +285,19 @@ def main() -> None:
     parser.add_argument("--container", default=CONTAINER)
     parser.add_argument("--replay", type=Path, help="saved JSON lines instead of the live container")
     parser.add_argument("--raw-out", type=Path, help="live: also append the xApp's JSON lines to this file")
+    parser.add_argument("--for-runner", action="store_true",
+                        help="write kpm_latest for the RL runner (M07b) instead of kpi")
     args = parser.parse_args()
     if "RIC_DB" not in os.environ:
         os.environ["RIC_DB"] = str(DEFAULT_TESTBED_DB)
     conn = db.connect()
+    if args.for_runner:  # the runner publishes backend_info and writes kpi
+        print(f"kpm_latest in: {db.db_path()}")
+        try:
+            run_live(args.container, conn, args.raw_out, write=write_for_runner)
+        except KeyboardInterrupt:
+            pass
+        return
     kpi.write_backend_info(conn, cell_info(), MODEL_VERSION)
     print(f"KPI store: {db.db_path()}")
     if args.replay:
