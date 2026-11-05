@@ -6,7 +6,8 @@
 # champion's SB3 file, uv.lock as constraints) and puts the model version in the image labels.
 #
 # Builder stage: the build steps of FlexRIC's docker/Dockerfile.flexric.ubuntu at v3.0.0, as for
-# the KPM xApp (xapps/kpm/Dockerfile), building only xapp_slice_ctrl. Runtime stage: the official
+# the KPM xApp (xapps/kpm/Dockerfile), plus one small patch to the xApp library, building only
+# xapp_slice_ctrl. Runtime stage: the official
 # image, so the service-model libraries match the RIC's, plus Python 3.12 from uv.
 
 ARG FLEXRIC_TAG=v3.0.0
@@ -23,6 +24,10 @@ RUN git init -q /tmp/asn1c && cd /tmp/asn1c && \
     git checkout -q FETCH_HEAD && \
     autoreconf -iv && ./configure --prefix /opt/asn1c/ && make -j"$(nproc)" && make install
 RUN git clone --depth 1 --branch ${FLEXRIC_TAG} https://github.com/duranta-project/flexric.git /flexric
+# Fix a race in the xApp library: register the control's timeout before sending it, so a fast
+# acknowledge cannot arrive first and crash the xApp (xapps/slice_ctrl/flexric-control-ack-race.patch).
+COPY slice_ctrl/flexric-control-ack-race.patch /tmp/
+RUN git -C /flexric apply /tmp/flexric-control-ack-race.patch
 COPY slice_ctrl/xapp_slice_ctrl.c /flexric/examples/xApp/c/slice/
 COPY slice_ctrl/CMakeLists.append.txt /tmp/
 RUN cat /tmp/CMakeLists.append.txt >> /flexric/examples/xApp/c/slice/CMakeLists.txt && \

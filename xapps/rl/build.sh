@@ -32,7 +32,8 @@ mkdir -p "$CTX/code/xapps" "$CTX/model" "$CTX/slice_ctrl"
 cp -r rl sim store backends verifier "$CTX/code/"
 cp xapps/__init__.py xapps/kpm_monitor.py "$CTX/code/xapps/"
 find "$CTX/code" -name __pycache__ -prune -exec rm -rf {} +
-cp xapps/slice_ctrl/xapp_slice_ctrl.c xapps/slice_ctrl/CMakeLists.append.txt "$CTX/slice_ctrl/"
+cp xapps/slice_ctrl/xapp_slice_ctrl.c xapps/slice_ctrl/CMakeLists.append.txt \
+   xapps/slice_ctrl/flexric-control-ack-race.patch "$CTX/slice_ctrl/"
 cp "$MODEL_PATH" "$CTX/model/$MODEL_FILE"
 cp xapps/rl/Dockerfile xapps/rl/requirements.txt "$CTX/"
 uv export --no-dev --no-hashes --no-emit-project --quiet > "$CTX/constraints.txt"

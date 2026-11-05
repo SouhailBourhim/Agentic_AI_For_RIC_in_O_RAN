@@ -1,0 +1,103 @@
+diff --git a/src/xApp/e42_xapp.c b/src/xApp/e42_xapp.c
+index 63e209a..d32bbc5 100644
+--- a/src/xApp/e42_xapp.c
++++ b/src/xApp/e42_xapp.c
+@@ -417,6 +417,7 @@ sm_ans_xapp_t report_sm_sync_xapp(e42_xapp_t* xapp, global_e2_node_id_t* id, uin
+   // Generate and registry the ric_req_id
+   ric_gen_id_t ric_id = generate_ric_gen_id(xapp, RIC_SUBSCRIPTION_PROCEDURE_ACTIVE , rf_id, id, cb);
+ 
++  reset_sync_ui(&xapp->sync);  // agentic-ric M07b: before sending, see sync_ui.h
+   // Send message 
+   send_subscription_request(xapp, id, ric_id, data);
+ 
+@@ -460,6 +461,7 @@ void rm_report_sm_sync_xapp(e42_xapp_t* xapp, int ric_req_id)
+     exit(-1);
+   }
+ 
++  reset_sync_ui(&xapp->sync);  // agentic-ric M07b: before sending, see sync_ui.h
+   // Send message
+   send_ric_subscription_delete(xapp, ans.val.id);
+ 
+@@ -509,6 +511,7 @@ sm_ans_xapp_t control_sm_sync_xapp(e42_xapp_t* xapp, global_e2_node_id_t* id, ui
+   // Generate and registry the ric_req_id
+   ric_gen_id_t ric_id = generate_ric_gen_id(xapp, RIC_CONTROL_PROCEDURE_ACTIVE, ran_func_id, id, NULL);
+ 
++  reset_sync_ui(&xapp->sync);  // agentic-ric M07b: before sending, see sync_ui.h
+   // Send the message
+   send_control_request(xapp, id, ric_id, ctrl_msg);  
+ 
+diff --git a/src/xApp/msg_handler_xapp.c b/src/xApp/msg_handler_xapp.c
+index feb0e4e..1767318 100644
+--- a/src/xApp/msg_handler_xapp.c
++++ b/src/xApp/msg_handler_xapp.c
+@@ -585,15 +585,20 @@ e2ap_msg_t e2ap_handle_e42_ric_control_request_xapp(e42_xapp_t* xapp, const e2ap
+   byte_array_t ba_msg = e2ap_enc_e42_control_request_xapp(&xapp->ap,(  e42_ric_control_request_t* ) cr);
+   defer({ free_byte_array(ba_msg) ;}; );
+ 
+-  e2ap_send_bytes_xapp(&xapp->ep, ba_msg);
+-
+-  printf("[xApp]: CONTROL-REQUEST tx \n");
+-
++  // agentic-ric M07b: register the timeout BEFORE sending. The acknowledge is handled on the event
++  // loop thread and removes this pending event; sent first, a fast acknowledge (< 1 ms on our
++  // testbed) can arrive before the event exists, and removing a missing event crashed the xApp
++  // (SIGSEGV in rm_pending_event_ev, about once per 1000 controls). The subscription-delete path
++  // above has the same order; our xApps do not repeat it, so it is left as it is.
+   pending_event_xapp_t ev = {.ev = E42_RIC_CONTROL_REQUEST_PENDING_EVENT,
+     .id = cr->ctrl_req.ric_id,
+     .wait_ms = 10000};
+   add_pending_event_xapp(xapp, &ev);
+ 
++  e2ap_send_bytes_xapp(&xapp->ep, ba_msg);
++
++  printf("[xApp]: CONTROL-REQUEST tx \n");
++
+ 
+   e2ap_msg_t ans = {.type = NONE_E2_MSG_TYPE};
+   return ans;
+diff --git a/src/xApp/sync_ui.c b/src/xApp/sync_ui.c
+index ff331ad..18594e9 100644
+--- a/src/xApp/sync_ui.c
++++ b/src/xApp/sync_ui.c
+@@ -44,6 +44,14 @@ void free_sync_ui(sync_ui_t* s)
+   assert(rc == 0);
+ }
+ 
++void reset_sync_ui(sync_ui_t* s)
++{
++  assert(s != NULL);
++  lock_guard(&s->mtx_sync);
++  s->flag_sync = false;
++  s->msg_ack = false;
++}
++
+ void cond_wait_sync_ui(sync_ui_t* s, uint32_t wait_ms)
+ {
+   assert(s != NULL);
+@@ -51,8 +59,7 @@ void cond_wait_sync_ui(sync_ui_t* s, uint32_t wait_ms)
+ 
+   pthread_mutex_lock(&s->mtx_sync);
+ 
+-  s->flag_sync = false;
+-  s->msg_ack = false;
++  // The flags were cleared by reset_sync_ui before the request was sent (agentic-ric M07b).
+   struct timespec ts = {0};
+   int rc = clock_gettime(CLOCK_REALTIME, &ts);
+   assert(rc == 0);
+diff --git a/src/xApp/sync_ui.h b/src/xApp/sync_ui.h
+index 67a75a6..27622e7 100644
+--- a/src/xApp/sync_ui.h
++++ b/src/xApp/sync_ui.h
+@@ -22,6 +22,12 @@ void init_sync_ui(sync_ui_t* s);
+ 
+ void free_sync_ui(sync_ui_t* s);
+ 
++// agentic-ric M07b: call BEFORE sending the request. cond_wait_sync_ui used to clear the
++// "answer arrived" flag itself, after the request was out: an answer faster than that (< 1 ms on
++// our testbed) was wiped and the caller waited for the whole timeout (6 s stalls, ~1 per 9,000
++// controls).
++void reset_sync_ui(sync_ui_t* s);
++
+ void cond_wait_sync_ui(sync_ui_t* s, uint32_t ms);
+ 
+ void signal_sync_ui(sync_ui_t* s); 

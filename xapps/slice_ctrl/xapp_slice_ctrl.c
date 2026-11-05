@@ -17,6 +17,12 @@
  * in the acknowledge on the wire and in the gNB log ("SLICE CONTROL OK" / "REFUSED"). If no
  * acknowledge comes back in ~6 s, the FlexRIC library aborts the process; the caller notices.
  *
+ * Built with flexric-control-ack-race.patch (next to this file). Unpatched, FlexRIC v3.0.0 sends a
+ * control before registering its timeout and before clearing its "answer arrived" flag, so an
+ * acknowledge that wins either race crashes the xApp (the M07b soak: SIGSEGV after 1,425 controls)
+ * or is lost (a 6 s stall). Not fixed here: the RIC's 16-bit request id wraps after 65,536
+ * requests (docs/PLAN.md section 8).
+ *
  * Slice ids 0, 1, 2 = eMBB, URLLC, BE, as in the gNB patch (testbed/gnb/slice-control.patch);
  * tests/test_testbed_config.py checks both tables match.
  */
