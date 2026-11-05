@@ -292,4 +292,13 @@ acknowledge arrived.
   rejection of a stated value ends the intent with the verifier's reason; (c) allow it only in
   eval mode. Safety holds in every option (verifier + console); the question is fidelity to
   the operator.
-
+- **FlexRIC's RIC request-id counter wraps after 65,536 requests (found in M07b, not fixed).**
+  The near-RT RIC numbers every subscription and control from one counter stored as 16 bits
+  (`near_ric.c`, `uint16_t ric_req_id = ric->req_id++`). After 65,536 requests a control reuses the
+  id of a still-active KPM subscription; the RIC then forwards KPM reports to the slice-control
+  xApp, which crashes (reproduced: crash at the 65,534th control since the RIC started). At our
+  rate (~1 control per second) that is about 18 hours. **Current rule: restart the testbed
+  (`testbed/down.sh && testbed/up.sh`) before ~60,000 controls**; every M07b/M08c run is far
+  below. **Possible continuation:** our own RIC image built from FlexRIC v3.0.0 with a small patch
+  that skips ids still in use (as we did for the gNB), or a supervisor that restarts the RIC and
+  both xApps cleanly. Not done: it replaces the official RIC image, and no planned run needs it.

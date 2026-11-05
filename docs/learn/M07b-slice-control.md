@@ -236,7 +236,7 @@ and E42, gNB) time out from WSL, where the gateway runs, and all 7 answer from a
 testbed network. WSL has no route to `192.168.70.0/24`; Docker Desktop's networks live in its own
 VM.
 
-### Soak: 30 minutes, and one crash we did not expect
+### Soak: 30 minutes, one crash, and three FlexRIC bugs
 
 `testbed/soak_m07b.sh`: the RL xApp controlling the gNB for 30 minutes under 30 / 15 / 20 Mb/s
 (eMBB / URLLC / BE), then a restart of the RL xApp container
@@ -249,16 +249,37 @@ VM.
 | gNB | 1,442 `SLICE CONTROL OK`, 0 refused, 0 assertions, 0 restarts, 0 HARQ retransmissions waiting |
 | KPM | never stale; 5,778 KPI rows |
 | memory over 31 min | gNB 2,179 → 2,180 MiB, RIC 11 → 14, RL xApp 270 → 271, KPM xApp 7 → 10: no leak visible |
-| **slice-control xApp** | **crashed (SIGSEGV, exit −11) at 23.9 min, after its 1,425th command** |
+| **slice-control xApp** | **crashed (SIGSEGV, exit −11) at 23.9 min, after its 1,425th command** (cause found and fixed below) |
 
-The crash is in our C xApp process (the FlexRIC xApp library), not in the gNB or the RIC, which
-logged only normal control traffic. What the design did with it worked as intended: the runner
-logged `xapp_exited` and kept ticking without blocking, the gNB kept the last split, and the
-planned restart 450 s later brought control back within 2 s. But for those 7.5 minutes **nothing
-controlled the split, and nothing restarted the xApp by itself.** The cause is not found: the
-request id counter is not it (it asserts at 65,536), and the active-procedure table is emptied
-after each acknowledge. Finding it needs a repeat with a core dump or the xApp under a debugger.
-A production xApp would be supervised (restarted on exit, and an alert raised).
+**Finding the cause.** The crash reproduces in seconds without traffic: the same xApp fed 3,000
+random splits as fast as it can take them crashed in 3 of 4 runs (after 452 to 2,538 controls).
+Under `gdb`, in a throwaway debug image, it crashed in `rm_pending_event_ev`, called from the
+acknowledge handler, while the main thread was still in `add_pending_event` for the same control.
+**FlexRIC v3.0.0's xApp library sends a control first and registers its timeout second**
+(`msg_handler_xapp.c`); our gNB answers in under 1 ms, so now and then the acknowledge arrives
+first, tries to remove a timeout that does not exist yet, and reads a null pointer. A second race
+sits next to it: the "answer arrived" flag was cleared when the wait started, after the request was
+out, so an answer faster than that was wiped and the caller waited the full 6 s (seen twice in
+17,500 controls).
+
+**Fix.** [flexric-control-ack-race.patch](../../xapps/slice_ctrl/flexric-control-ack-race.patch)
+(27 lines, applied to FlexRIC when the RL xApp image is built): register the timeout before
+sending, and clear the flag before sending (`reset_sync_ui`). Checked with 54,000 controls in 18
+runs: **0 crashes, 0 stalls**, acknowledge median 0.56 ms, max 2.7 ms (unpatched, the same load
+would have given about 35 crashes and 6 stalls).
+
+**A third problem, in the RIC, not fixed: its request id counter wraps after 65,536 requests.**
+The near-RT RIC numbers every subscription and control from one counter stored as 16 bits. After
+65,536 requests a control reuses the id of a still-active KPM subscription, the RIC forwards KPM
+reports to the slice-control xApp, and the xApp crashes (caught under gdb at the 65,534th control
+since the RIC started: a NULL callback in the report dispatcher). FlexRIC checks for duplicate ids
+with an `assert`, which the Release build compiles out. At ~1 control per second that is about 18
+hours, far beyond any run here; the rule is to restart the testbed before ~60,000 controls, and a
+RIC patch is listed as a possible continuation (docs/PLAN.md §8).
+
+The failure also showed that **a crash costs more than the crash**: after it, the next xApp's E42
+setup kept timing out until the RIC was restarted (the fragile E2 state seen in the M06 spike), so a
+supervisor that only restarts the xApp would not be enough.
 
 ## 5. How to run it and check it works
 
@@ -319,8 +340,10 @@ then `uv run python -m gateway.client submit "…"` and `uv run python -m consol
   it, the retransmission waits. The gNB counts these and logs the count with each control; it was
   0 in every run (rfsim has almost no errors).
 - **No supervisor for the slice-control xApp.** If it dies, the backend logs it and stops
-  sending; the gNB holds the last split. The soak showed it can die (cause unknown). Restarting
-  it automatically from `FlexRICBackend` is a small change not made yet.
+  sending; the gNB holds the last split. The two races that killed it are fixed; the RIC's id
+  wrap remains (18 h). A real deployment would supervise the RIC and both xApps together.
+- **We patch FlexRIC's xApp library** (two races, 27 lines) rather than work around them in our
+  xApp: the bugs are in the library's own send/wait code, and our xApp cannot reach it.
 - **Bench tests bypass the runner.** `measure_m07b.py` feeds the xApp directly to measure the
   radio; it never runs in the live stack and nothing on the operator side can reach it.
 

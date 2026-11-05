@@ -1,0 +1,14 @@
+Slice-control xApp stress test (M07b): 3,000 random splits per run, sent as fast as the xApp takes
+them, testbed up on the slice gNB, no traffic. Input: 3,000 lines "a b c" (random, seed 1).
+
+Unpatched FlexRIC v3.0.0 xApp library:
+  4 runs: 3 crashed (SIGSEGV) after 452, 1,393 and 2,538 controls; 1 completed.
+  under gdb: crash in rm_pending_event_ev (acknowledge handler) while the main thread was in
+  add_pending_event for the same control; also 2 acknowledges of 6,001 ms in 17,533 (lost wakeup).
+
+With flexric-control-ack-race.patch (both races):
+  18 runs, 54,000 controls: 0 crashes, 0 stalls > 1 s; acknowledge median 0.56 ms, p99.9 1.39 ms,
+  max 2.70 ms. (The testbed was restarted before, so the RIC's counter stayed below 65,536.)
+
+Not fixed (RIC): a crash at the 65,534th control since the RIC started, NULL callback in the
+xApp's report dispatcher: the RIC's 16-bit request id wrapped onto an active KPM subscription.
