@@ -33,7 +33,7 @@ import numpy as np
 from backends.base import Backend, KpiRecord
 from backends.flexric import FlexRICBackend
 from backends.sim import SimBackend, scenario_traffic
-from rl.policy import SlicePolicy
+from rl.policy import SMOOTHING_ALPHA, SlicePolicy
 from sim.cell import CellConfig, apply_min_share
 from sim.env import build_observation
 from store import a1_policy, db, kpi
@@ -42,18 +42,22 @@ from verifier.objective import DEFAULT_OBJECTIVE, MIN_SLICE_SHARE, SLICES, RLObj
 from xapps.kpm_monitor import DEFAULT_TESTBED_DB, cell_info
 
 POLICY_CACHE = Path("var/policy_cache")
+# The testbed shows the policy its KPIs about 2 s later than training did, and at alpha 0.25 the split
+# swings (docs/learn/M07b-slice-control.md). No retraining: a stronger filter on the testbed only.
+TESTBED_SMOOTHING_ALPHA = 0.10
 MAX_PENDING_TICKS = 600  # KPI ticks kept in memory while the database is busy (10 min at 1 s)
 
 
-def load_policy(policy_file: Path | None = None) -> tuple[SlicePolicy, str]:
+def load_policy(policy_file: Path | None = None, alpha: float = SMOOTHING_ALPHA) -> tuple[SlicePolicy, str]:
     """The policy to serve, loaded ONCE at startup, and a label of its version.
 
     Order: an explicit file (tests, CI); else the MLflow registry's slice-policy@champion,
     copied to var/policy_cache/; else, if MLflow is unavailable, the last cached champion.
-    The deployed smoothing filter is on (SlicePolicy default, alpha 0.25), as in evaluation.
+    The deployed smoothing filter is on: alpha 0.25 on the simulator, as in evaluation, and
+    TESTBED_SMOOTHING_ALPHA on the testbed (see main).
     """
     if policy_file is not None:
-        return SlicePolicy.load(policy_file), f"file {policy_file.name}"
+        return SlicePolicy.load(policy_file, alpha), f"file {policy_file.name}"
     served = POLICY_CACHE / "served.json"
     try:
         from mlops import registry  # imported here: only needed at startup, and MLflow is heavy
@@ -73,7 +77,7 @@ def load_policy(policy_file: Path | None = None) -> tuple[SlicePolicy, str]:
             raise SystemExit(f"no policy: MLflow failed ({err}) and {served} does not exist; use --policy-file")
         cache = json.loads(served.read_text())
         label, cached = cache["label"] + " [cached]", POLICY_CACHE / cache["file"]
-    return SlicePolicy.load(cached), label
+    return SlicePolicy.load(cached, alpha), label
 
 
 def observation_from_records(records: list[KpiRecord], objective: RLObjective, cfg: CellConfig) -> np.ndarray:
@@ -193,13 +197,18 @@ def main() -> None:
     parser.add_argument("--scenario", default="demo", help="sim: steady | urllc_spike | demo")
     parser.add_argument("--speed", type=float, default=1.0, help="sim: 1 = real time, 0 = as fast as possible")
     parser.add_argument("--model-label", default=None, help="version label of --policy-file (the RL xApp image's)")
+    parser.add_argument("--smoothing-alpha", type=float, default=None,
+                        help=f"filter on the split; default {SMOOTHING_ALPHA} (sim), {TESTBED_SMOOTHING_ALPHA} (flexric)")
     parser.add_argument("--ticks", type=int, default=None, help="stop after N ticks (default: run forever)")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--policy-file", type=Path, default=None, help="serve this SB3 file instead of the champion")
     parser.add_argument("--keep-db", action="store_true", help="do not empty var/ric.db at startup")
     args = parser.parse_args()
 
-    policy, model_version = load_policy(args.policy_file)
+    alpha = args.smoothing_alpha
+    if alpha is None:
+        alpha = TESTBED_SMOOTHING_ALPHA if args.backend == "flexric" else SMOOTHING_ALPHA
+    policy, model_version = load_policy(args.policy_file, alpha)
     if args.model_label is not None:
         model_version = args.model_label
     cfg = CellConfig()
@@ -217,7 +226,7 @@ def main() -> None:
     setup.close()
     conn = db.connect(timeout_s=0.0)
     log_event("runner", "run_start", ts_backend=backend.now(),
-              data={"model_version": model_version, "scenario": args.scenario, "speed": args.speed})
+              data={"model_version": model_version, "scenario": args.scenario, "speed": args.speed, "alpha": alpha})
     print(f"RL runner: {model_version}, scenario {args.scenario}, speed {args.speed}, db {db.db_path()}")
     try:
         Runner(backend, policy, conn, cfg.dt_s).run(args.ticks)

@@ -9,8 +9,8 @@ import time
 import pytest
 
 from backends.flexric import N_PRB, PRB_FULL_CELL, FlexRICBackend, shares_to_prbs
-from rl.policy import SlicePolicy
-from rl.runner import Runner
+from rl.policy import SMOOTHING_ALPHA, SlicePolicy
+from rl.runner import TESTBED_SMOOTHING_ALPHA, Runner, load_policy
 from store import testbed
 from store.events import read_events
 from xapps.kpm_monitor import cell_info
@@ -126,3 +126,9 @@ def test_the_unchanged_runner_ticks_on_the_testbed_backend(ric_db, tiny_policy_f
     assert sorted(tuple(r) for r in rows) == [("flexric", s, None) for s in ("be", "embb", "urllc")]
     wait_for(lambda: any(e["event"] == "xapp_ack" for e in read_events()))
     b.close()
+
+
+def test_testbed_filter_is_stronger_than_the_simulators_and_the_simulator_keeps_its_own(tiny_policy_file) -> None:
+    """The champion's recorded evaluation used alpha 0.25: only the testbed runs a different filter."""
+    assert load_policy(tiny_policy_file)[0].alpha == SMOOTHING_ALPHA == 0.25
+    assert load_policy(tiny_policy_file, TESTBED_SMOOTHING_ALPHA)[0].alpha == 0.10
