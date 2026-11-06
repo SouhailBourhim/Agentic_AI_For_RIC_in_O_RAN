@@ -302,3 +302,21 @@ acknowledge arrived.
   below. **Possible continuation:** our own RIC image built from FlexRIC v3.0.0 with a small patch
   that skips ids still in use (as we did for the gNB), or a supervisor that restarts the RIC and
   both xApps cleanly. Not done: it replaces the official RIC image, and no planned run needs it.
+- **The RL policy oscillates on the testbed (found in M07b).** Cause tested on the simulator: KPIs
+  about 2 s late. Mitigation in place: alpha 0.10 on the testbed only. Confirmed on the real cell, one
+  run each (cell moved 10.8 → 4.3 % per s, URLLC ≥ 20 Mb/s 69 → 90 %, URLLC delay 9.4 → 2.3 s median;
+  docs/learn/M07b-slice-control.md). It is reduced, not solved: the split still swings and URLLC's
+  delay stays in seconds. **Open:** where the second tick of
+  delay comes from (one candidate: `kpm_monitor`'s own 1 Hz tick between the KPM report and
+  `kpm_latest`); and whether to retrain with a random observation delay, which would need fresh test
+  seeds, since the held-out goal-test set has already been used twice.
+- **Testbed capacity in the verifier (for M08c).** `cell_info()` gives the verifier the simulator's
+  75 Mb/s, while M07b measured 0.654 Mb/s per PRB (69 Mb/s) with the slice scheduler. So the
+  verifier can accept targets on the testbed that are about 8 % too optimistic. Decide before M08c.
+- **llama3.1 sets priority on guarantee intents (M04b, low priority).** Seen with llama3.1 only;
+  qwen3:8b is the chosen model, so nothing depends on it unless the model changes.
+- **Hermes: 3 of 20 turns got no reply (M05b).** The model returned an empty answer after ~47 s and
+  nothing was submitted; cause not found. Measure again with the worker queue in M08b's Hermes
+  metrics, on the tune split only.
+- **Agent worker is serial in demo mode (M05b).** An unconfirmed intent holds the next for up to
+  120 s. Harmless in a one-operator demo; it matters only if several intents must overlap.

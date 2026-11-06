@@ -206,8 +206,61 @@ records held back by 0–3 ticks:
 A late view alone turns the policy's jitter into a steady swing that grows with the delay, and the
 testbed matches 2 ticks. One tick is measured; the second is not explained yet (candidates: how
 KPM report windows fall against the runner's ticks, or the gNB's queues draining for seconds). The
-policy was never trained on a delayed view. Fixes (not applied, a decision for later): train with a
-random 0–3 tick delay, smooth more, or tick every 2 s.
+policy was never trained on a delayed view. Possible fixes: train with a
+random 0–3 tick delay, smooth more, or tick every 2 s. Smoothing and the tick were then tested in
+the next section.
+
+### Calming it without retraining (simulator, then the real cell)
+
+`testbed/sim_stability_m07b.py` (2026-11-06) keeps the 2 s late view and varies only what needs no
+retraining, three seeds each, in the surge after t = 180 s, default objective / URLLC-20 objective
+([sim_stability.json](../../testbed/results/m07b/sim_stability.json)):
+
+| Setting | Cell moved per s | URLLC ≥ 20 Mb/s | URLLC delay (median) | BE Mb/s |
+|---|---|---|---|---|
+| no delay, alpha 0.25 (training) | 7.4 / 5.8 % | 93 / 100 % | 396 / 134 ms | 7.6 / 7.2 |
+| 2 s late, alpha 0.25 (deployed until now) | 10.2 / 9.5 % | 70 / 82 % | 659 / 265 ms | 3.8 / 3.8 |
+| 2 s late, alpha 0.15 | 6.1 / 5.6 % | 81 / 96 % | 606 / 235 ms | 3.8 / 3.8 |
+| **2 s late, alpha 0.10** | **4.0 / 3.8 %** | **98 / 100 %** | **445 / 187 ms** | 4.0 / 3.9 |
+| 2 s late, alpha 0.05 | 2.0 / 1.6 % | 96 / 100 % | 487 / 173 ms | 6.0 / 6.5 |
+| 2 s late, 2 s tick, alpha 0.25 | 5.6 / 5.2 % | 87 / 91 % | 588 / 343 ms | 3.8 / 3.8 |
+
+Stronger smoothing calms the split and serves URLLC better. It does not slow the reaction to the
+surge (URLLC reaches 20 Mb/s in 5-6 s at every alpha, and its peak delay is no worse). Its cost is on
+the way down: URLLC keeps its PRBs for 10 s after the surge at alpha 0.10, against 3 s at 0.25. So
+`rl.runner` now uses **alpha 0.10 on the testbed** (`TESTBED_SMOOTHING_ALPHA`,
+`--smoothing-alpha` overrides it). The simulator keeps 0.25, the value of the champion's recorded
+evaluation, so this is a testbed setting and no new policy.
+
+**On the real cell** (`testbed/run_loop_m07b.sh loop_alpha10 rl`, 2026-11-06, the same surge and
+policy as `loop_rl`, one run each, default objective;
+[alpha_compare.json](../../testbed/results/m07b/alpha_compare.json), figures from
+`uv run python testbed/compare_alpha_m07b.py`). Measured from 30 s into the surge to its end:
+
+![The split and URLLC's queueing delay on the real cell, alpha 0.25 and 0.10](img/M07b-alpha.png)
+
+| Measure | alpha 0.25 (`loop_rl`) | alpha 0.10 (`loop_alpha10`) | Simulator, 2 s late (0.25 → 0.10) |
+|---|---|---|---|
+| Cell moved per s | 10.8 % | **4.3 %** | 10.2 → 4.0 % |
+| eMBB share, p5–p95 | 0.26–0.82 | **0.37–0.70** | |
+| Seconds with URLLC ≥ 20 Mb/s | 69 % | **90 %** | 70 → 98 % |
+| URLLC queueing delay, median | 9.4 s | **2.3 s** | 659 → 445 ms |
+| URLLC ping RTT, p95 | 12.8 s | **5.9 s** | |
+| eMBB / URLLC / BE, Mb/s (KPM) | 38.7 / 29.3 / 3.5 | 38.4 / 30.4 / 4.5 | |
+| Seconds for URLLC to hold 20 Mb/s | 13.9 | 5.7 | 5–6 at both |
+| Seconds to give the PRBs back after the surge | 16.0 | 19.8 | 3 → 10 |
+
+The simulator predicted the calming almost exactly, and the gain holds in all four quarters of the
+surge (moved 4.1–4.5 % against 10.1–11.4 %, URLLC ≥ 20 Mb/s 87–92 % against 60–77 %). Two runs cannot
+give error bars, so read the small differences (BE, the seconds to react and to release) as
+indications only. **Alpha 0.10 reduces the problem; it does not solve it:**
+
+- The split still swings, more irregularly, with a dominant period of about 15 s.
+- URLLC's delay is still in seconds, and rose from about 0.5–1.4 s to 4.4–4.8 s (quarter medians)
+  in the second half of the surge. The simulator's delay model is far from this: the policy has no
+  way to learn about a queue of several seconds.
+
+Fixing these needs training or calibration, which is a separate decision (`docs/PLAN.md` §8).
 
 ### An intent on the real cell
 
@@ -284,7 +337,7 @@ supervisor that only restarts the xApp would not be enough.
 ## 5. How to run it and check it works
 
 ```bash
-uv run pytest -q                       # 367 passed; no testbed needed
+uv run pytest -q                       # 368 passed; no testbed needed
 testbed/gnb/build.sh                   # once: agentic-ric/oai-gnb:v3.0.0-slice (both patches)
 xapps/rl/build.sh                      # agentic-ric/rl-xapp:v<champion> and :latest, model labels
 docker image inspect agentic-ric/rl-xapp:latest --format '{{json .Config.Labels}}'
@@ -333,7 +386,7 @@ then `uv run python -m gateway.client submit "…"` and `uv run python -m consol
   `blind` run shows what hiding it costs (eMBB frozen at 24.9 of 37.5 Mb/s after the surge).
 - **`prb_used` rescaled by the TDD downlink fraction (0.743)**, derived from `gnb.conf`, not fitted.
 - **No retraining in M07b.** The policy was trained on the simulator, which has no measurement
-  delay; on the testbed it oscillates. Reported as is.
+  delay; on the testbed it oscillates. Alpha 0.10 reduces that and does not remove it.
 - **The xApp cannot see the gNB's answer.** FlexRIC drops it at the RIC; we read it in the gNB log
   and the capture. A production RIC would return the control outcome to the xApp.
 - **HARQ retransmissions** need their original PRB count; if a slice's range has just shrunk below
@@ -367,8 +420,10 @@ then `uv run python -m gateway.client submit "…"` and `uv run python -m consol
    remains open?**
    We measured that KPM shows a split's effect one tick later than the simulator, and that the
    same policy on the simulator, with its view held back 1–3 ticks, oscillates more as the delay
-   grows; 2 ticks reproduce the testbed's range and period. Open: where the second tick comes
-   from, and the fix (training with a delayed view, more smoothing, or a slower tick).
+   grows; 2 ticks reproduce the testbed's range and period. Stronger smoothing (alpha 0.10) then
+   cut the movement from 10.8 to 4.3 % of the cell per second on the real cell, one run each. Open:
+   where the second tick comes from, and whether to train with a delayed view, since the split still
+   swings and URLLC's delay stays in seconds.
 5. **How do we know the gateway cannot change the split, even on the testbed?**
    Three separate walls: it exposes only three tools and imports nothing that reaches the RAN
    (tests); `submit_intent` only creates a request that the verifier and the console must pass;

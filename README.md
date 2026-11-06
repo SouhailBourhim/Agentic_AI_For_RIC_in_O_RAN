@@ -82,7 +82,9 @@ objective" turned out to be the hard part.
   any training.
 - On a held-out test run once, **5 of 5 fresh training seeds pass**: telling the policy the
   objective helps in 97 % of the cases where it matters, and it captures 70–88 % of the
-  oracle's advantage. It earns 0.28 reward per step against 0.18 for an equal split.
+  oracle's advantage. It earns 0.28 reward per step against 0.18 for an equal split. That test
+  set has been used twice, once per round: in M02b, and for the retrained policy with the 5 %
+  floor, the current champion, which also passed on every seed.
 
 ![Held-out goal-conditioning test](docs/learn/img/M02b-test.png)
 
@@ -145,7 +147,10 @@ agent run on the testbed unchanged, with the champion policy packaged in the RL 
   verifier and console raised the time URLLC met 20 Mb/s from 28 % to 95 %.
 - **The simulator-trained policy oscillates on the real cell** (period 10–12 s). The cause is
   tested: the testbed shows a split's effect later than the simulator, and the same policy on the
-  simulator with its view delayed by 2 ticks swings the same way. Not retrained yet.
+  simulator with its view delayed by 2 ticks swings the same way. Stronger smoothing, without
+  retraining, cut the movement of the split from 10.8 to 4.3 % of the cell per second on the real
+  cell and raised the time URLLC met 20 Mb/s from 69 to 90 % (one run each). It still swings, and
+  URLLC's delay stays in seconds (median 2.3 s, was 9.4 s).
 
 ![The surge on the real cell: stock scheduler, RL xApp, RL xApp without the offered rates](docs/learn/img/M07b-loop.png)
 
@@ -161,7 +166,7 @@ internal Docker network whose only exits are two relays, to the gateway and to O
 
 ## Engineering practices
 
-- **367 automated tests**, run by GitHub Actions on every push. No GPU, LLM or testbed is
+- **368 automated tests**, run by GitHub Actions on every push. No GPU, LLM or testbed is
   needed: the LLM is replaced by a scripted fake.
 - **Pre-registration.** Pass/fail criteria, model-selection rules and held-out sets are
   committed before the experiment runs. Failed criteria stay in the record.
@@ -214,7 +219,7 @@ Requires [uv](https://docs.astral.sh/uv/), which installs the right Python by it
 
 ```bash
 uv sync                              # install the locked dependencies
-uv run pytest -q                     # 367 tests; no GPU, LLM or Docker needed
+uv run pytest -q                     # 368 tests; no GPU, LLM or Docker needed
 uv run python -m gateway.client tools # the MCP gateway's three tools
 uv run python -m rl.plot_runner      # one intent through the whole chain, simulated (~10 s)
 ```

@@ -84,8 +84,13 @@ two slices of the same type, so best effort is an eMBB-type slice with its own S
    oai-cn5g-fed v2.2.1 `database/oai_db2.sql`. **What the N2 capture shows, though:** every UE's
    InitialContextSetupRequest carries an *Allowed NSSAI* with all three slices, and the UEs'
    Registration requests carry no Requested NSSAI. So in this setup the subscription rows do not
-   narrow anything. The slice a UE uses comes from its own PDU session request (step 4). Why the
-   AMF does not restrict it (its own logic, or the UDM data it fetches) was not investigated.
+   narrow anything. The slice a UE uses comes from its own PDU session request (step 4). **Why
+   (answered 2026-11-06, from the OAI AMF v2.2.1 source):** the AMF's own logic. It fills the
+   InitialContextSetupRequest's Allowed NSSAI from the slices the gNB broadcast (`amf_n2.cpp`,
+   about lines 1015-1027), and builds the Registration Accept's from the slices common to the gNB
+   and the AMF (`amf_n1.cpp`, about lines 5747-5778). Subscribed slices are used only to decide
+   which requested ones to reject. So a subscriber row cannot narrow it. Read in the source, not
+   tested by changing a row.
 3. **The gNB announces the three slices to the AMF** in its NG Setup
    ([gnb.conf:21](../../testbed/rfsim-flexric/conf/gnb.conf#L21)). The AMF rejects a gNB or a UE
    whose slices it does not support.
