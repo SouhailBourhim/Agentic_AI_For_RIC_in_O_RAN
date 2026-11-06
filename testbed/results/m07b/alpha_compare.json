@@ -1,0 +1,98 @@
+[
+ {
+  "run": "loop_rl",
+  "alpha": 0.25,
+  "surge_seconds": 209,
+  "embb_moved_per_s": 0.10849056603773585,
+  "urllc_moved_per_s": 0.10849056603773584,
+  "embb_share_min": 0.2169811320754717,
+  "embb_share_max": 0.839622641509434,
+  "embb_share_p5": 0.25849056603773585,
+  "embb_share_p95": 0.8207547169811321,
+  "embb_period_s": 12.294117647058824,
+  "embb_mbps": 38.7008486124402,
+  "embb_mbps_std": 11.659681819536447,
+  "urllc_mbps": 29.342519387559804,
+  "be_mbps": 3.4892193684210526,
+  "urllc_met_20": 0.6889952153110048,
+  "urllc_delay_median_ms": 9390.930761,
+  "urllc_delay_p95_ms": 12738.407929,
+  "embb_delay_median_ms": 605.378884,
+  "urllc_ping_p95_ms": 12774.5,
+  "s_to_20_mbps": 13.907470226287842,
+  "s_to_release": 15.994053602218628,
+  "after_surge_embb_mbps": 36.12402196610169,
+  "after_surge_urllc_mbps": 7.4291201355932195,
+  "after_surge_be_mbps": 21.6495273220339,
+  "surge_quarters": [
+   {
+    "embb_moved_per_s": 0.10081391046984832,
+    "urllc_met_20": 0.5961538461538461,
+    "urllc_delay_median_ms": 6711.095049
+   },
+   {
+    "embb_moved_per_s": 0.11246762856085833,
+    "urllc_met_20": 0.7692307692307693,
+    "urllc_delay_median_ms": 8692.215251999998
+   },
+   {
+    "embb_moved_per_s": 0.1141324454310026,
+    "urllc_met_20": 0.7307692307692307,
+    "urllc_delay_median_ms": 10285.496712
+   },
+   {
+    "embb_moved_per_s": 0.10540638606676342,
+    "urllc_met_20": 0.660377358490566,
+    "urllc_delay_median_ms": 11708.242375
+   }
+  ]
+ },
+ {
+  "run": "loop_alpha10",
+  "alpha": 0.1,
+  "surge_seconds": 209,
+  "embb_moved_per_s": 0.043450653120464436,
+  "urllc_moved_per_s": 0.04263425253991292,
+  "embb_share_min": 0.3584905660377358,
+  "embb_share_max": 0.7830188679245284,
+  "embb_share_p5": 0.37169811320754714,
+  "embb_share_p95": 0.6981132075471698,
+  "embb_period_s": 14.928571428571429,
+  "embb_mbps": 38.435369645933015,
+  "embb_mbps_std": 6.733828141264153,
+  "urllc_mbps": 30.42660937799043,
+  "be_mbps": 4.460368650717704,
+  "urllc_met_20": 0.9043062200956937,
+  "urllc_delay_median_ms": 2334.135605,
+  "urllc_delay_p95_ms": 5629.439449799999,
+  "embb_delay_median_ms": 498.978,
+  "urllc_ping_p95_ms": 5897.75,
+  "s_to_20_mbps": 5.695844888687134,
+  "s_to_release": 19.772443532943726,
+  "after_surge_embb_mbps": 37.1210748,
+  "after_surge_urllc_mbps": 7.513556266666666,
+  "after_surge_be_mbps": 22.749598266666673,
+  "surge_quarters": [
+   {
+    "embb_moved_per_s": 0.044210136884942665,
+    "urllc_met_20": 0.9230769230769231,
+    "urllc_delay_median_ms": 1448.709363
+   },
+   {
+    "embb_moved_per_s": 0.04106548279689234,
+    "urllc_met_20": 0.9230769230769231,
+    "urllc_delay_median_ms": 467.334805
+   },
+   {
+    "embb_moved_per_s": 0.04517416545718433,
+    "urllc_met_20": 0.8679245283018868,
+    "urllc_delay_median_ms": 4440.292995
+   },
+   {
+    "embb_moved_per_s": 0.04328523862375138,
+    "urllc_met_20": 0.9038461538461539,
+    "urllc_delay_median_ms": 4751.911394000001
+   }
+  ]
+ }
+]
