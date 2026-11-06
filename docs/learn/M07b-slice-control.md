@@ -292,8 +292,8 @@ VM.
 ### Soak: 30 minutes, one crash, and three FlexRIC bugs
 
 `testbed/soak_m07b.sh`: the RL xApp controlling the gNB for 30 minutes under 30 / 15 / 20 Mb/s
-(eMBB / URLLC / BE), then a restart of the RL xApp container
-([soak_summary.txt](../../testbed/results/m07b/soak_summary.txt)).
+(eMBB / URLLC / BE), then a restart of the RL xApp container. The first run, before the fix below
+and at alpha 0.25 (its files are in git history, at commit 2101c91):
 
 | | Result |
 |---|---|
@@ -320,6 +320,25 @@ out, so an answer faster than that was wiped and the caller waited the full 6 s 
 sending, and clear the flag before sending (`reset_sync_ui`). Checked with 54,000 controls in 18
 runs: **0 crashes, 0 stalls**, acknowledge median 0.56 ms, max 2.7 ms (unpatched, the same load
 would have given about 35 crashes and 6 stalls).
+
+**The soak again, on the fixed image** (2026-11-06, alpha 0.10,
+[soak_summary.txt](../../testbed/results/m07b/soak_summary.txt)):
+
+| | Result |
+|---|---|
+| traffic received (iperf3) | 30.0 / 15.0 / 20.0 Mb/s (100 % of each), 0 % ping loss |
+| controls acknowledged | 1,755, round trip median 0.94 ms, max 2.38 ms |
+| gNB | 1,755 `SLICE CONTROL OK`, 0 refused, 0 assertions, 0 restarts, 0 HARQ retransmissions waiting |
+| slice-control xApp | **0 crashes**; no stall: the longest gaps between controls are the restart (8.9 s) and stretches where the split rounded to the same PRBs, so nothing was sent |
+| KPM | never stale; 5,580 KPI rows |
+| memory over 30 min | gNB 2,026 → 2,027 MiB, RIC 2 → 3, RL xApp 270 → 271, KPM xApp 3 → 5: no leak visible |
+| restart of the RL xApp | first control 2 s after the runner started, 30 controls in the 50 s until the stop |
+| split, steady load | 2.0 % of the cell moved per s |
+
+Two limits of this run. The restart came after the traffic ended, so it shows that control comes
+back, not how the policy recovers under load. And being stable is not being well served: at 94 % of
+the cell's capacity, eMBB's ping stays high (median 745 ms, p95 1.2 s) against 22 ms for URLLC and
+23 ms for BE, so the policy delivers eMBB's rate and leaves it a standing queue.
 
 **A third problem, in the RIC, not fixed: its request id counter wraps after 65,536 requests.**
 The near-RT RIC numbers every subscription and control from one counter stored as 16 bits. After
