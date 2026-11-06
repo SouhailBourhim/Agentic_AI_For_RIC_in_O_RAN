@@ -33,6 +33,7 @@ import numpy as np
 from backends.base import Backend, KpiRecord
 from backends.flexric import FlexRICBackend
 from backends.sim import SimBackend, scenario_traffic
+from rl.baselines import EqualSplitPolicy
 from rl.policy import SMOOTHING_ALPHA, SlicePolicy
 from sim.cell import CellConfig, apply_min_share
 from sim.env import build_observation
@@ -199,6 +200,8 @@ def main() -> None:
     parser.add_argument("--model-label", default=None, help="version label of --policy-file (the RL xApp image's)")
     parser.add_argument("--smoothing-alpha", type=float, default=None,
                         help=f"filter on the split; default {SMOOTHING_ALPHA} (sim), {TESTBED_SMOOTHING_ALPHA} (flexric)")
+    parser.add_argument("--baseline", choices=["equal"], default=None,
+                        help="no RL: an equal split unless a direct_share segment is in force (M08 baselines)")
     parser.add_argument("--ticks", type=int, default=None, help="stop after N ticks (default: run forever)")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--policy-file", type=Path, default=None, help="serve this SB3 file instead of the champion")
@@ -208,7 +211,10 @@ def main() -> None:
     alpha = args.smoothing_alpha
     if alpha is None:
         alpha = TESTBED_SMOOTHING_ALPHA if args.backend == "flexric" else SMOOTHING_ALPHA
-    policy, model_version = load_policy(args.policy_file, alpha)
+    if args.baseline == "equal":
+        policy, model_version = EqualSplitPolicy(), "baseline: equal split, no RL"
+    else:
+        policy, model_version = load_policy(args.policy_file, alpha)
     if args.model_label is not None:
         model_version = args.model_label
     cfg = CellConfig()

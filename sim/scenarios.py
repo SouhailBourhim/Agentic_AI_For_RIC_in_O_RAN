@@ -1,7 +1,8 @@
 """Named scenarios: a traffic set plus an objective, reused by the demo and the plots.
 
 Keeping them here means the demo output, the figures and the learning note all describe
-exactly the same situation. The evaluation scenarios of M08 will live in eval/.
+exactly the same situation. The M08 scenarios keep their traffic here, so that the runner can play
+them as separate processes, and their intents in eval/scenarios.py.
 """
 
 from sim.cell import CellConfig
@@ -54,3 +55,22 @@ def demo_traffic(capacity_mbps: float = CellConfig().capacity_mbps) -> dict[str,
         end_s=DEMO_SURGE_END_S,
     )
     return traffic
+
+
+S1_SPIKE_START_S = 120.0
+S1_SPIKE_END_S = 300.0
+
+
+def s1_spike_traffic(capacity_mbps: float = CellConfig().capacity_mbps) -> dict[str, TrafficPattern]:
+    """M08 S1, steady then spike: 37.5 / 7.5 / 22.5 Mb/s, URLLC at 30 Mb/s during t=120-300 s."""
+    traffic = default_traffic(capacity_mbps)
+    traffic["urllc"] = TrafficPattern("spike", base_mbps=0.10 * capacity_mbps, peak_mbps=0.40 * capacity_mbps,
+                                      start_s=S1_SPIKE_START_S, end_s=S1_SPIKE_END_S)
+    return traffic
+
+
+def s2_steady_traffic(capacity_mbps: float = CellConfig().capacity_mbps) -> dict[str, TrafficPattern]:
+    """M08 S2, new intent mid-run: steady 37.5 / 18 / 15 Mb/s. An equal split carries URLLC's 18 Mb/s
+    but not below 5 ms (its slice would run at 72 % load: 2 ms / 0.28 = 7 ms)."""
+    fractions = {"embb": 0.50, "urllc": 0.24, "be": 0.20}
+    return {s: TrafficPattern("steady", f * capacity_mbps, f * capacity_mbps) for s, f in fractions.items()}

@@ -19,11 +19,8 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))  # testbed/, for sim_delay_m07b
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # repo root
-from sim_delay_m07b import DelayedBackend  # noqa: E402
-
-from backends.sim import scenario_traffic  # noqa: E402
+from backends.sim import DelayedBackend, scenario_traffic  # noqa: E402
 from rl.policy import SlicePolicy  # noqa: E402
 from rl.runner import Runner, load_policy  # noqa: E402
 from sim.cell import CellConfig  # noqa: E402

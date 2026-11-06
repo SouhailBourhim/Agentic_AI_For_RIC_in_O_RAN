@@ -15,6 +15,14 @@ from verifier.objective import SLICES
 N_SLICES = len(SLICES)
 
 
+class EqualSplitPolicy:
+    """Stands where the RL policy stands in the runner, for the controllers with no RL (M08a):
+    static, and LLM only between two of the LLM's splits. Same `shares` call as SlicePolicy."""
+
+    def shares(self, _obs: np.ndarray) -> np.ndarray:
+        return np.full(N_SLICES, 1.0 / N_SLICES)
+
+
 def equal_split(_obs: np.ndarray) -> np.ndarray:
     return np.full(N_SLICES, 1.0 / N_SLICES, dtype=np.float32)
 

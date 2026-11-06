@@ -9,11 +9,12 @@ was trained on. The clock is simulated: `speed` says how fast it runs against th
 """
 
 import time
+from collections import deque
 
 import numpy as np
 
 from sim.cell import CellConfig, SliceStep, step_slice
-from sim.scenarios import demo_traffic, urllc_spike
+from sim.scenarios import demo_traffic, s1_spike_traffic, s2_steady_traffic, urllc_spike
 from sim.traffic import TrafficPattern, default_traffic
 from store.kpi import CellInfo, KpiRecord
 from verifier.objective import SLICES
@@ -22,15 +23,19 @@ BITS_PER_BYTE = 8
 
 
 def scenario_traffic(name: str, cfg: CellConfig) -> dict[str, TrafficPattern]:
-    """Traffic of a named scenario: 'steady', 'urllc_spike' (spike at 10-20 s) or 'demo'
-    (URLLC surge at 120-600 s, slow enough for an operator)."""
+    """Traffic of a named scenario: 'steady', 'urllc_spike' (spike at 10-20 s), 'demo' (URLLC surge
+    at 120-600 s, slow enough for an operator), or the M08 evaluation's 's1', 's2', 's3'."""
     if name == "steady":
         return default_traffic(cfg.capacity_mbps)
     if name == "urllc_spike":
         return urllc_spike(cfg.capacity_mbps)[0]
-    if name == "demo":
+    if name in ("demo", "s3"):  # S3 of M08 plays the demo's surge
         return demo_traffic(cfg.capacity_mbps)
-    raise ValueError(f"unknown scenario {name!r}; choose steady, urllc_spike or demo")
+    if name == "s1":
+        return s1_spike_traffic(cfg.capacity_mbps)
+    if name == "s2":
+        return s2_steady_traffic(cfg.capacity_mbps)
+    raise ValueError(f"unknown scenario {name!r}; choose steady, urllc_spike, demo, s1, s2 or s3")
 
 
 class SimBackend:
@@ -125,3 +130,23 @@ class SimBackend:
             for i, s in enumerate(SLICES)
         }
         self._time_s += self.cfg.dt_s
+
+
+class DelayedBackend(SimBackend):
+    """The simulated cell, but read_kpis returns the records of `delay` ticks ago: the late view the
+    testbed gives the policy (M07b). A subclass, so the split still goes straight to the cell (only
+    the runner calls apply_prb_split, invariant 4)."""
+
+    def __init__(self, cfg: CellConfig, traffic: dict[str, TrafficPattern], seed: int, delay: int) -> None:
+        super().__init__(cfg, traffic, seed=seed, speed=0.0)
+        self.delay = delay
+        self.history: deque = deque(maxlen=delay + 1)
+
+    def sleep(self, seconds: float) -> None:
+        super().sleep(seconds)
+        self.history.append(super().read_kpis())
+
+    def read_kpis(self) -> list[KpiRecord]:
+        if not self.history:
+            return super().read_kpis()
+        return self.history[0]  # the oldest kept: `delay` ticks before the newest

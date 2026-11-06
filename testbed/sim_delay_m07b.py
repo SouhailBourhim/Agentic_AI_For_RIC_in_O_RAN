@@ -13,14 +13,13 @@ Writes testbed/results/m07b/sim_delay.json and docs/learn/img/M07b-sim-delay.png
 
 import json
 import sys
-from collections import deque
 from pathlib import Path
 
 import numpy as np
 from matplotlib.figure import Figure
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # repo root
-from backends.sim import SimBackend, scenario_traffic  # noqa: E402
+from backends.sim import DelayedBackend, scenario_traffic  # noqa: E402
 from rl.runner import Runner, load_policy  # noqa: E402
 from sim.cell import CellConfig  # noqa: E402
 from sim.plot import LINE_WIDTH, SLICE_COLOURS, SURFACE, TEXT, TEXT_MUTED, _style  # noqa: E402
@@ -30,25 +29,6 @@ from store import db  # noqa: E402
 DELAYS = [0, 1, 2, 3]
 TICKS = 420
 WINDOW = (int(DEMO_SURGE_START_S) + 30, TICKS)  # surge, after its first 30 s
-
-
-class DelayedBackend(SimBackend):
-    """The simulated cell, but read_kpis returns the records of `delay` ticks ago. A subclass, so
-    the split still goes straight to the cell (only the runner calls apply_prb_split, invariant 4)."""
-
-    def __init__(self, cfg: CellConfig, traffic, seed: int, delay: int) -> None:
-        super().__init__(cfg, traffic, seed=seed, speed=0.0)
-        self.delay = delay
-        self.history: deque = deque(maxlen=delay + 1)
-
-    def sleep(self, seconds: float) -> None:
-        super().sleep(seconds)
-        self.history.append(super().read_kpis())
-
-    def read_kpis(self):
-        if not self.history:
-            return super().read_kpis()
-        return self.history[0]  # the oldest kept: `delay` ticks before the newest
 
 
 def run(delay: int, policy_file: Path) -> dict:

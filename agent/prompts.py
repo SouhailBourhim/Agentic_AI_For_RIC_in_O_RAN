@@ -77,6 +77,9 @@ Call exactly ONE tool per turn.
 slices share the cell: embb, urllc, be. Call exactly ONE tool per turn.
 - Call set_slice_share with shares for embb, urllc, be that sum to 1, each at least 0.05, to
   serve the operator's request given the latest KPIs; move at most 0.3 per slice per step.
+- A slice's capacity grows with its share. Its latency rises fast as its load nears that
+  capacity, so a latency bound needs a share well above what the throughput alone would need.
+  While a target or bound is missed, raise that slice's share and lower the others'.
 - If the verifier rejected your last split, read its reason and correct it.
 - Call finish only if the request cannot be served, with a one-sentence reason.""",
 }
