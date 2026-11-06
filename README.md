@@ -154,6 +154,25 @@ agent run on the testbed unchanged, with the champion policy packaged in the RL 
 
 ![The surge on the real cell: stock scheduler, RL xApp, RL xApp without the offered rates](docs/learn/img/M07b-loop.png)
 
+**The four controllers on the simulator (M08a).** Share of the operator's stated window in which the goal was met,
+median of 10 paired seeds:
+
+| Goal | Static | RL only | LLM only | LLM + RL |
+|---|---|---|---|---|
+| S1: URLLC ≥ 20 Mb/s, < 10 ms, before a spike | 0.39 | 0.36 | 0.42 | **0.99** |
+| S2: URLLC ≥ 18 Mb/s, < 5 ms, stated mid-run | 0.00 | 0.00 | 0.00 | **0.98** |
+| S3: eMBB and BE ≥ 22 Mb/s | **1.00** | 0.11 | 0.96 | 0.76 |
+| S3: URLLC ≥ 22 Mb/s, < 5 ms, conflicts with the above | 0.00 | 0.00 | 0.00 | 0.00 |
+
+- **The design works where goals need RL:** LLM + RL reacts in 2–3 s, and the LLM acting alone does not get there.
+- **It over-serves:** in S2 URLLC gets 68 % of the cell and needs 40 %, and best effort falls to its floor.
+- **S3 exposes a gap:** the verifier correctly rejects the conflicting request, but URLLC then ends up with 8–9 % of the
+  cell and about 8 s of delay, worse than an equal split. The checks protect stated targets, not a slice with no target.
+- **Read with care:** static and RL only never receive the goals, the scenarios use one wording per intent, and the policy
+  was trained on this simulator. [The note](docs/learn/M08a-eval-sim.md) has the figures and limits; the testbed comes next.
+
+![Intent met per controller and scenario](docs/learn/img/M08a-intent-met.png)
+
 **A chat interface that can do almost nothing, checked from outside.** Hermes Agent runs on an
 internal Docker network whose only exits are two relays, to the gateway and to Ollama.
 - A capture of its LLM requests shows exactly three tools offered. Ten hostile requests produced
@@ -166,7 +185,7 @@ internal Docker network whose only exits are two relays, to the gateway and to O
 
 ## Engineering practices
 
-- **368 automated tests**, run by GitHub Actions on every push. No GPU, LLM or testbed is
+- **391 automated tests**, run by GitHub Actions on every push. No GPU, LLM or testbed is
   needed: the LLM is replaced by a scripted fake.
 - **Pre-registration.** Pass/fail criteria, model-selection rules and held-out sets are
   committed before the experiment runs. Failed criteria stay in the record.
@@ -197,7 +216,8 @@ internal Docker network whose only exits are two relays, to the gateway and to O
 | M07a | KPM monitoring xApp (one subscription per slice), patched gNB KPM, testbed KPIs in the store | Done |
 | M05b | Hermes Agent as the chat interface, isolated: exactly three tools, reaches only the gateway and Ollama | Done |
 | M07b | PRB-split control on the real gNB over E2 (gNB patch), slice-control xApp, FlexRIC backend, RL xApp image | Done |
-| M08a–c | Four-controller comparison (static, RL only, LLM only, LLM + RL) on the simulator and the testbed; extraction accuracy on the held-out intents | Next |
+| M08a | Four-controller comparison on the simulator (static, RL only, LLM only, LLM + RL), 3 scenarios, 10 paired seeds | Done |
+| M08b–c | Extraction accuracy on the held-out intents; the same comparison on the testbed | Next |
 
 The full plan, with interfaces, risks and how each hypothesis gets tested, is in
 [docs/PLAN.md](docs/PLAN.md). The original design document (in French) is
@@ -219,7 +239,7 @@ Requires [uv](https://docs.astral.sh/uv/), which installs the right Python by it
 
 ```bash
 uv sync                              # install the locked dependencies
-uv run pytest -q                     # 368 tests; no GPU, LLM or Docker needed
+uv run pytest -q                     # 391 tests; no GPU, LLM or Docker needed
 uv run python -m gateway.client tools # the MCP gateway's three tools
 uv run python -m rl.plot_runner      # one intent through the whole chain, simulated (~10 s)
 ```

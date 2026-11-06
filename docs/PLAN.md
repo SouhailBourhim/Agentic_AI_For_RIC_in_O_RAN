@@ -201,7 +201,7 @@ This is not O-RAN A1: FlexRIC has no Non-RT RIC.
 | H4 separate console with timeout | M04a (tests), shown in M05a | Test: awaiting_confirmation → expired after T. Eval mode skips confirmation. The console is its own CLI process |
 | H5 gateway only talks to the agent HTTP API | M05a, rechecked in M07b | Import test (the gateway imports none of `backends`, `xapps`, `rl`, `sqlite3`). One configured URL. Network test on the testbed. **Confirmed 2026-11-05 (M07b):** with the testbed up, all 7 RAN addresses time out from WSL (where the gateway runs) and answer from the testbed network (`testbed/check_gateway_route.py`) |
 | H6 `set_slice_share` only in LLM-only mode | M04b | Test of the tool list per mode. Gateway test that it is never exposed |
-| H7 4-controller comparison without Hermes | M08a | Runners inject intents straight into the agent API. Only intents with verified extraction are kept |
+| H7 4-controller comparison without Hermes | M08a | Runners inject intents straight into the agent API. Only intents with verified extraction are kept. **Confirmed 2026-11-07:** no Hermes in any run, every parse matched its expected facts (`docs/learn/M08a-eval-sim.md`) |
 | H8 ~40 annotated intents are enough | M04b (template), M08b | With 40 intents the 95% CI on accuracy is about ±15 points. If extraction becomes a headline result, aim for 60–80 |
 
 ## 5. Machine risks and fallbacks
@@ -270,11 +270,11 @@ acknowledge arrived.
   **Evidence from M04a** (`uv run python -m rl.plot_runner`, docs/learn/M04a-plumbing.md §5):
   during the demo URLLC surge, with "20 Mb/s URLLC within 10 ms" in force, the champion gives
   best effort 2 % of the PRBs (median latency ~41 s) for the whole 5 minutes.
-- **Policy jitter under the default objective (look at in M08a).** M04a measured 6–12 % of the
+- **Policy jitter under the default objective (measured in M08a: 5.6–8.5 % of the cell per s; 1.8–3.2 % at alpha 0.10; not changed, your decision).** M04a measured 6–12 % of the
   PRBs moved per tick under the default objective (no targets, no bound), against 0.3 % under
   an explicit objective and ~2 % averaged over random objectives in M02. Options to weigh then:
   a different default objective, or a smaller filter alpha only for the default.
-- **Over-serving the favoured slice (look at in M08a).** M04b live demo, URLLC surge, "at
+- **Over-serving the favoured slice (measured in M08a: S2, URLLC gets 68 % of the cell and needs 40 %; importance 6 instead of 8 barely changes it, so that lever is dropped; a reward term needs retraining; your decision).** M04b live demo, URLLC surge, "at
   least 20 Mb/s and under 10 ms" with the LLM's importance 8/2/2: the policy gave URLLC its whole
   load (30.9 Mb/s, 79 % of the PRBs), so eMBB got 12 of its 37 Mb/s (p95 latency 5.3 s) and best
   effort sat at the 5 % floor. The target was met, but the cost to the other slices is
@@ -310,6 +310,11 @@ acknowledge arrived.
   delay comes from (one candidate: `kpm_monitor`'s own 1 Hz tick between the KPM report and
   `kpm_latest`); and whether to retrain with a random observation delay, which would need fresh test
   seeds, since the held-out goal-test set has already been used twice.
+- **A rejected request can leave a slice worse off (found in M08a, S3).** With eMBB and BE targets in force and URLLC's own
+  request rejected as a conflict, URLLC got 8–9 % of the cell and about 8 s of delay under its surge, worse than an equal split.
+  Every check holds: the verifier protects stated targets and a 5 % floor, not a slice with no target. The model also never
+  relaxed the rejected target, though evaluation mode allows it. Options: an implicit minimum for each slice in the merge, or
+  report the consequence to the operator. Not changed; decide before M08c, whose S3 would show the same.
 - **Testbed capacity in the verifier (for M08c).** `cell_info()` gives the verifier the simulator's
   75 Mb/s, while M07b measured 0.654 Mb/s per PRB (69 Mb/s) with the slice scheduler. So the
   verifier can accept targets on the testbed that are about 8 % too optimistic. Decide before M08c.
