@@ -67,8 +67,8 @@ class SimBackend:
             source="sim",
             slices=SLICES,
             n_prb=self.cfg.n_prb,
-            capacity_mbps=self.cfg.capacity_mbps,
-            urllc_base_latency_ms=self.cfg.base_latency_ms["urllc"],
+            capacity_mbps=self.cfg.told_capacity_mbps,  # what the verifier and the policy are told
+            urllc_base_latency_ms=self.cfg.told_urllc_base_latency_ms,
         )
 
     def read_kpis(self) -> list[KpiRecord]:

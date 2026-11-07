@@ -1,0 +1,10 @@
+parameter,value,n,rule
+base_latency_ms_urllc,0.592,3507,"median KPM RLC delay, offered <= 0.8 x share x capacity"
+base_latency_ms_be,0.631,3922,"median KPM RLC delay, offered <= 0.8 x share x capacity"
+base_latency_ms_embb,0.611,0,no unsaturated second under static: median of the other slices' values (same RLC scheduler)
+backlog_p95_mb_embb,411.1,6098,"95th percentile of delay x throughput, saturated seconds"
+backlog_p95_mb_urllc,407.7,1850,"95th percentile of delay x throughput, saturated seconds"
+backlog_p95_mb_be,20.7,180,"95th percentile of delay x throughput, saturated seconds"
+max_backlog_mb,407.7,3,median over slices of backlog_p95_mb
+noise_std,0.0009,30,median of std / mean of KPM throughput within constant-rate unsaturated segments
+static_runs,18,18,M08c + M08d static runs used

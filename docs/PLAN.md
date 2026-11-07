@@ -260,6 +260,23 @@ first build). The gNB accepts or refuses each SLICE control with a reason, carri
 Control Acknowledge; FlexRIC's RIC drops that answer before the xApp, so the xApp sees only that an
 acknowledge arrived.
 
+## 9. M09: proving the design beyond one scenario (decided 2026-11-07)
+
+After M08d the comparison favours LLM + RL in one scenario only (S1). S2 and S3's first goal fit in an equal split, so they
+can't show adaptation; S3's second goal tests the verifier; where LLM + RL loses, the policy is the cause. M09 makes the claim
+general, with the testbed confirming rather than producing the main result:
+
+| # | Delivers | Who runs the long part |
+|---|---|---|
+| M09a | Simulator profile calibrated to the testbed (flat RLC delay until saturation, real buffer, 79 Mb/s with its spread, KPIs 2 ticks late), verifier parameters to match; validated against M08c and M08d by a rule written first | Souhail (replay, ~1 h) |
+| M09b | Seeded scenario generator in 5 families (F1 load, F2 new goal, F3 fast dynamics, F4 conflicts, F5 easy), the broad benchmark on dev seeds with v7; references: oracle ceiling, LLM + formula (no RL), a fairer LLM only | Souhail |
+| M09c | Policy v8: calibrated profile, random 1-3 tick observation delay, penalty on share above need, objective changes and expiries mid-episode; fresh goal-test seeds | Souhail (training) |
+| M09d | Pre-registered simulator result on test seeds, scored once: P1-P6 as paired differences with bootstrap intervals; written predictions for the testbed sample | Souhail |
+| M09e | Testbed confirmation: 8 instances drawn from the test generator x 4 controllers x 2 repeats, one night | Souhail |
+| M09f | Safety under dangerous in-scope intents (~30), LLM + RL and LLM only, unsafe changes applied must be 0 | me |
+
+Then a "claims and evidence" synthesis in the README. Full plan: each checkpoint still starts with its own plan for approval.
+
 ## 8. Open questions
 
 - ~~**Hard minimum PRB share per slice in the RL runner (discuss in M04a).**~~ **Decided and done (M04a): 5 % per slice, `sim.cell.apply_min_share`, retrained; see docs/learn/M04a-plumbing.md §5 and DECISIONS.md.** The M03 verifier

@@ -1,9 +1,10 @@
 """Traffic generators: the offered load of one slice over time.
 
-Three shapes, enough to build the evaluation scenarios ("steady then spike", ramps):
+Four shapes, enough to build the evaluation scenarios ("steady then spike", ramps):
 - steady: constant base load
 - spike:  base load, then base x factor between start_s and end_s
 - ramp:   base load until start_s, then linear up to peak at end_s, then peak
+- steps:  piecewise constant, (start_s, Mb/s) pairs; plays the testbed's iperf3 segments (M09a)
 
 Random noise is added on top, using the environment's seeded random generator so a
 run can be repeated exactly.
@@ -16,7 +17,7 @@ import numpy as np
 
 from verifier.objective import SLICES
 
-PatternKind = Literal["steady", "spike", "ramp"]
+PatternKind = Literal["steady", "spike", "ramp", "steps"]
 
 # Loads are given as fractions of the cell capacity, so the scenarios keep their meaning when
 # the capacity is recalibrated (it was 100 Mb/s before the M06 spike measured 75 Mb/s).
@@ -41,6 +42,7 @@ class TrafficPattern:
     start_s: float = 0.0
     end_s: float = 0.0
     noise_std: float = 0.05  # multiplicative: 0.05 means about +/- 5 %
+    steps: tuple[tuple[float, float], ...] = ()  # kind "steps" only: (start_s, Mb/s), sorted by start; 0 before the first
 
     def mean_load_at(self, t: float) -> float:
         """Load at time t without noise. Kept separate so tests can check the shape."""
@@ -56,6 +58,13 @@ class TrafficPattern:
                 return self.peak_mbps
             progress = (t - self.start_s) / (self.end_s - self.start_s)
             return self.base_mbps + progress * (self.peak_mbps - self.base_mbps)
+        if self.kind == "steps":
+            current = 0.0
+            for start, mbps in self.steps:
+                if t < start:
+                    break
+                current = mbps
+            return current
         raise ValueError(f"unknown traffic pattern kind: {self.kind}")
 
     def load_at(self, t: float, rng: np.random.Generator) -> float:

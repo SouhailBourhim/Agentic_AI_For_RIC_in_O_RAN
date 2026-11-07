@@ -111,9 +111,11 @@ def export_kpis(conn: sqlite3.Connection, path: Path) -> None:
         writer.writerows(tuple(r) for r in rows)
 
 
-def run_once(spec: RunSpec, scenario: Scenario, work: Path, policy_file: Path | None, llm=None) -> Path:
+def run_once(spec: RunSpec, scenario: Scenario, work: Path, policy_file: Path | None, llm=None,
+             cfg: CellConfig | None = None, traffic: dict | None = None) -> Path:
     """Play the scenario. Writes kpi.csv, events.jsonl and, last of all, run.json: a run directory
-    without run.json did not finish and is played again."""
+    without run.json did not finish and is played again. `cfg` and `traffic` default to the M01 cell and the
+    scenario's own traffic; M09a passes the testbed profile and the testbed's segments instead."""
     if spec.controller in USES_RL and policy_file is None:
         raise ValueError(f"{spec.controller} needs a policy file")
     if spec.controller in USES_AGENT and llm is None:
@@ -126,8 +128,8 @@ def run_once(spec: RunSpec, scenario: Scenario, work: Path, policy_file: Path | 
     started = time.monotonic()
     try:
         conn = db.connect(work / "ric.db")
-        cfg = CellConfig()
-        traffic = scenario_traffic(scenario.name, cfg)
+        cfg = cfg or CellConfig()
+        traffic = traffic or scenario_traffic(scenario.name, cfg)
         backend = (DelayedBackend(cfg, traffic, spec.seed, spec.delay_ticks) if spec.delay_ticks
                    else SimBackend(cfg, traffic, seed=spec.seed, speed=0.0))
         policy = SlicePolicy.load(policy_file, spec.alpha) if spec.controller in USES_RL else EqualSplitPolicy()

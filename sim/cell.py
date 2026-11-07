@@ -29,6 +29,23 @@ class CellConfig:
     # Caps rho so base / (1 - rho) stays finite and not too jumpy near 1 (at most 20 x base).
     # Above it, overload shows up through the growing backlog instead.
     max_utilisation: float = 0.95
+    # M09a: "mm1" is the M01 model above; "flat" is what the testbed shows (M08c): the RLC delay stays at the
+    # base value until the slice saturates, then grows with the queue. Only the queue term remains.
+    delay_model: str = "mm1"
+    # What the cell reports to the verifier and the policy (cell_info); None means the true capacity. Lets the
+    # simulator replay a study that told the verifier a capacity the cell didn't have (M08c: 69, actually ~81).
+    reported_capacity_mbps: float | None = None
+    # Likewise for the URLLC base latency the verifier sizes with; None means the cell's own (base_latency_ms).
+    reported_urllc_base_latency_ms: float | None = None
+
+    @property
+    def told_capacity_mbps(self) -> float:
+        return self.capacity_mbps if self.reported_capacity_mbps is None else self.reported_capacity_mbps
+
+    @property
+    def told_urllc_base_latency_ms(self) -> float:
+        own = self.base_latency_ms["urllc"]
+        return own if self.reported_urllc_base_latency_ms is None else self.reported_urllc_base_latency_ms
 
     @property
     def mbps_per_prb(self) -> float:
@@ -119,7 +136,7 @@ def step_slice(
     3. served = what is waiting, up to what the PRBs can carry
     4. new backlog = what is left, capped by the buffer (the rest is dropped)
     5. PRB use = served / what the PRBs could have carried
-    6. latency = M/M/1 time in system + time to drain the leftover backlog
+    6. latency = M/M/1 time in system (or the flat base delay) + time to drain the leftover backlog
     """
     cap_mbps = share * cfg.capacity_mbps
     arrivals_mb = load_mbps * cfg.dt_s
@@ -159,12 +176,15 @@ def slice_latency_ms(
     Second term: time to send what is still queued at the slice's rate. It keeps growing
     while the slice is overloaded, because the backlog grows.
 
+    With delay_model "flat" (M09a) the first term is the base delay alone: on the testbed the RLC
+    delay stays near its base value until the slice saturates (M08c), unlike M/M/1.
+
     A slice with zero PRBs can send nothing: we treat that as full utilisation and drain
     time computed at a tiny rate, so latency is very large but finite.
     """
     safe_cap = max(cap_mbps, 1e-6)
     rho = min(load_mbps / safe_cap, cfg.max_utilisation)
-    queueing_ms = base_latency_ms / (1.0 - rho)
+    queueing_ms = base_latency_ms if cfg.delay_model == "flat" else base_latency_ms / (1.0 - rho)
     drain_ms = 1000.0 * backlog_mb / safe_cap
     return queueing_ms + drain_ms
 
@@ -188,5 +208,6 @@ def step_slices_batch(
     new_backlog_mb = np.minimum(waiting_mb - served_mb, cfg.max_backlog_mb)
     safe_cap = np.maximum(cap_mbps, 1e-6)
     rho = np.minimum(loads_mbps / safe_cap, cfg.max_utilisation)
-    latency_ms = base_latency_ms / (1.0 - rho) + 1000.0 * new_backlog_mb / safe_cap
+    queueing_ms = np.broadcast_to(base_latency_ms, rho.shape) if cfg.delay_model == "flat" else base_latency_ms / (1.0 - rho)
+    latency_ms = queueing_ms + 1000.0 * new_backlog_mb / safe_cap
     return {"throughput_mbps": served_mb / cfg.dt_s, "backlog_mb": new_backlog_mb, "latency_ms": latency_ms}
