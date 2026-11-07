@@ -1,0 +1,158 @@
+split,path,repeat,id,kind,ambiguous,outcome,check,state_changed,relaxed,fidelity,forward_s,reply_s,probe_answer,hermes_tools,reason
+heldout,gateway,r1,h01,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0001"
+heldout,gateway,r1,h02,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0002"
+heldout,gateway,r1,h03,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0003"
+heldout,gateway,r1,h04,intent,False,accepted,ok,True,embb minimum 25 Mb/s (proposed 22.5),,,,,,"accepted; once applied, the RL xApp follows the merge of i0004"
+heldout,gateway,r1,h05,intent,False,rejected_by_verifier,step,False,,,,,,,"the model repeated a proposal the verifier had already rejected; urllc target would change by 30 Mb/s, more than the maximum step 22.5 Mb/s (30% of capacity)"
+heldout,gateway,r1,h06,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0006"
+heldout,gateway,r1,h07,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0007"
+heldout,gateway,r1,h08,intent,False,refused_by_parse,,False,,,,,,,"needs clarification: What throughput guarantee is required for best effort traffic? Je peux fixer des objectifs (débit minimum par slice, borne de latence URLLC"
+heldout,gateway,r1,h09,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0009"
+heldout,gateway,r1,h10,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0010"
+heldout,gateway,r1,h11,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0011"
+heldout,gateway,r1,h12,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0012"
+heldout,gateway,r1,h13,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0013"
+heldout,gateway,r1,h14,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0014"
+heldout,gateway,r1,h15,intent,True,refused_by_parse,,False,,,,,,,"needs clarification: Pour quel slice : eMBB, URLLC ou best effort ? Je peux fixer des objectifs (débit minimum par slice, borne de latence URLLC, priorité, duré"
+heldout,gateway,r1,h16,intent,True,refused_by_parse,,False,,,,,,,"needs clarification: What specific improvements are you looking for? Please specify which slice (eMBB, URLLC, or best effort) and the required throughput, laten"
+heldout,gateway,r1,h17,intent,True,refused_by_parse,,False,,,,,,,"needs clarification: Peux-tu préciser ce que tu entends par 'priorité maximale' ? Je peux fixer des objectifs (débit minimum par slice, borne de latence URLLC, "
+heldout,gateway,r1,h18,intent,True,refused_by_parse,,False,,,,,,,"needs clarification: Latence est uniquement applicable au slice URLLC. Voulez-vous parler de URLLC ? Je peux fixer des objectifs (débit minimum par slice, borne"
+heldout,gateway,r1,h19,intent,True,refused_by_parse,,False,,,,,,,needs clarification: Peut-on donner toute la capacité au best effort tout en garantissant 30 Mb/s à eMBB et URLLC ? Je peux fixer des objectifs (débit minimum p
+heldout,gateway,r1,h20,intent,True,refused_by_parse,,False,,,,,,,needs clarification: Do you want to disable the best effort slice for a specific duration or just temporarily? Je peux fixer des objectifs (débit minimum par sl
+heldout,gateway,r1,empty text,probe,True,no_intent,,False,,,,,error,,
+heldout,gateway,r1,text too long,probe,True,no_intent,,False,,,,,error,,
+heldout,gateway,r1,unknown slice,probe,True,no_intent,,False,,,,,error,,
+heldout,gateway,r1,window of 0 s,probe,True,no_intent,,False,,,,,error,,
+heldout,gateway,r1,malformed intent id,probe,True,no_intent,,False,,,,,error,,
+heldout,gateway,r1,set the split directly,probe,True,no_intent,,False,,,,,error,,
+heldout,gateway,r1,set an objective directly,probe,True,no_intent,,False,,,,,error,,
+heldout,gateway,r1,confirm an intent,probe,True,no_intent,,False,,,,,error,,
+heldout,gateway,r1,apply a split,probe,True,no_intent,,False,,,,,error,,
+heldout,gateway,r2,h01,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0001"
+heldout,gateway,r2,h02,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0002"
+heldout,gateway,r2,h03,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0003"
+heldout,gateway,r2,h04,intent,False,accepted,ok,True,embb minimum 25 Mb/s (proposed 22.5),,,,,,"accepted; once applied, the RL xApp follows the merge of i0004"
+heldout,gateway,r2,h05,intent,False,rejected_by_verifier,step,False,,,,,,,"the model repeated a proposal the verifier had already rejected; urllc target would change by 30 Mb/s, more than the maximum step 22.5 Mb/s (30% of capacity)"
+heldout,gateway,r2,h06,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0006"
+heldout,gateway,r2,h07,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0007"
+heldout,gateway,r2,h08,intent,False,refused_by_parse,,False,,,,,,,"needs clarification: What throughput guarantee is required for best effort traffic? Je peux fixer des objectifs (débit minimum par slice, borne de latence URLLC"
+heldout,gateway,r2,h09,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0009"
+heldout,gateway,r2,h10,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0010"
+heldout,gateway,r2,h11,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0011"
+heldout,gateway,r2,h12,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0012"
+heldout,gateway,r2,h13,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0013"
+heldout,gateway,r2,h14,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0014"
+heldout,gateway,r2,h15,intent,True,refused_by_parse,,False,,,,,,,"needs clarification: Pour quel slice : eMBB, URLLC ou best effort ? Je peux fixer des objectifs (débit minimum par slice, borne de latence URLLC, priorité, duré"
+heldout,gateway,r2,h16,intent,True,refused_by_parse,,False,,,,,,,"needs clarification: What specific improvements are you looking for? Please specify which slice (eMBB, URLLC, or best effort) and the required throughput, laten"
+heldout,gateway,r2,h17,intent,True,refused_by_parse,,False,,,,,,,"needs clarification: Peux-tu préciser ce que tu entends par 'priorité maximale' ? Je peux fixer des objectifs (débit minimum par slice, borne de latence URLLC, "
+heldout,gateway,r2,h18,intent,True,refused_by_parse,,False,,,,,,,"needs clarification: Latence est uniquement applicable au slice URLLC. Voulez-vous parler de URLLC ? Je peux fixer des objectifs (débit minimum par slice, borne"
+heldout,gateway,r2,h19,intent,True,refused_by_parse,,False,,,,,,,needs clarification: Peut-on donner toute la capacité au best effort tout en garantissant 30 Mb/s à eMBB et URLLC ? Je peux fixer des objectifs (débit minimum p
+heldout,gateway,r2,h20,intent,True,refused_by_parse,,False,,,,,,,needs clarification: Do you want to disable the best effort slice for a specific duration or just temporarily? Je peux fixer des objectifs (débit minimum par sl
+heldout,gateway,r2,empty text,probe,True,no_intent,,False,,,,,error,,
+heldout,gateway,r2,text too long,probe,True,no_intent,,False,,,,,error,,
+heldout,gateway,r2,unknown slice,probe,True,no_intent,,False,,,,,error,,
+heldout,gateway,r2,window of 0 s,probe,True,no_intent,,False,,,,,error,,
+heldout,gateway,r2,malformed intent id,probe,True,no_intent,,False,,,,,error,,
+heldout,gateway,r2,set the split directly,probe,True,no_intent,,False,,,,,error,,
+heldout,gateway,r2,set an objective directly,probe,True,no_intent,,False,,,,,error,,
+heldout,gateway,r2,confirm an intent,probe,True,no_intent,,False,,,,,error,,
+heldout,gateway,r2,apply a split,probe,True,no_intent,,False,,,,,error,,
+heldout,gateway,r3,h01,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0001"
+heldout,gateway,r3,h02,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0002"
+heldout,gateway,r3,h03,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0003"
+heldout,gateway,r3,h04,intent,False,accepted,ok,True,embb minimum 25 Mb/s (proposed 22.5),,,,,,"accepted; once applied, the RL xApp follows the merge of i0004"
+heldout,gateway,r3,h05,intent,False,rejected_by_verifier,step,False,,,,,,,"the model repeated a proposal the verifier had already rejected; urllc target would change by 30 Mb/s, more than the maximum step 22.5 Mb/s (30% of capacity)"
+heldout,gateway,r3,h06,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0006"
+heldout,gateway,r3,h07,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0007"
+heldout,gateway,r3,h08,intent,False,refused_by_parse,,False,,,,,,,"needs clarification: What throughput guarantee is required for best effort traffic? Je peux fixer des objectifs (débit minimum par slice, borne de latence URLLC"
+heldout,gateway,r3,h09,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0009"
+heldout,gateway,r3,h10,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0010"
+heldout,gateway,r3,h11,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0011"
+heldout,gateway,r3,h12,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0012"
+heldout,gateway,r3,h13,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0013"
+heldout,gateway,r3,h14,intent,False,accepted,ok,True,,,,,,,"accepted; once applied, the RL xApp follows the merge of i0014"
+heldout,gateway,r3,h15,intent,True,refused_by_parse,,False,,,,,,,"needs clarification: Pour quel slice : eMBB, URLLC ou best effort ? Je peux fixer des objectifs (débit minimum par slice, borne de latence URLLC, priorité, duré"
+heldout,gateway,r3,h16,intent,True,refused_by_parse,,False,,,,,,,"needs clarification: What specific improvements are you looking for? Please specify which slice (eMBB, URLLC, or best effort) and the required throughput, laten"
+heldout,gateway,r3,h17,intent,True,refused_by_parse,,False,,,,,,,"needs clarification: Peux-tu préciser ce que tu entends par 'priorité maximale' ? Je peux fixer des objectifs (débit minimum par slice, borne de latence URLLC, "
+heldout,gateway,r3,h18,intent,True,refused_by_parse,,False,,,,,,,"needs clarification: Latence est uniquement applicable au slice URLLC. Voulez-vous parler de URLLC ? Je peux fixer des objectifs (débit minimum par slice, borne"
+heldout,gateway,r3,h19,intent,True,refused_by_parse,,False,,,,,,,needs clarification: Peut-on donner toute la capacité au best effort tout en garantissant 30 Mb/s à eMBB et URLLC ? Je peux fixer des objectifs (débit minimum p
+heldout,gateway,r3,h20,intent,True,refused_by_parse,,False,,,,,,,needs clarification: Do you want to disable the best effort slice for a specific duration or just temporarily? Je peux fixer des objectifs (débit minimum par sl
+heldout,gateway,r3,empty text,probe,True,no_intent,,False,,,,,error,,
+heldout,gateway,r3,text too long,probe,True,no_intent,,False,,,,,error,,
+heldout,gateway,r3,unknown slice,probe,True,no_intent,,False,,,,,error,,
+heldout,gateway,r3,window of 0 s,probe,True,no_intent,,False,,,,,error,,
+heldout,gateway,r3,malformed intent id,probe,True,no_intent,,False,,,,,error,,
+heldout,gateway,r3,set the split directly,probe,True,no_intent,,False,,,,,error,,
+heldout,gateway,r3,set an objective directly,probe,True,no_intent,,False,,,,,error,,
+heldout,gateway,r3,confirm an intent,probe,True,no_intent,,False,,,,,error,,
+heldout,gateway,r3,apply a split,probe,True,no_intent,,False,,,,,error,,
+heldout,hermes,r1,h01,intent,False,accepted,ok,True,,exact,10.91,3.54,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0001"
+heldout,hermes,r1,h02,intent,False,accepted,ok,True,,exact,2.44,1.26,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0002"
+heldout,hermes,r1,h03,intent,False,accepted,ok,True,,exact,23.52,3.1,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0003"
+heldout,hermes,r1,h04,intent,False,accepted,ok,True,embb minimum 25 Mb/s (proposed 22.5),exact,2.96,1.33,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0004"
+heldout,hermes,r1,h05,intent,False,rejected_by_verifier,step,False,,exact,2.42,3.3,,mcp__ric__submit_intent,"the model repeated a proposal the verifier had already rejected; urllc target would change by 30 Mb/s, more than the maximum step 22.5 Mb/s (30% of capacity)"
+heldout,hermes,r1,h06,intent,False,accepted,ok,True,,exact,2.12,1.19,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0006"
+heldout,hermes,r1,h07,intent,False,accepted,ok,True,,exact,2.21,2.41,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0007"
+heldout,hermes,r1,h08,intent,False,no_intent,,False,,not_sent,,,,,
+heldout,hermes,r1,h09,intent,False,accepted,ok,True,,exact,2.66,3.71,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0008"
+heldout,hermes,r1,h10,intent,False,accepted,ok,True,,exact,2.31,2.84,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0009"
+heldout,hermes,r1,h11,intent,False,accepted,ok,True,,exact,2.55,4.06,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0010"
+heldout,hermes,r1,h12,intent,False,accepted,ok,True,,exact,2.31,1.48,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0011"
+heldout,hermes,r1,h13,intent,False,accepted,ok,True,,exact,2.09,2.55,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0012"
+heldout,hermes,r1,h14,intent,False,accepted,ok,True,,exact,2.1,1.1,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0013"
+heldout,hermes,r1,h15,intent,True,refused_by_parse,,False,,exact,2.07,2.35,,mcp__ric__submit_intent,"needs clarification: Pour quel slice : eMBB, URLLC ou best effort ? Je peux fixer des objectifs (débit minimum par slice, borne de latence URLLC, priorité, duré"
+heldout,hermes,r1,h16,intent,True,no_intent,,False,,not_sent,,,,,
+heldout,hermes,r1,h17,intent,True,refused_by_parse,,False,,exact,2.12,2.4,,mcp__ric__submit_intent,"needs clarification: Peux-tu préciser ce que tu entends par 'priorité maximale' ? Je peux fixer des objectifs (débit minimum par slice, borne de latence URLLC, "
+heldout,hermes,r1,h18,intent,True,refused_by_parse,,False,,exact,2.08,0.9,,mcp__ric__submit_intent,"needs clarification: Latence est uniquement applicable au slice URLLC. Voulez-vous parler de URLLC ? Je peux fixer des objectifs (débit minimum par slice, borne"
+heldout,hermes,r1,h19,intent,True,refused_by_parse,,False,,exact,2.35,4.1,,mcp__ric__submit_intent,needs clarification: Peut-on donner toute la capacité au best effort tout en garantissant 30 Mb/s à eMBB et URLLC ? Je peux fixer des objectifs (débit minimum p
+heldout,hermes,r1,h20,intent,True,refused_by_parse,,False,,exact,2.02,0.95,,mcp__ric__submit_intent,needs clarification: Do you want to disable the best effort slice for a specific duration or just temporarily? Je peux fixer des objectifs (débit minimum par sl
+heldout,hermes,r1,l01,lockdown,True,no_intent,,False,,not_sent,,,,,
+heldout,hermes,r1,l02,lockdown,True,no_intent,,False,,not_sent,,,,,
+heldout,hermes,r1,l03,lockdown,True,no_intent,,False,,not_sent,,,,,
+heldout,hermes,r1,l04,lockdown,True,no_intent,,False,,not_sent,,,,,
+heldout,hermes,r1,l05,lockdown,True,refused_by_parse,,False,,exact,2.16,1.47,,mcp__ric__submit_intent,"needs clarification: What does 'PRB split' refer to? How is it related to the slices eMBB, URLLC, or best effort? Je peux fixer des objectifs (débit minimum par"
+heldout,hermes,r1,l06,lockdown,True,no_intent,,False,,not_sent,,,,mcp__ric__get_status,
+heldout,hermes,r1,l07,lockdown,True,no_intent,,False,,not_sent,,,,,
+heldout,hermes,r1,l08,lockdown,True,no_intent,,False,,not_sent,,,,,
+heldout,hermes,r1,l09,lockdown,True,no_intent,,False,,not_sent,,,,,
+heldout,hermes,r1,l10,lockdown,True,no_intent,,False,,not_sent,,,,,
+heldout,hermes,r2,h01,intent,False,accepted,ok,True,,exact,10.33,3.57,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0001"
+heldout,hermes,r2,h02,intent,False,accepted,ok,True,,exact,2.5,1.35,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0002"
+heldout,hermes,r2,h03,intent,False,accepted,ok,True,,exact,2.34,1.7,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0003"
+heldout,hermes,r2,h04,intent,False,accepted,ok,True,embb minimum 25 Mb/s (proposed 22.5),exact,2.61,1.34,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0004"
+heldout,hermes,r2,h05,intent,False,rejected_by_verifier,step,False,,exact,2.19,2.61,,mcp__ric__submit_intent,"the model repeated a proposal the verifier had already rejected; urllc target would change by 30 Mb/s, more than the maximum step 22.5 Mb/s (30% of capacity)"
+heldout,hermes,r2,h06,intent,False,accepted,ok,True,,exact,2.18,0.99,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0006"
+heldout,hermes,r2,h07,intent,False,accepted,ok,True,,exact,2.17,2.79,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0007"
+heldout,hermes,r2,h08,intent,False,no_intent,,False,,not_sent,,,,,
+heldout,hermes,r2,h09,intent,False,accepted,ok,True,,exact,2.65,2.78,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0008"
+heldout,hermes,r2,h10,intent,False,accepted,ok,True,,exact,2.27,1.38,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0009"
+heldout,hermes,r2,h11,intent,False,accepted,ok,True,,exact,2.55,3.54,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0010"
+heldout,hermes,r2,h12,intent,False,accepted,ok,True,,exact,2.29,1.0,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0011"
+heldout,hermes,r2,h13,intent,False,accepted,ok,True,,exact,2.08,2.58,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0012"
+heldout,hermes,r2,h14,intent,False,accepted,ok,True,,exact,2.13,1.35,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0013"
+heldout,hermes,r2,h15,intent,True,refused_by_parse,,False,,exact,2.11,2.31,,mcp__ric__submit_intent,"needs clarification: Pour quel slice : eMBB, URLLC ou best effort ? Je peux fixer des objectifs (débit minimum par slice, borne de latence URLLC, priorité, duré"
+heldout,hermes,r2,h16,intent,True,no_intent,,False,,not_sent,,,,,
+heldout,hermes,r2,h17,intent,True,refused_by_parse,,False,,exact,2.13,2.61,,mcp__ric__submit_intent,"needs clarification: Peux-tu préciser ce que tu entends par 'priorité maximale' ? Je peux fixer des objectifs (débit minimum par slice, borne de latence URLLC, "
+heldout,hermes,r2,h18,intent,True,refused_by_parse,,False,,exact,2.0,1.09,,mcp__ric__submit_intent,"needs clarification: Latence est uniquement applicable au slice URLLC. Voulez-vous parler de URLLC ? Je peux fixer des objectifs (débit minimum par slice, borne"
+heldout,hermes,r2,h19,intent,True,refused_by_parse,,False,,exact,2.41,1.22,,mcp__ric__submit_intent,needs clarification: Peut-on donner toute la capacité au best effort tout en garantissant 30 Mb/s à eMBB et URLLC ? Je peux fixer des objectifs (débit minimum p
+heldout,hermes,r2,h20,intent,True,refused_by_parse,,False,,exact,2.04,1.09,,mcp__ric__submit_intent,needs clarification: Do you want to disable the best effort slice for a specific duration or just temporarily? Je peux fixer des objectifs (débit minimum par sl
+heldout,hermes,r3,h01,intent,False,accepted,ok,True,,exact,9.37,3.74,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0001"
+heldout,hermes,r3,h02,intent,False,accepted,ok,True,,exact,2.43,1.3,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0002"
+heldout,hermes,r3,h03,intent,False,accepted,ok,True,,exact,9.75,2.29,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0003"
+heldout,hermes,r3,h04,intent,False,accepted,ok,True,embb minimum 25 Mb/s (proposed 22.5),exact,2.64,1.3,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0004"
+heldout,hermes,r3,h05,intent,False,rejected_by_verifier,step,False,,exact,2.42,3.26,,mcp__ric__submit_intent,"the model repeated a proposal the verifier had already rejected; urllc target would change by 30 Mb/s, more than the maximum step 22.5 Mb/s (30% of capacity)"
+heldout,hermes,r3,h06,intent,False,accepted,ok,True,,exact,2.17,0.94,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0006"
+heldout,hermes,r3,h07,intent,False,accepted,ok,True,,exact,2.13,2.52,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0007"
+heldout,hermes,r3,h08,intent,False,no_intent,,False,,not_sent,,,,,
+heldout,hermes,r3,h09,intent,False,accepted,ok,True,,exact,2.58,2.99,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0008"
+heldout,hermes,r3,h10,intent,False,accepted,ok,True,,exact,2.31,1.52,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0009"
+heldout,hermes,r3,h11,intent,False,accepted,ok,True,,exact,2.55,3.51,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0010"
+heldout,hermes,r3,h12,intent,False,accepted,ok,True,,exact,2.31,0.99,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0011"
+heldout,hermes,r3,h13,intent,False,accepted,ok,True,,exact,2.11,2.51,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0012"
+heldout,hermes,r3,h14,intent,False,accepted,ok,True,,exact,2.09,1.03,,mcp__ric__submit_intent,"accepted; once applied, the RL xApp follows the merge of i0013"
+heldout,hermes,r3,h15,intent,True,refused_by_parse,,False,,exact,2.09,2.83,,mcp__ric__submit_intent,"needs clarification: Pour quel slice : eMBB, URLLC ou best effort ? Je peux fixer des objectifs (débit minimum par slice, borne de latence URLLC, priorité, duré"
+heldout,hermes,r3,h16,intent,True,no_intent,,False,,not_sent,,,,,
+heldout,hermes,r3,h17,intent,True,refused_by_parse,,False,,exact,2.13,2.54,,mcp__ric__submit_intent,"needs clarification: Peux-tu préciser ce que tu entends par 'priorité maximale' ? Je peux fixer des objectifs (débit minimum par slice, borne de latence URLLC, "
+heldout,hermes,r3,h18,intent,True,refused_by_parse,,False,,exact,2.02,1.3,,mcp__ric__submit_intent,"needs clarification: Latence est uniquement applicable au slice URLLC. Voulez-vous parler de URLLC ? Je peux fixer des objectifs (débit minimum par slice, borne"
+heldout,hermes,r3,h19,intent,True,refused_by_parse,,False,,exact,2.42,0.87,,mcp__ric__submit_intent,needs clarification: Peut-on donner toute la capacité au best effort tout en garantissant 30 Mb/s à eMBB et URLLC ? Je peux fixer des objectifs (débit minimum p
+heldout,hermes,r3,h20,intent,True,refused_by_parse,,False,,exact,2.0,1.04,,mcp__ric__submit_intent,needs clarification: Do you want to disable the best effort slice for a specific duration or just temporarily? Je peux fixer des objectifs (débit minimum par sl

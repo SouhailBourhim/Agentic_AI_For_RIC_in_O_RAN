@@ -196,13 +196,13 @@ This is not O-RAN A1: FlexRIC has no Non-RT RIC.
 | H | Settled in | How |
 |---|---|---|
 | H1 Hermes installs and runs on WSL2 | M05b | Pin a version, install it (container preferred), connect it to the gateway, call all 3 tools. Fails within the timebox → CLI client. **Confirmed 2026-11-04:** v0.22.7 image, `docs/learn/M05b-hermes.md` |
-| H2 Hermes passes the text verbatim and can use the local Ollama model | M05b, measured in M08b | Gateway logs the received text; compare it with the typed text (fidelity %). Hermes configured on the same Ollama tag as the agent. **Preview 2026-11-04, tune split:** 17/20 exact, none altered, 3 not sent (empty model answers) |
+| H2 Hermes passes the text verbatim and can use the local Ollama model | M05b, measured in M08b | Gateway logs the received text; compare it with the typed text (fidelity %). Hermes configured on the same Ollama tag as the agent. **Preview 2026-11-04, tune split:** 17/20 exact, none altered, 3 not sent (empty model answers). **Measured 2026-11-07, held-out:** 18/20 exact in each of 3 repeats (interval 70-97 %), none altered, 2 not sent |
 | H3 general tools can be disabled, Hermes isolated | M05b | Disable toolsets in config. Ask Hermes to run a shell command or read a file → no tool available. Container network reaches gateway + Ollama only; `curl` to FlexRIC/OAI fails. **Confirmed 2026-11-04:** 3 tools on the wire, 17/17 network targets as expected with the testbed up; the same probe from the testbed network reaches them |
 | H4 separate console with timeout | M04a (tests), shown in M05a | Test: awaiting_confirmation → expired after T. Eval mode skips confirmation. The console is its own CLI process |
 | H5 gateway only talks to the agent HTTP API | M05a, rechecked in M07b | Import test (the gateway imports none of `backends`, `xapps`, `rl`, `sqlite3`). One configured URL. Network test on the testbed. **Confirmed 2026-11-05 (M07b):** with the testbed up, all 7 RAN addresses time out from WSL (where the gateway runs) and answer from the testbed network (`testbed/check_gateway_route.py`) |
 | H6 `set_slice_share` only in LLM-only mode | M04b | Test of the tool list per mode. Gateway test that it is never exposed |
 | H7 4-controller comparison without Hermes | M08a | Runners inject intents straight into the agent API. Only intents with verified extraction are kept. **Confirmed 2026-11-07:** no Hermes in any run, every parse matched its expected facts (`docs/learn/M08a-eval-sim.md`) |
-| H8 ~40 annotated intents are enough | M04b (template), M08b | With 40 intents the 95% CI on accuracy is about ±15 points. If extraction becomes a headline result, aim for 60–80 |
+| H8 ~40 annotated intents are enough | M04b (template), M08b | With 40 intents the 95% CI on accuracy is about ±15 points. If extraction becomes a headline result, aim for 60–80. **Answered 2026-11-07 (M08b):** 19/20 on the held-out half, interval 76-99 %: enough to tune and catch large failures, not to quote a precise accuracy |
 
 ## 5. Machine risks and fallbacks
 
@@ -319,8 +319,8 @@ acknowledge arrived.
   verifier can accept targets on the testbed that are about 8 % too optimistic. Decide before M08c.
 - **llama3.1 sets priority on guarantee intents (M04b, low priority).** Seen with llama3.1 only;
   qwen3:8b is the chosen model, so nothing depends on it unless the model changes.
-- **Hermes: 3 of 20 turns got no reply (M05b).** The model returned an empty answer after ~47 s and
-  nothing was submitted; cause not found. Measure again with the worker queue in M08b's Hermes
-  metrics, on the tune split only.
+- **Hermes: some turns get no reply (M05b, measured again in M08b).** The model returns an empty answer after
+  retries and nothing is submitted. It recurs with the worker running (tune: t02, t16, t18 in all 3 repeats; held-out: h08),
+  so the worker's queue isn't the cause. Cause not found. Fails safe; the operator sees it and can resend.
 - **Agent worker is serial in demo mode (M05b).** An unconfirmed intent holds the next for up to
   120 s. Harmless in a one-operator demo; it matters only if several intents must overlap.

@@ -114,8 +114,8 @@ annotated intents, under a selection rule written down before the run.
   granite4.2:8b returned schema-valid but empty answers.
 - **qwen3:8b** won: 19/20 with prompt v1, then 20/20 after a general fix (an answer saying
   "understood" must actually contain a fact).
-- Parsing takes about 1.3 s. A held-out set of 20 intents was written before the prompt
-  existed, and it is reserved for the final evaluation.
+- Parsing takes about 1 s. A held-out set of 20 intents was written before the prompt existed, and scored
+  once at the end (M08b, below).
 
 **A real 5G testbed on a laptop, with three slices end to end.** It runs the OAI 5G core, an OAI
 gNB in RF-simulator mode, the FlexRIC near-RT RIC and three UEs, one per slice (eMBB, URLLC, best
@@ -177,6 +177,16 @@ median of 10 paired seeds:
 
 ![Intent met per controller and scenario](docs/learn/img/M08a-intent-met.png)
 
+**The interface, on intents it had never seen (M08b).** The rules were committed before the single run, and the code refuses
+to score the set twice.
+- `qwen3:8b` read 19 of 20 held-out intents correctly (interval 76–99 %), against 10 of 20 for a regex parser, and detected all 6
+  ambiguous ones. The set has one author, so this measures familiar kinds of request more than real operators' words.
+- No out-of-scope attempt changed the RIC's state: 45 through the MCP client, 28 through Hermes.
+- Hermes forwarded 18 of 20 texts exactly and altered none; 2 never reached the gateway, which fails safe. Typed to gateway takes a
+  median of 2.3 s.
+- Hermes's words still can't be trusted: it invented the output of a `curl` it had no way to run. Nothing happened, because safety
+  doesn't rest on what the LLM says. [The note](docs/learn/M08b-eval-interface.md) has the rest.
+
 **A chat interface that can do almost nothing, checked from outside.** Hermes Agent runs on an
 internal Docker network whose only exits are two relays, to the gateway and to Ollama.
 - A capture of its LLM requests shows exactly three tools offered. Ten hostile requests produced
@@ -189,7 +199,7 @@ internal Docker network whose only exits are two relays, to the gateway and to O
 
 ## Engineering practices
 
-- **402 automated tests**, run by GitHub Actions on every push. No GPU, LLM or testbed is
+- **424 automated tests**, run by GitHub Actions on every push. No GPU, LLM or testbed is
   needed: the LLM is replaced by a scripted fake.
 - **Pre-registration.** Pass/fail criteria, model-selection rules and held-out sets are
   committed before the experiment runs. Failed criteria stay in the record.
@@ -221,7 +231,8 @@ internal Docker network whose only exits are two relays, to the gateway and to O
 | M05b | Hermes Agent as the chat interface, isolated: exactly three tools, reaches only the gateway and Ollama | Done |
 | M07b | PRB-split control on the real gNB over E2 (gNB patch), slice-control xApp, FlexRIC backend, RL xApp image | Done |
 | M08a | Four-controller comparison on the simulator (static, RL only, LLM only, LLM + RL), 3 scenarios, 10 paired seeds | Done |
-| M08b–c | Extraction accuracy on the held-out intents; the same comparison on the testbed | Next |
+| M08b | Interface evaluation on the held-out intents: extraction, tool calls, out-of-scope attempts, Hermes fidelity and latency | Done |
+| M08c | The four-controller comparison on the testbed | Next |
 
 The full plan, with interfaces, risks and how each hypothesis gets tested, is in
 [docs/PLAN.md](docs/PLAN.md). The original design document (in French) is
@@ -243,7 +254,7 @@ Requires [uv](https://docs.astral.sh/uv/), which installs the right Python by it
 
 ```bash
 uv sync                              # install the locked dependencies
-uv run pytest -q                     # 402 tests; no GPU, LLM or Docker needed
+uv run pytest -q                     # 424 tests; no GPU, LLM or Docker needed
 uv run python -m gateway.client tools # the MCP gateway's three tools
 uv run python -m rl.plot_runner      # one intent through the whole chain, simulated (~10 s)
 ```
