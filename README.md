@@ -250,6 +250,7 @@ internal Docker network whose only exits are two relays, to the gateway and to O
 | M08a | Four-controller comparison on the simulator (static, RL only, LLM only, LLM + RL), 3 scenarios, 10 paired seeds | Done |
 | M08b | Interface evaluation on the held-out intents: extraction, tool calls, out-of-scope attempts, Hermes fidelity and latency | Done |
 | M08c | The four-controller comparison on the testbed: 3 scenarios, 3 repeats, 36 runs | Done |
+| M08d | The same comparison rerun: measured capacity (79 Mb/s), traffic on a clock, plus an S3 what-if; protocol frozen | Next: the matrix |
 
 The full plan, with interfaces, risks and how each hypothesis gets tested, is in
 [docs/PLAN.md](docs/PLAN.md). The original design document (in French) is

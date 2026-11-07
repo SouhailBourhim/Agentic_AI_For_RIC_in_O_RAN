@@ -315,6 +315,7 @@ acknowledge arrived.
   targets in force and URLLC's own request rejected as a conflict, URLLC got 8 % of the cell and about 8 s of delay. Implied
   targets (`verifier.verify.with_fair_shares`) raise it to 17.7 Mb/s and 2.9 s; an equal split gives 25 Mb/s and 2 s. The model
   still never relaxes the rejected target. **Open:** whether the agent should relax it or tell the operator what the rejection costs.
+- **Done for M08d, pending its matrix: capacity 79 Mb/s by a rule written first (`testbed/measure_capacity_m08d.py`), and traffic on a clock.** The two items below record how they were found. M07b's own settings now give 73-76 Mb/s against its 69-72, which remains unexplained.
 - **Testbed capacity in the verifier (decided for M08c, then contradicted by it).** `cell_info()` reports M07b's 69 Mb/s
   since 2026-11-07. M08c's standing queues show 81 Mb/s by KPM and 79 received by iperf3 (0.75 Mb/s per PRB). **Open:** why M07b
   measured 0.654 (candidate, untested: it offered 240 Mb/s in total, M08c at most 82.5), which value to use, and then rerunning

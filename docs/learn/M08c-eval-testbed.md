@@ -19,6 +19,8 @@ M08b measured it. Upper layers are unchanged from M08a: only the backend and the
 
 ## 3. How it works
 
+The code references and commands below are as of commit 4bdfba4, which made these results. M08d changed the harness afterwards (`docs/DECISIONS.md`).
+
 1. **The scenarios** ([eval/testbed_scenarios.py:25](../../eval/testbed_scenarios.py#L25)) keep M08a's fractions of the cell at 69 Mb/s, rounded to 0.5 Mb/s, as segments of iperf3 rates.
 2. **The guard** ([eval/testbed_control.py:80](../../eval/testbed_control.py#L80)) refuses `--final` with uncommitted code; `check_image` ([:310](../../eval/testbed_control.py#L310)) refuses an image older than the code.
 3. **The order** ([:86](../../eval/testbed_control.py#L86)) rotates by 5 per repeat, so slow drift doesn't always land on the same controller. The testbed restarts at each repeat ([:320](../../eval/testbed_control.py#L320)).

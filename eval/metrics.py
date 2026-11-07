@@ -58,6 +58,18 @@ def reaction_s(t: np.ndarray, ok: np.ndarray, start: float, end: float) -> float
     return None
 
 
+def over_bound_after(kpis: dict, intent: ScenarioIntent, within_s: float = 60.0) -> int | None:
+    """Seconds URLLC spent over the intent's latency bound just after its window (M08d). intent_met can't see
+    these: M08c's S2 swung for 23-28 s after the intent expired and still scored 1.00. None if the intent has no
+    bound, or if the run ended with it."""
+    if intent.max_latency_ms is None:
+        return None
+    t, latency = kpis["urllc"]["t"], kpis["urllc"]["lat"]
+    _, end = intent.window
+    after = (t > end) & (t <= end + within_s)
+    return int((latency[after] > intent.max_latency_ms).sum()) if after.any() else None
+
+
 def moved_per_s(kpis: dict, mask: np.ndarray | None = None) -> float | None:
     """Share of the cell that changes hands per second: half the sum of |change| over the slices, as
     one PRB leaving a slice also arrives in another. Only between neighbouring seconds both in mask."""

@@ -17,12 +17,14 @@ from matplotlib.figure import Figure
 
 from eval.metrics import load_run
 from eval.plot_control import ACCENT, IMG, LABELS, NEUTRAL, ORDER, band, controller_axis, titled, values
-from eval.testbed_control import RESULTS, TABLE, TESTBED_CAPACITY_MBPS
-from eval.testbed_scenarios import SCENARIOS, Scenario
+from eval.scenarios import Scenario
+from eval.testbed_scenarios_m08c import SCENARIOS, TESTBED_CAPACITY_MBPS
 from sim.plot import SLICE_COLOURS, SLICE_LABELS, SURFACE, TEXT, TEXT_MUTED, _style
 from store.events import read_events
 from verifier.objective import SLICES
 
+RESULTS = Path("eval/results/m08c")
+TABLE = Path("docs/learn/data/M08c-runs.csv")
 SIM_TABLE = Path("docs/learn/data/M08a-runs.csv")
 REPEATS = (1, 2, 3)
 PANELS = [("s1", 1, "S1: URLLC 18 Mb/s, < 10 ms"), ("s2", 1, "S2: URLLC 16.5 Mb/s, < 5 ms"),

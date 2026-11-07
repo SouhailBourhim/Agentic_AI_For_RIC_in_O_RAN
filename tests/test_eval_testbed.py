@@ -1,6 +1,7 @@
 """M08c: the control evaluation on the testbed, the parts that need no testbed."""
 
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -29,7 +30,7 @@ def objective_for(intent, now: float):
 
 
 def test_the_testbed_reports_the_capacity_it_measured() -> None:
-    assert cell_info().capacity_mbps == TESTBED_CAPACITY_MBPS == 69.0
+    assert cell_info().capacity_mbps == TESTBED_CAPACITY_MBPS == 79.0
 
 
 @pytest.mark.parametrize("intent", ALL_INTENTS, ids=lambda i: i.text[:25])
@@ -161,3 +162,60 @@ def test_s1s_reaction_clock_starts_when_the_spike_really_started() -> None:
               {"event": "segment_start", "data": {"segment": 1, "wall": 1123.5}}]
     assert T.scenario_as_played("s1", events).intents[0].reaction_from_s == 123.5
     assert T.scenario_as_played("s2", events) is SCENARIOS["s2"]
+
+
+# ---------------------------------------------------------------- M08d: the fixes
+
+
+def test_s3s_rejection_rests_on_the_latency_margin_and_the_what_if_removes_it() -> None:
+    first, second = SCENARIOS["s3"].intents
+    active = (ActiveIntent(intent_id="a", issued_at=60.0, objective=objective_for(first, 60.0)),)
+    told = VerifierState(now_s=120.0, capacity_mbps=TESTBED_CAPACITY_MBPS, active=active, urllc_base_latency_ms=T.WHAT_IF_BASE_LATENCY_MS)
+    assert verify(objective_for(second, 120.0), told).accepted
+
+
+def test_the_capacity_rule_reads_condition_c_and_keeps_69_when_close(monkeypatch) -> None:
+    sys.path.insert(0, "testbed")
+    import measure_capacity_m08d as M
+
+    row = lambda condition, total: {"condition": condition, "kpm_total_mbps": total}  # noqa: E731
+    assert M.capacity_from([row("A", 50.0), row("C", 80.2), row("C", 73.5), row("C", 78.9)]) == 79.0
+    assert M.capacity_from([row("C", 71.9)]) == 69.0
+
+
+def test_each_segment_starts_on_the_clock_on_its_own_port(monkeypatch, tmp_path) -> None:
+    started, waited = [], []
+
+    class Proc:
+        def wait(self) -> None:
+            waited.append(len(started))
+
+    sleeps = []
+    monkeypatch.setattr(T.time, "sleep", sleeps.append)
+    monkeypatch.setattr(T.traffic, "iperf", lambda name, rate, seconds, out, segment=0: (started.append((name, segment)), out.write_text("{}"), Proc())[2])
+    monkeypatch.setattr(T.traffic, "ping", lambda name, seconds, out: Proc())
+    monkeypatch.setattr(T, "log_event", lambda *a, **k: None)
+    errors: list[str] = []
+    db_path = tmp_path / "ric.db"
+    T.play_segments(T.TestbedRun("dev", "s1", "static", 1), tmp_path, 1.0, str(db_path), errors, T.time.time())
+    assert [s for _, s in started] == [0, 0, 0, 1, 1, 1, 2, 2, 2]
+    assert sleeps[1] == pytest.approx(120.0, abs=2.0) and sleeps[2] == pytest.approx(300.0, abs=2.0)
+    assert waited[0] == len(started)  # nothing waited on before all the segments had started
+    assert errors == []
+
+
+def test_the_seconds_after_an_intent_are_counted_and_only_with_a_bound_and_a_tail() -> None:
+    from eval.metrics import over_bound_after
+
+    t = np.arange(1.0, 361.0)
+    latency = np.where((t > 300) & (t <= 325), 2000.0, 0.5)
+    kpis = {"urllc": {"t": t, "lat": latency}}
+    s1, s2, s3 = SCENARIOS["s1"].intents[0], SCENARIOS["s2"].intents[0], SCENARIOS["s3"].intents[0]
+    assert over_bound_after(kpis, s2) == 25
+    assert over_bound_after(kpis, s1) is None  # the run ends with this intent
+    assert over_bound_after(kpis, s3) is None  # no latency bound
+
+
+def test_a_second_port_per_segment_keeps_slices_apart() -> None:
+    ports = {spec["port"] + T.traffic.SEGMENT_PORT_STEP * segment for spec in T.traffic.SLICES.values() for segment in range(T.MAX_SEGMENTS)}
+    assert len(ports) == len(T.traffic.SLICES) * T.MAX_SEGMENTS

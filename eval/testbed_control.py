@@ -1,14 +1,18 @@
-"""The control comparison on the real cell: the four controllers, at real speed, as separate processes (M08c).
+"""The control comparison on the real cell: the four controllers, at real speed, as separate processes (M08c, M08d).
 
-  uv run python -m eval.testbed_control --dev [--scale 0.2] [--scenarios s3] [--controllers proposed]
-  uv run python -m eval.testbed_control --final      3 repeats of the 12 runs, about 5 hours; resumes if stopped
+  uv run python -m eval.testbed_control --dev [--scale 0.2] [--scenarios s3] [--controllers proposed] [--what-if]
+  uv run python -m eval.testbed_control --final      3 repeats of the 12 runs, then the S3 what-if; about 4.5 hours; resumes if stopped
 
 --final restarts the testbed at the start of each repeat and stops it at the end. It refuses uncommitted code and
 an RL xApp image older than this code. Every run is measured by eval.metrics, like the simulator's: its logs are
 rebased so the scenario starts at t=0. A run is invalid only if a container restarted, the xApp exited, KPM went
 stale or an iperf3 failed; a bad score never invalidates a run. Invalid runs are kept and replayed once at the end.
 
-Raw logs go to eval/results/m08c/ (git-ignored), the table to docs/learn/data/M08c-runs.csv.
+The what-if is exploratory and stays out of the main comparison: LLM + RL on S3 with the verifier told URLLC's base
+latency measured on this cell, so the second intent is accepted, which asks whether the cell can deliver all three goals.
+
+Raw logs go to eval/results/m08d/ (git-ignored), the table to docs/learn/data/M08d-runs.csv. M08c's results, made
+at 4bdfba4, stay in eval/results/m08c/ and docs/learn/data/M08c-runs.csv.
 """
 
 import argparse
@@ -30,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "testbed"))  # f
 import traffic  # noqa: E402
 
 from eval.interface import wait_for_service  # noqa: E402
-from eval.metrics import measure_run  # noqa: E402
+from eval.metrics import load_run, measure_run, over_bound_after  # noqa: E402
 from eval.realtime_check import start  # noqa: E402
 from eval.scenarios import Scenario  # noqa: E402
 from eval.testbed_scenarios import SCENARIOS, SEGMENTS, TESTBED_CAPACITY_MBPS  # noqa: E402
@@ -38,8 +42,8 @@ from rl.runner import SERVED_SMOOTHING_ALPHA, clear_run_state  # noqa: E402
 from store import db, kpi, testbed  # noqa: E402
 from store.events import log_event, read_events  # noqa: E402
 
-RESULTS = Path("eval/results/m08c")
-TABLE = Path("docs/learn/data/M08c-runs.csv")
+RESULTS = Path("eval/results/m08d")
+TABLE = Path("docs/learn/data/M08d-runs.csv")
 TESTBED_DB = "var/ric-testbed.db"
 COMPOSE = ["docker", "compose", "-f", "testbed/rfsim-flexric/docker-compose.yml", "--profile", "control"]
 RL_IMAGE = "agentic-ric/rl-xapp:latest"
@@ -52,14 +56,17 @@ CODE_DIRS = ("agent", "backends", "eval", "gateway", "rl", "sim", "store", "test
 WATCHED = ("rfsim5g-oai-gnb", "nearRT-RIC", "xapp-kpm-slices", "rfsim5g-oai-nr-ue-embb", "rfsim5g-oai-nr-ue-urllc",
            "rfsim5g-oai-nr-ue-be", "oai-upf", "oai-amf")
 READY_TIMEOUT_S = 60.0
-DRAIN_GRACE_S = 45.0  # after the scenario: iperf3 only closes once the queues have drained
+CLOSE_LIMIT_S = 180.0  # after the scenario: iperf3 closes once the queues drain; later than this, it failed
+MAX_SEGMENTS = 3  # each segment of a run has its own iperf3 servers
+WHAT_IF = "what_if"
+WHAT_IF_BASE_LATENCY_MS = 0.6  # URLLC's RLC delay under capacity, M08c; the verifier otherwise uses the simulator's 2 ms
 QUIET_MBPS = 1.0  # KPM throughput under which a slice's queue counts as drained
 QUIET_TIMEOUT_S = 90.0
 
 
 @dataclasses.dataclass(frozen=True)
 class TestbedRun:
-    study: str  # testbed or dev
+    study: str  # testbed, what_if or dev
     scenario: str
     controller: str
     repeat: int
@@ -147,18 +154,24 @@ def restart_counts() -> dict[str, int]:
     return counts
 
 
-def play_segments(run: TestbedRun, work: Path, scale: float, conn_path: str, errors: list[str]) -> None:
-    """One thread: the traffic. Each segment starts when the previous iperf3 has closed, as in M07b."""
+def play_segments(run: TestbedRun, work: Path, scale: float, conn_path: str, errors: list[str], t0: float) -> None:
+    """One thread: the traffic, on the scenario's clock. M08c waited for each iperf3 to close, which takes as long as the
+    queues take to drain, so a controller that built a queue delayed its own surge by up to 28 s (M08c's note)."""
     conn = db.connect(Path(conn_path))
+    procs, results = [], []
+    at = 0.0
     for i, (seconds, rates) in enumerate(SEGMENTS[run.scenario]):
         seconds = max(5, round(seconds * scale))
+        time.sleep(max(0.0, t0 + at - time.time()))
         testbed.write_traffic_target(conn, rates)
         log_event("scenario", "segment_start", data={"run": run.run_id, "segment": i, "rates_mbps": rates, "seconds": seconds, "wall": time.time()})
-        procs = [traffic.iperf(s, f"{rate}M", seconds, work / f"seg{i}_{s}.json") for s, rate in rates.items()]
+        procs += [traffic.iperf(s, f"{rate}M", seconds, work / f"seg{i}_{s}.json", segment=i) for s, rate in rates.items()]
         procs += [traffic.ping(s, seconds, work / f"seg{i}_ping_{s}.txt") for s in rates]
-        for proc in procs:
-            proc.wait()
-        errors += [e for s in rates if (e := iperf_failure(work / f"seg{i}_{s}.json"))]
+        results += [work / f"seg{i}_{s}.json" for s in rates]
+        at += seconds
+    for proc in procs:
+        proc.wait()
+    errors += [e for path in results if (e := iperf_failure(path))]
     conn.execute("DELETE FROM traffic_target")
     conn.close()
 
@@ -229,26 +242,29 @@ def play(run: TestbedRun, scale: float = 1.0) -> Path:
         time.sleep(3)
         subprocess.run([*COMPOSE, "up", "-d", "rl-xapp"], env=env, check=True, capture_output=True)
         wait_ready(conn, started, work)
+        if run.study.startswith(WHAT_IF):  # after the runner's own write, before the agent starts
+            info, served = kpi.read_backend_info(conn)
+            kpi.write_backend_info(conn, dataclasses.replace(info, urllc_base_latency_ms=WHAT_IF_BASE_LATENCY_MS), served)
         if run.controller in USES_AGENT:
             processes.append(start([py, "-m", "uvicorn", "agent.service:app", "--port", str(PORT)], env, work / "service.out"))
             processes.append(start([py, "-m", "agent.worker"], env, work / "worker.out"))
             wait_for_service(PORT)
-        traffic.start_servers()
+        traffic.start_servers(MAX_SEGMENTS)
         t0 = time.time()
         log_event("scenario", "scenario_start", data={"run": run.run_id, "t0": t0})
-        player = threading.Thread(target=play_segments, args=(run, work, scale, TESTBED_DB, errors))
+        player = threading.Thread(target=play_segments, args=(run, work, scale, TESTBED_DB, errors, t0), daemon=True)
         player.start()
         if run.controller in USES_AGENT:
             for intent in scenario.intents:  # on their own clock: a segment running late can't delay them
                 time.sleep(max(0.0, t0 + intent.at_s * scale - time.time()))
                 submit(intent.text)
         time.sleep(max(0.0, t0 + seconds - time.time()))
-        player.join(timeout=DRAIN_GRACE_S)
+        player.join(timeout=CLOSE_LIMIT_S)
         if player.is_alive():
-            errors.append("traffic still running after the grace period")
+            errors.append(f"an iperf3 did not close within {CLOSE_LIMIT_S:g} s of the scenario's end")
+        closed_after_s = round(time.time() - (t0 + seconds), 1)  # information only: a long queue is a result, not a failure
         drained = wait_quiet(conn)
-        log_event("scenario", "scenario_stop", data={"run": run.run_id, "drained": drained})
-        player.join(timeout=DRAIN_GRACE_S)
+        log_event("scenario", "scenario_stop", data={"run": run.run_id, "drained": drained, "closed_after_s": closed_after_s})
     finally:
         subprocess.run([*COMPOSE, "stop", "rl-xapp"], env=env, check=False, capture_output=True)
         logs = subprocess.run(["docker", "logs", "rl-xapp"], capture_output=True, text=True, check=False)
@@ -282,19 +298,24 @@ def scenario_as_played(name: str, events: list[dict]) -> Scenario:
 
 def write_table(results: Path = RESULTS, table: Path = TABLE) -> int:
     rows = []
-    for path in sorted(results.glob("testbed/*/*/repeat*/run.json")):
+    paths = [p for study in ("testbed", WHAT_IF) for p in sorted(results.glob(f"{study}/*/*/repeat*/run.json"))]
+    for path in paths:
         spec = json.loads(path.read_text())
         work = path.parent
-        measured = measure_run(work, scenario_as_played(spec["scenario"], read_events(work / "events.jsonl")))
+        played = scenario_as_played(spec["scenario"], read_events(work / "events.jsonl"))
+        measured = measure_run(work, played)
+        kpis = load_run(work)[0]
+        after = [over_bound_after(kpis, intent) for intent in played.intents]
         outside = {}
         for s in ("embb", "urllc", "be"):
             outside[f"iperf_{s}_mbps"] = iperf_mbps(sorted(work.glob(f"seg*_{s}.json")))
             rtts = [x for p in sorted(work.glob(f"seg*_ping_{s}.txt")) for x in ping_rtts(p)]
             outside[f"ping_{s}_median_ms"] = float(np.median(rtts)) if rtts else ""
             outside[f"ping_{s}_p95_ms"] = float(np.percentile(rtts, 95)) if rtts else ""
-        base = {"study": "testbed", "scenario": spec["scenario"], "controller": spec["controller"], "seed": spec["repeat"], "valid": spec["valid"],
+        base = {"study": spec["study"], "scenario": spec["scenario"], "controller": spec["controller"], "seed": spec["repeat"], "valid": spec["valid"],
                 "problems": "; ".join(spec["problems"]), "invalid_copy": work.name.endswith("_invalid"), "alpha": spec["alpha"], "delay_ticks": 0, "importance": ""}
-        rows += [{**base, **intent, **measured["run"], **outside, "wall_s": spec["wall_s"]} for intent in measured["intents"]]
+        rows += [{**base, **intent, "over_bound_after_s": "" if seconds is None else seconds, **measured["run"], **outside, "wall_s": spec["wall_s"]}
+                 for intent, seconds in zip(measured["intents"], after, strict=True)]
     if rows:
         table.parent.mkdir(parents=True, exist_ok=True)
         with table.open("w", newline="") as f:
@@ -334,6 +355,17 @@ def play_matrix(scale: float = 1.0) -> None:
             spec = json.loads((work / "run.json").read_text())
             print(f"[repeat {repeat}, {i}/{len(missing)}] {run.run_id}: {spec['wall_s']:.0f} s, valid {spec['valid']} {spec['problems']}", flush=True)
     replay_invalid(scale)
+    play_what_if(scale)
+
+
+def play_what_if(scale: float) -> None:
+    missing = [r for r in range(1, REPEATS + 1) if not (RESULTS / TestbedRun(WHAT_IF, "s3", "proposed", r).run_id / "run.json").exists()]
+    if missing:
+        restart_testbed()
+    for repeat in missing:
+        work = play(TestbedRun(WHAT_IF, "s3", "proposed", repeat), scale)
+        spec = json.loads((work / "run.json").read_text())
+        print(f"[what-if {repeat}] {spec['wall_s']:.0f} s, valid {spec['valid']} {spec['problems']}", flush=True)
 
 
 def replay_invalid(scale: float) -> None:
@@ -353,6 +385,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--final", action="store_true", help="the whole matrix; refuses uncommitted code")
     parser.add_argument("--dev", action="store_true", help="never in the table; the testbed must be up")
+    parser.add_argument("--what-if", action="store_true", help="--dev: tell the verifier the measured URLLC base latency")
     parser.add_argument("--scale", type=float, default=0.2, help="--dev: multiply the scenario's times")
     parser.add_argument("--scenarios", nargs="+", choices=list(SCENARIOS), default=["s3"])
     parser.add_argument("--controllers", nargs="+", choices=CONTROLLERS, default=list(CONTROLLERS))
@@ -365,7 +398,7 @@ def main() -> None:
     if args.dev:
         for scenario in args.scenarios:
             for controller in args.controllers:
-                work = play(TestbedRun("dev", scenario, controller, 1), args.scale)
+                work = play(TestbedRun("what_if_dev" if args.what_if else "dev", scenario, controller, 1), args.scale)
                 print(work, json.loads((work / "run.json").read_text())["problems"], flush=True)
         return
     play_matrix()

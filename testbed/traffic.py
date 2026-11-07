@@ -39,6 +39,7 @@ SLICES = {
     "be": {"container": "rfsim5g-oai-nr-ue-be", "port": 5203},
 }
 PING_INTERVAL_S = 0.2
+SEGMENT_PORT_STEP = 10  # M08d: segment i of a run uses port + 10 i, as the previous iperf3 may still be draining
 # A run starts with a transient: after idle, link adaptation restarts from a low MCS (6 -> 10 -> 19
 # Mb/s in the first seconds), a queue builds, then drains. Measured in M06: gone after ~15 s.
 STEADY_AFTER_S = 15.0
@@ -57,18 +58,19 @@ def ue_ip(container: str) -> str:
     return match.group(1)
 
 
-def start_servers() -> None:
-    """One iperf3 server per slice port on ext-dn. ext-dn already runs one on 5201; a second
+def start_servers(segments: int = 1) -> None:
+    """One iperf3 server per slice port and segment on ext-dn. ext-dn already runs one on 5201; a second
     daemon on a port in use just fails to bind and exits, which is fine."""
     for spec in SLICES.values():
-        docker("exec", EXT_DN, "iperf3", "-s", "-D", "-p", str(spec["port"]), check=False)
+        for segment in range(segments):
+            docker("exec", EXT_DN, "iperf3", "-s", "-D", "-p", str(spec["port"] + SEGMENT_PORT_STEP * segment), check=False)
     time.sleep(1)
 
 
-def iperf(name: str, rate: str, seconds: int, out: Path) -> subprocess.Popen:
+def iperf(name: str, rate: str, seconds: int, out: Path, segment: int = 0) -> subprocess.Popen:
     spec = SLICES[name]
     cmd = ["docker", "run", "--rm", "--net", f"container:{spec['container']}", "nicolaka/netshoot",
-           "iperf3", "-c", EXT_DN_IP, "-p", str(spec["port"]), "-B", ue_ip(spec["container"]),
+           "iperf3", "-c", EXT_DN_IP, "-p", str(spec["port"] + SEGMENT_PORT_STEP * segment), "-B", ue_ip(spec["container"]),
            "-u", "-b", rate, "-R", "-t", str(seconds), "-J"]
     return subprocess.Popen(cmd, stdout=out.open("w"), stderr=subprocess.PIPE, text=True)
 
