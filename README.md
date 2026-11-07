@@ -165,9 +165,13 @@ median of 10 paired seeds:
 | S3: URLLC ≥ 22 Mb/s, < 5 ms, conflicts with the above | 0.00 | 0.00 | 0.00 | 0.00 |
 
 - **The design works where goals need RL:** LLM + RL reacts in 2–3 s, and the LLM acting alone does not get there.
-- **It over-serves:** in S2 URLLC gets 68 % of the cell and needs 40 %, and best effort falls to its floor.
-- **S3 exposes a gap:** the verifier correctly rejects the conflicting request, but URLLC then ends up with 8–9 % of the
-  cell and about 8 s of delay, worse than an equal split. The checks protect stated targets, not a slice with no target.
+- **It over-served:** in S2 URLLC got 68 % of the cell and needed 40 %, and best effort fell to its floor.
+- **S3 exposed a gap:** the verifier correctly rejected the conflicting request, but URLLC then ended up with 8–9 % of the
+  cell and about 8 s of delay, worse than an equal split. The checks protected stated targets, not a slice with no target.
+- **Fixes, without retraining, on fresh seeds:** S2's URLLC share fell to 46 %, S3's URLLC rose to 17.7 Mb/s and 2.9 s of
+  delay, and the split moves 1.5–2 % of the cell per second instead of 5–9 %. The goals stayed at 0.98 and 0.97. One of seven
+  pre-registered checks missed (S3's first goal, 0.79 against 0.80). S3 and over-serving are reduced, not solved, and the
+  controller reacts 2–4 s slower.
 - **Read with care:** static and RL only never receive the goals, the scenarios use one wording per intent, and the policy
   was trained on this simulator. [The note](docs/learn/M08a-eval-sim.md) has the figures and limits; the testbed comes next.
 
@@ -185,7 +189,7 @@ internal Docker network whose only exits are two relays, to the gateway and to O
 
 ## Engineering practices
 
-- **391 automated tests**, run by GitHub Actions on every push. No GPU, LLM or testbed is
+- **402 automated tests**, run by GitHub Actions on every push. No GPU, LLM or testbed is
   needed: the LLM is replaced by a scripted fake.
 - **Pre-registration.** Pass/fail criteria, model-selection rules and held-out sets are
   committed before the experiment runs. Failed criteria stay in the record.
@@ -239,7 +243,7 @@ Requires [uv](https://docs.astral.sh/uv/), which installs the right Python by it
 
 ```bash
 uv sync                              # install the locked dependencies
-uv run pytest -q                     # 391 tests; no GPU, LLM or Docker needed
+uv run pytest -q                     # 402 tests; no GPU, LLM or Docker needed
 uv run python -m gateway.client tools # the MCP gateway's three tools
 uv run python -m rl.plot_runner      # one intent through the whole chain, simulated (~10 s)
 ```

@@ -270,11 +270,11 @@ acknowledge arrived.
   **Evidence from M04a** (`uv run python -m rl.plot_runner`, docs/learn/M04a-plumbing.md §5):
   during the demo URLLC surge, with "20 Mb/s URLLC within 10 ms" in force, the champion gives
   best effort 2 % of the PRBs (median latency ~41 s) for the whole 5 minutes.
-- **Policy jitter under the default objective (measured in M08a: 5.6–8.5 % of the cell per s; 1.8–3.2 % at alpha 0.10; not changed, your decision).** M04a measured 6–12 % of the
+- ~~**Policy jitter under the default objective.**~~ **Done 2026-11-07: alpha 0.10 served on both backends; on fresh seeds 1.8–3.3 % of the cell per s (was 5.6–8.5 %), at a cost of 2–4 s of reaction.** M04a measured 6–12 % of the
   PRBs moved per tick under the default objective (no targets, no bound), against 0.3 % under
   an explicit objective and ~2 % averaged over random objectives in M02. Options to weigh then:
   a different default objective, or a smaller filter alpha only for the default.
-- **Over-serving the favoured slice (measured in M08a: S2, URLLC gets 68 % of the cell and needs 40 %; importance 6 instead of 8 barely changes it, so that lever is dropped; a reward term needs retraining; your decision).** M04b live demo, URLLC surge, "at
+- **Over-serving the favoured slice. Reduced 2026-11-07, not gone: default weights unless a priority is stated, and implied targets for slices with none. S2: URLLC 68 % -> 46 % of the cell (needs 40 %), unmet eMBB + BE 28.6 -> 12.8 Mb/s (lowest possible 7.5). Importance 6 instead of 8 barely changed it. **Open:** a reward term and retraining, after M08c.** M04b live demo, URLLC surge, "at
   least 20 Mb/s and under 10 ms" with the LLM's importance 8/2/2: the policy gave URLLC its whole
   load (30.9 Mb/s, 79 % of the PRBs), so eMBB got 12 of its 37 Mb/s (p95 latency 5.3 s) and best
   effort sat at the 5 % floor. The target was met, but the cost to the other slices is
@@ -303,18 +303,17 @@ acknowledge arrived.
   that skips ids still in use (as we did for the gNB), or a supervisor that restarts the RIC and
   both xApps cleanly. Not done: it replaces the official RIC image, and no planned run needs it.
 - **The RL policy oscillates on the testbed (found in M07b).** Cause tested on the simulator: KPIs
-  about 2 s late. Mitigation in place: alpha 0.10 on the testbed only. Confirmed on the real cell, one
+  about 2 s late. Mitigation in place: alpha 0.10 (since 2026-11-07 on both backends). Confirmed on the real cell, one
   run each (cell moved 10.8 → 4.3 % per s, URLLC ≥ 20 Mb/s 69 → 90 %, URLLC delay 9.4 → 2.3 s median;
   docs/learn/M07b-slice-control.md). It is reduced, not solved: the split still swings and URLLC's
   delay stays in seconds. **Open:** where the second tick of
   delay comes from (one candidate: `kpm_monitor`'s own 1 Hz tick between the KPM report and
   `kpm_latest`); and whether to retrain with a random observation delay, which would need fresh test
   seeds, since the held-out goal-test set has already been used twice.
-- **A rejected request can leave a slice worse off (found in M08a, S3).** With eMBB and BE targets in force and URLLC's own
-  request rejected as a conflict, URLLC got 8–9 % of the cell and about 8 s of delay under its surge, worse than an equal split.
-  Every check holds: the verifier protects stated targets and a 5 % floor, not a slice with no target. The model also never
-  relaxed the rejected target, though evaluation mode allows it. Options: an implicit minimum for each slice in the merge, or
-  report the consequence to the operator. Not changed; decide before M08c, whose S3 would show the same.
+- **A rejected request can leave a slice worse off (found in M08a, S3). Reduced 2026-11-07, not solved.** With eMBB and BE
+  targets in force and URLLC's own request rejected as a conflict, URLLC got 8 % of the cell and about 8 s of delay. Implied
+  targets (`verifier.verify.with_fair_shares`) raise it to 17.7 Mb/s and 2.9 s; an equal split gives 25 Mb/s and 2 s. The model
+  still never relaxes the rejected target. **Open:** whether the agent should relax it or tell the operator what the rejection costs.
 - **Testbed capacity in the verifier (for M08c).** `cell_info()` gives the verifier the simulator's
   75 Mb/s, while M07b measured 0.654 Mb/s per PRB (69 Mb/s) with the slice scheduler. So the
   verifier can accept targets on the testbed that are about 8 % too optimistic. Decide before M08c.

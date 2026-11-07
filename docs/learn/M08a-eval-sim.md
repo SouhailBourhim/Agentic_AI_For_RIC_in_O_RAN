@@ -7,8 +7,9 @@ split), RL only (default objective), LLM only (`set_slice_share`) and LLM + RL, 
 Every controller is scored against what the operator stated, so the ones that ignore intents can be
 compared too. **LLM + RL met the stated goal 99 % and 98 % of the time in S1 and S2, where every other
 median was 42 % or less. In S3, the conflict, it did worse than an equal split, and left URLLC worse off
-than any other controller.** Its wins also have a cost: it serves the favoured slice far beyond what it
-needs. No code was tuned on these results and nothing was fixed; the decisions are yours (§6).
+than any other controller.** Its wins also had a cost: it served the favoured slice far beyond what it
+needed. Those results are on record as they were; four fixes that followed, without retraining, are in
+"After the fixes" at the end of §5.
 
 ## 2. Where it sits in the architecture
 
@@ -249,6 +250,65 @@ lockstep runs did. Two values fall just outside, by about 0.001 and 0.006, and L
 first apply was 2 s slower than any lockstep run. I didn't find out why; this check doesn't warm the model up first,
 which may be it. **It's one run per controller on one scenario,** so it would catch a large distortion, not a small one.
 
+### After the fixes (2026-11-07)
+
+Everything above is the evaluation as recorded (commit `af13b55`). It isn't re-run: the code below changes what these
+commands would now do. Four changes, chosen on dev seeds 6000–6009, with no retraining:
+
+1. **Default weights unless the operator states a priority** (`keep_default_weights`,
+   [graph.py](../../agent/graph.py)). The dev runs showed the split follows the weights: URLLC's weight of 0.67 gave it a
+   share of 0.68. The operator had stated a target, not a priority, so the weights weren't the model's to invent.
+2. **An implied target for each slice with none** (`with_fair_shares`, [verify.py](../../verifier/verify.py)): its share
+   of 75 % of the PRBs the stated targets leave free, capped by the step and training limits. Conflicts are still judged on
+   stated targets, so it can't cause a rejection, and the operator's compliance stays on what was stated.
+3. **Alpha 0.10 on both backends** (`SERVED_SMOOTHING_ALPHA`, [runner.py](../../rl/runner.py)).
+4. **No revision above 90 % compliance,** whatever the model says.
+
+![LLM + RL before and after the fixes](img/M08a-fixes.png)
+
+**What it shows:** LLM + RL on the recorded seeds (grey) and on fresh seeds 7000–7009 with the real LLM (violet). **Why it
+matters:** a fix for over-serving is worthless if the goals stop being met. **How to read it:** same goal on the left, cost
+in the middle, and each dot is a seed. The dotted line is an equal split's URLLC throughput.
+
+The check was written in `docs/DECISIONS.md` before these seeds ran:
+
+| Pre-registered, medians | Bar | Result | |
+|---|---|---|---|
+| S1 intent met | ≥ 0.95 | 0.98 | pass |
+| S2 intent met | ≥ 0.95 | 0.97 | pass |
+| S2 URLLC share | ≤ 0.55 | 0.46 (needs 0.40; was 0.68) | pass |
+| S3 URLLC throughput | ≥ 15 Mb/s | 15.6 (was 6.6) | pass |
+| **S3 first intent met** | **≥ 0.80** | **0.79 (0.76–0.93; was 0.76)** | **miss** |
+| Split movement, every scenario | ≤ 4 %/s | 1.5–2.0 (was 4.8–8.8) | pass |
+| S3 second intent rejected as `conflict` | 10/10 | 10/10 | pass |
+
+**The miss:** in 7 of the 10 runs, the first 20 s dip below 90 % and the agent revises with the model's own weights. The
+dev script had no reflect step, which is why it predicted 0.88. It stays a miss; nothing was tuned after seeing it.
+
+| LLM + RL, medians | Recorded | After the fixes |
+|---|---|---|
+| S1 eMBB / BE unmet, Mb/s | 17.9 / 12.0 | 11.1 / 6.1 |
+| S2 eMBB / BE unmet, Mb/s (lowest possible total: 7.5) | 17.7 / 10.9 | 12.3 / 0.5 |
+| S2 BE p95 delay | 13.7 s | 1.1 s |
+| S3 URLLC throughput, second intent's window | 6.4 Mb/s | 17.7 Mb/s |
+| S3 URLLC delay, median | 8.2 s | 2.9 s |
+| Split movement with no intent in force | 6.2–8.2 %/s | 2.1–2.7 %/s |
+| RL only, default objective, movement | 5.6–8.5 %/s | 1.8–3.3 %/s |
+| Reaction, S1 / S2 | 2 s / 3 s | 6 s / 5 s |
+
+**What it did not fix or costs:**
+
+- **S3 is better, not solved.** URLLC still gets less than on an equal split (17.7 against 25 Mb/s, 2.9 s against 2 s of
+  delay). The model still doesn't relax the rejected target: it repeats itself and the intent ends rejected.
+- **Over-serving is reduced, not gone:** S2's unmet total is 12.8 Mb/s against a lowest possible 7.5. Going further probably
+  needs the reward term and retraining.
+- **It reacts about 2–4 s slower** and is a little closer to its bound (S2 p95 4.7 ms against 5).
+- **The testbed-like delay hurts more now.** With KPIs 2 s late: S1 0.94, S2 0.93 and S3's first 0.66 (the old settings had
+  0.97, 0.97 and 0.71). M08c has to measure this on the real cell.
+- **Not re-run:** the real-time check, and static and LLM only, whose code paths these changes don't touch. The seeds differ
+  from the recorded study, so the comparison is between medians, not seed by seed.
+- **A revision brings the model's weights back,** and with them some over-serving. The 90 % rule limits how often.
+
 ## 6. Choices and simplifications
 
 - **Lockstep time instead of real time for all runs.** Real latency stays, idle waiting goes. Rejected: freezing the
@@ -279,10 +339,8 @@ which may be it. **It's one run per controller on one scenario,** so it would ca
   mixes, run at real speed, and protect slices with no stated target. A real RIC would also keep minimum service
   guarantees per slice (3GPP's `rRMPolicyDedicatedRatio`), not only a PRB floor.
 
-**Open, for you to decide (not done here):** (1) the URLLC starvation after a rejected request, for example an implicit
-service minimum in the merge; (2) over-serving, which needs a reward term and so retraining, with fresh test seeds; (3)
-whether to use alpha 0.10 on the simulator too; (4) whether a repeated conflict should make the agent report and stop
-sooner. M08b doesn't depend on any of them. M08c does, if you want it to measure a changed policy.
+**Still open:** whether to retrain with a reward term for share above the target, which needs fresh test seeds; and whether
+the agent should relax or report sooner after a conflict. Best decided after M08c. M08b doesn't depend on either.
 
 ## 7. Questions to check understanding
 

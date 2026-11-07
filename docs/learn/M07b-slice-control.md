@@ -228,9 +228,10 @@ retraining, three seeds each, in the surge after t = 180 s, default objective / 
 Stronger smoothing calms the split and serves URLLC better. It does not slow the reaction to the
 surge (URLLC reaches 20 Mb/s in 5-6 s at every alpha, and its peak delay is no worse). Its cost is on
 the way down: URLLC keeps its PRBs for 10 s after the surge at alpha 0.10, against 3 s at 0.25. So
-`rl.runner` now uses **alpha 0.10 on the testbed** (`TESTBED_SMOOTHING_ALPHA`,
-`--smoothing-alpha` overrides it). The simulator keeps 0.25, the value of the champion's recorded
-evaluation, so this is a testbed setting and no new policy.
+`rl.runner` now uses **alpha 0.10 on the testbed** (then `TESTBED_SMOOTHING_ALPHA`,
+`--smoothing-alpha` overrides it). The simulator kept 0.25, the value of the champion's recorded
+evaluation, so this was a testbed setting and no new policy. (Since M08a, 2026-11-07, the served
+alpha is 0.10 on both backends, `SERVED_SMOOTHING_ALPHA`.)
 
 **On the real cell** (`testbed/run_loop_m07b.sh loop_alpha10 rl`, 2026-11-06, the same surge and
 policy as `loop_rl`, one run each, default objective;
