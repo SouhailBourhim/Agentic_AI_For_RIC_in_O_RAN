@@ -19,6 +19,8 @@ the loop (H7). The capacity reported by `cell_info()` changed and the harness ch
 
 ## 3. How it works
 
+The code references below are as of commit e650ce7, the harness the matrix ran with (code unchanged since 3358fb0). The three harness problems found here were fixed afterwards (`docs/DECISIONS.md`).
+
 1. **The capacity rule** ([testbed/measure_capacity_m08d.py:59](../../testbed/measure_capacity_m08d.py#L59)), frozen in `docs/DECISIONS.md` before the
    measurement: 3 splits × 3 load conditions, capacity = median over the splits of condition C's per-second KPM cell total. Result 79 (73.5–80.2 by split).
 2. **The scenarios** ([eval/testbed_scenarios.py:16](../../eval/testbed_scenarios.py#L16)) keep M08a's fractions of the cell at 79 Mb/s, with

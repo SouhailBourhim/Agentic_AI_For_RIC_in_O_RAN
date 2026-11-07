@@ -16,7 +16,6 @@ from matplotlib.figure import Figure
 from eval.metrics import load_run, measure_intent
 from eval.plot_control import ACCENT, IMG, LABELS, NEUTRAL, ORDER, controller_axis, titled, values
 from eval.plot_testbed import REPEATS, on_grid, plot_latency, plot_timeline, read_csv, spread, work_of
-from eval.testbed_control import CLOSE_LIMIT_S
 from eval.testbed_scenarios import SCENARIOS, SEGMENTS, TESTBED_CAPACITY_MBPS
 from eval.testbed_scenarios_m08c import TESTBED_CAPACITY_MBPS as M08C_CAPACITY_MBPS
 from sim.plot import SLICE_COLOURS, SURFACE, TEXT, TEXT_MUTED
@@ -29,6 +28,7 @@ M08C_TABLE = Path("docs/learn/data/M08c-runs.csv")
 PANELS = [("s1", 1, "S1: URLLC 21 Mb/s, < 10 ms"), ("s2", 1, "S2: URLLC 19 Mb/s, < 5 ms"),
           ("s3", 1, "S3 first: eMBB and BE 23 Mb/s"), ("s3", 2, "S3 second: URLLC 23 Mb/s, < 5 ms")]
 M08C_GREY = "#8d8b85"
+CLOSE_LIMIT_S = 180.0  # the close check M08d ran with (eval/testbed_control.py at 3358fb0), replaced since
 SURGE_FROM_S = 125.0  # S3's surge starts at t=120; a few seconds for the policy to settle on the new load
 
 

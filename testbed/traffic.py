@@ -19,6 +19,7 @@ Writes testbed/results/m06/<run>_<slice>.json (raw iperf3), <run>_ping_<slice>.t
 
 import argparse
 import csv
+import math
 import re
 import subprocess
 import sys
@@ -67,19 +68,38 @@ def start_servers(segments: int = 1) -> None:
     time.sleep(1)
 
 
-def iperf(name: str, rate: str, seconds: int, out: Path, segment: int = 0) -> subprocess.Popen:
+def iperf_container(name: str, segment: int) -> str:
+    return f"traffic-{name}-seg{segment}"
+
+
+def iperf(name: str, rate: str, seconds: int, out: Path, segment: int = 0, deadline_s: float | None = None) -> subprocess.Popen:
+    """With a deadline (M08d's fix), iperf3 runs under `timeout` inside its named container and stops itself after
+    deadline_s even if its slice's queue hasn't drained: on SIGTERM it still writes its JSON, with an "interrupt" error."""
     spec = SLICES[name]
-    cmd = ["docker", "run", "--rm", "--net", f"container:{spec['container']}", "nicolaka/netshoot",
-           "iperf3", "-c", EXT_DN_IP, "-p", str(spec["port"] + SEGMENT_PORT_STEP * segment), "-B", ue_ip(spec["container"]),
-           "-u", "-b", rate, "-R", "-t", str(seconds), "-J"]
+    client = ["iperf3", "-c", EXT_DN_IP, "-p", str(spec["port"] + SEGMENT_PORT_STEP * segment), "-B", ue_ip(spec["container"]),
+              "-u", "-b", rate, "-R", "-t", str(seconds), "-J"]
+    if deadline_s is None:
+        cmd = ["docker", "run", "--rm", "--net", f"container:{spec['container']}", "nicolaka/netshoot", *client]
+    else:
+        cmd = ["docker", "run", "--rm", "--name", iperf_container(name, segment), "--net", f"container:{spec['container']}",
+               "nicolaka/netshoot", "timeout", "-s", "TERM", str(math.ceil(deadline_s)), *client]
     return subprocess.Popen(cmd, stdout=out.open("w"), stderr=subprocess.PIPE, text=True)
 
 
-def ping(name: str, seconds: int, out: Path) -> subprocess.Popen:
+def ping(name: str, seconds: int, out: Path, deadline_s: float | None = None) -> subprocess.Popen:
+    """With a deadline, ping's own -w ends it after deadline_s, replies still queued or not (it prints its summary)."""
     count = int(seconds / PING_INTERVAL_S)
     cmd = ["docker", "exec", SLICES[name]["container"], "ping", "-i", str(PING_INTERVAL_S), "-c", str(count),
            "-I", "oaitun_ue1", EXT_DN_IP]
+    if deadline_s is not None:
+        cmd[4:4] = ["-w", str(math.ceil(deadline_s))]  # after "ping"
     return subprocess.Popen(cmd, stdout=out.open("w"), stderr=subprocess.STDOUT, text=True)
+
+
+def remove_leftovers(segments: int) -> None:
+    """Before a run: no iperf3 container from an earlier run may still be sending or holding its name."""
+    names = [iperf_container(name, segment) for name in SLICES for segment in range(segments)]
+    subprocess.run(["docker", "rm", "-f", *names], capture_output=True, check=False)
 
 
 class DockerStats(threading.Thread):

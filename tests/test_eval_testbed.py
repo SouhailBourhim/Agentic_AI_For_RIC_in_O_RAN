@@ -184,16 +184,22 @@ def test_the_capacity_rule_reads_condition_c_and_keeps_69_when_close(monkeypatch
 
 
 def test_each_segment_starts_on_the_clock_on_its_own_port(monkeypatch, tmp_path) -> None:
-    started, waited = [], []
+    started, waited, deadlines = [], [], []
 
     class Proc:
         def wait(self) -> None:
             waited.append(len(started))
 
+    def iperf(name, rate, seconds, out, segment=0, deadline_s=None):
+        started.append((name, segment))
+        deadlines.append(deadline_s)
+        out.write_text("{}")
+        return Proc()
+
     sleeps = []
     monkeypatch.setattr(T.time, "sleep", sleeps.append)
-    monkeypatch.setattr(T.traffic, "iperf", lambda name, rate, seconds, out, segment=0: (started.append((name, segment)), out.write_text("{}"), Proc())[2])
-    monkeypatch.setattr(T.traffic, "ping", lambda name, seconds, out: Proc())
+    monkeypatch.setattr(T.traffic, "iperf", iperf)
+    monkeypatch.setattr(T.traffic, "ping", lambda name, seconds, out, deadline_s=None: (deadlines.append(deadline_s), Proc())[1])
     monkeypatch.setattr(T, "log_event", lambda *a, **k: None)
     errors: list[str] = []
     db_path = tmp_path / "ric.db"
@@ -202,6 +208,63 @@ def test_each_segment_starts_on_the_clock_on_its_own_port(monkeypatch, tmp_path)
     assert sleeps[1] == pytest.approx(120.0, abs=2.0) and sleeps[2] == pytest.approx(300.0, abs=2.0)
     assert waited[0] == len(started)  # nothing waited on before all the segments had started
     assert errors == []
+    # every process, iperf3 and ping, stops itself DRAIN_S after the scenario's end (360 s), whatever its queue
+    assert all(d == pytest.approx(360.0 + T.DRAIN_S, abs=2.0) for d in deadlines)  # time.sleep is mocked: all start at t0
+
+
+def test_the_traffic_thread_leaves_traffic_target_to_the_run(monkeypatch, tmp_path) -> None:
+    """M08d: a late thread cleared the next run's offered load. The thread no longer clears it; play() does."""
+    from store import testbed as store_testbed
+
+    class Proc:
+        def wait(self) -> None:
+            pass
+
+    monkeypatch.setattr(T.time, "sleep", lambda s: None)
+    monkeypatch.setattr(T.traffic, "iperf", lambda name, rate, seconds, out, segment=0, deadline_s=None: (out.write_text("{}"), Proc())[1])
+    monkeypatch.setattr(T.traffic, "ping", lambda name, seconds, out, deadline_s=None: Proc())
+    monkeypatch.setattr(T, "log_event", lambda *a, **k: None)
+    db_path = tmp_path / "ric.db"
+    T.play_segments(T.TestbedRun("dev", "s2", "static", 1), tmp_path, 1.0, str(db_path), [], T.time.time())
+    assert store_testbed.read_traffic_targets(T.db.connect(db_path)) == STEADY
+
+
+def test_a_deadline_stop_is_not_a_failure_and_its_intervals_still_count(tmp_path) -> None:
+    stopped, other = tmp_path / "a.json", tmp_path / "b.json"
+    stopped.write_text(json.dumps({"error": "interrupt - the client has terminated by signal Terminated(15)", "end": {"sum": {"bits_per_second": 0, "seconds": 3.8}},
+                                   "intervals": [{"sum": {"bits_per_second": 8e6, "seconds": 1.0}}, {"sum": {"bits_per_second": 4e6, "seconds": 1.0}}]}))
+    other.write_text(json.dumps({"error": "the server has terminated"}))
+    assert T.iperf_failure(stopped) is None and T.stopped_by_deadline(stopped)
+    assert "server has terminated" in T.iperf_failure(other) and not T.stopped_by_deadline(other)
+    assert T.iperf_mbps([stopped]) == pytest.approx(6.0)
+
+
+def test_traffic_commands_carry_their_deadline(monkeypatch, tmp_path) -> None:
+    commands = []
+    monkeypatch.setattr(T.traffic, "ue_ip", lambda container: "10.0.1.2")
+    monkeypatch.setattr(T.traffic.subprocess, "Popen", lambda cmd, **kw: commands.append(cmd))
+    T.traffic.iperf("be", "23.5M", 120, tmp_path / "x.json", segment=1, deadline_s=419.2)
+    T.traffic.ping("be", 120, tmp_path / "p.txt", deadline_s=419.2)
+    T.traffic.iperf("be", "23.5M", 120, tmp_path / "y.json")  # M06/M07 scripts: unchanged
+    iperf, ping, plain = commands
+    assert iperf[iperf.index("timeout"):iperf.index("timeout") + 4] == ["timeout", "-s", "TERM", "420"]
+    assert iperf[iperf.index("--name") + 1] == "traffic-be-seg1" and "5213" in iperf
+    assert ping[3:6] == ["ping", "-w", "420"] and ping[-1] == T.traffic.EXT_DN_IP
+    assert "timeout" not in plain and "--name" not in plain
+
+
+def test_an_llm_run_warms_the_model_up_with_the_agents_own_client(monkeypatch) -> None:
+    import agent.llm as llm
+
+    calls = []
+
+    class Client:
+        def chat(self, messages, tools=None, schema=None):
+            calls.append(messages)
+            return llm.LLMReply("OK", latency_s=3.5)
+
+    monkeypatch.setattr(llm, "OllamaClient", Client)
+    assert T.warm_up_llm() == 3.5 and len(calls) == 1
 
 
 def test_the_seconds_after_an_intent_are_counted_and_only_with_a_bound_and_a_tail() -> None:

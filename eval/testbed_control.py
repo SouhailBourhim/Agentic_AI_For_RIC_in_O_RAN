@@ -6,7 +6,13 @@
 --final restarts the testbed at the start of each repeat and stops it at the end. It refuses uncommitted code and
 an RL xApp image older than this code. Every run is measured by eval.metrics, like the simulator's: its logs are
 rebased so the scenario starts at t=0. A run is invalid only if a container restarted, the xApp exited, KPM went
-stale or an iperf3 failed; a bad score never invalidates a run. Invalid runs are kept and replayed once at the end.
+stale or the traffic machinery failed (an iperf3 error other than its own deadline, no iperf3 result, or a traffic
+process still running after its deadline); a bad score never invalidates a run. Invalid runs are kept and replayed
+once at the end.
+
+After M08d's matrix (fixes recorded in docs/DECISIONS.md): every traffic process stops itself DRAIN_S after the
+scenario's end, so a slow queue is a result, not a failure, and no process outlives its run; only play() clears
+traffic_target; and the model is warmed up before an LLM run's clock starts.
 
 The what-if is exploratory and stays out of the main comparison: LLM + RL on S3 with the verifier told URLLC's base
 latency measured on this cell, so the second intent is accepted, which asks whether the cell can deliver all three goals.
@@ -56,7 +62,9 @@ CODE_DIRS = ("agent", "backends", "eval", "gateway", "rl", "sim", "store", "test
 WATCHED = ("rfsim5g-oai-gnb", "nearRT-RIC", "xapp-kpm-slices", "rfsim5g-oai-nr-ue-embb", "rfsim5g-oai-nr-ue-urllc",
            "rfsim5g-oai-nr-ue-be", "oai-upf", "oai-amf")
 READY_TIMEOUT_S = 60.0
-CLOSE_LIMIT_S = 180.0  # after the scenario: iperf3 closes once the queues drain; later than this, it failed
+DRAIN_S = 60.0  # after the scenario's end, each traffic process gets this long to close normally, then stops itself
+STOP_GRACE_S = 30.0  # a traffic process still running this long after its deadline is stuck: the run is invalid
+DEADLINE_STOP = "interrupt - the client has terminated"  # what iperf3 writes when its deadline (SIGTERM) stops it
 MAX_SEGMENTS = 3  # each segment of a run has its own iperf3 servers
 WHAT_IF = "what_if"
 WHAT_IF_BASE_LATENCY_MS = 0.6  # URLLC's RLC delay under capacity, M08c; the verifier otherwise uses the simulator's 2 ms
@@ -119,19 +127,34 @@ def problems(events: list[dict], restarts_before: dict[str, int], restarts_after
 
 
 def iperf_failure(path: Path) -> str | None:
-    """A finished iperf3 run writes JSON with an end section; a failed one doesn't, or carries an error."""
+    """A finished iperf3 run writes JSON with an end section; a failed one doesn't, or carries an error. Being stopped
+    by its own deadline isn't a failure: it means the slice's queue was still draining, which is the controller's result."""
     try:
         result = json.loads(path.read_text())
     except (ValueError, OSError):
         return f"{path.name}: no iperf3 result"
-    return f"{path.name}: {result['error']}" if result.get("error") else None
+    error = result.get("error")
+    return f"{path.name}: {error}" if error and not error.startswith(DEADLINE_STOP) else None
+
+
+def stopped_by_deadline(path: Path) -> bool:
+    try:
+        return str(json.loads(path.read_text()).get("error", "")).startswith(DEADLINE_STOP)
+    except (ValueError, OSError):
+        return False
 
 
 def iperf_mbps(paths: list[Path]) -> float:
     """What iperf3 received, over all of a slice's segments: KPM's check, from outside the RAN."""
     bits = seconds = 0.0
     for path in paths:
-        end = json.loads(path.read_text()).get("end", {}).get("sum", {})
+        result = json.loads(path.read_text())
+        if stopped_by_deadline(path):  # a stopped client's end section is empty: add up what its intervals received
+            parts = [i["sum"] for i in result.get("intervals", [])]
+            bits += sum(i["bits_per_second"] * i["seconds"] for i in parts)
+            seconds += sum(i["seconds"] for i in parts)
+            continue
+        end = result.get("end", {}).get("sum", {})
         bits += end.get("bits_per_second", 0.0) * (1 - end.get("lost_percent", 0.0) / 100) * end.get("seconds", 0.0)
         seconds += end.get("seconds", 0.0)
     return bits / seconds / 1e6 if seconds else float("nan")
@@ -154,26 +177,43 @@ def restart_counts() -> dict[str, int]:
     return counts
 
 
+def segment_seconds(scenario: str, scale: float) -> list[int]:
+    return [max(5, round(seconds * scale)) for seconds, _ in SEGMENTS[scenario]]
+
+
 def play_segments(run: TestbedRun, work: Path, scale: float, conn_path: str, errors: list[str], t0: float) -> None:
     """One thread: the traffic, on the scenario's clock. M08c waited for each iperf3 to close, which takes as long as the
-    queues take to drain, so a controller that built a queue delayed its own surge by up to 28 s (M08c's note)."""
+    queues take to drain, so a controller that built a queue delayed its own surge by up to 28 s (M08c's note).
+
+    Every process gets the same deadline, DRAIN_S after the scenario's end, and stops itself there. In M08d a process
+    waiting on a 95 s queue outlived its run, and this thread then cleared the next run's traffic_target; now nothing
+    here outlives the deadline, and only play() clears traffic_target."""
     conn = db.connect(Path(conn_path))
+    lengths = segment_seconds(run.scenario, scale)
+    deadline = t0 + sum(lengths) + DRAIN_S
     procs, results = [], []
     at = 0.0
-    for i, (seconds, rates) in enumerate(SEGMENTS[run.scenario]):
-        seconds = max(5, round(seconds * scale))
+    for i, ((_, rates), seconds) in enumerate(zip(SEGMENTS[run.scenario], lengths, strict=True)):
         time.sleep(max(0.0, t0 + at - time.time()))
         testbed.write_traffic_target(conn, rates)
         log_event("scenario", "segment_start", data={"run": run.run_id, "segment": i, "rates_mbps": rates, "seconds": seconds, "wall": time.time()})
-        procs += [traffic.iperf(s, f"{rate}M", seconds, work / f"seg{i}_{s}.json", segment=i) for s, rate in rates.items()]
-        procs += [traffic.ping(s, seconds, work / f"seg{i}_ping_{s}.txt") for s in rates]
+        left = deadline - time.time()
+        procs += [traffic.iperf(s, f"{rate}M", seconds, work / f"seg{i}_{s}.json", segment=i, deadline_s=left) for s, rate in rates.items()]
+        procs += [traffic.ping(s, seconds, work / f"seg{i}_ping_{s}.txt", deadline_s=left) for s in rates]
         results += [work / f"seg{i}_{s}.json" for s in rates]
         at += seconds
+    conn.close()
     for proc in procs:
         proc.wait()
     errors += [e for path in results if (e := iperf_failure(path))]
-    conn.execute("DELETE FROM traffic_target")
-    conn.close()
+
+
+def warm_up_llm() -> float:
+    """One short request before an LLM run's clock starts, so the first parse doesn't include loading the model into
+    VRAM (55.7 s in M08d's first LLM run). Same client and settings as the agent, so Ollama doesn't reload the model."""
+    from agent.llm import OllamaClient
+
+    return OllamaClient().chat([{"role": "user", "content": "Reply with OK."}]).latency_s
 
 
 def wait_ready(conn, started: float, work: Path) -> None:
@@ -231,6 +271,7 @@ def play(run: TestbedRun, scale: float = 1.0) -> Path:
     clear_run_state(conn)
     conn.execute("DELETE FROM kpm_latest")
     conn.execute("DELETE FROM traffic_target")
+    traffic.remove_leftovers(MAX_SEGMENTS)
     started = time.time()
     began = time.monotonic()
     before = restart_counts()
@@ -246,6 +287,7 @@ def play(run: TestbedRun, scale: float = 1.0) -> Path:
             info, served = kpi.read_backend_info(conn)
             kpi.write_backend_info(conn, dataclasses.replace(info, urllc_base_latency_ms=WHAT_IF_BASE_LATENCY_MS), served)
         if run.controller in USES_AGENT:
+            log_event("scenario", "llm_warmup", data={"run": run.run_id, "latency_s": round(warm_up_llm(), 2)})
             processes.append(start([py, "-m", "uvicorn", "agent.service:app", "--port", str(PORT)], env, work / "service.out"))
             processes.append(start([py, "-m", "agent.worker"], env, work / "worker.out"))
             wait_for_service(PORT)
@@ -259,12 +301,15 @@ def play(run: TestbedRun, scale: float = 1.0) -> Path:
                 time.sleep(max(0.0, t0 + intent.at_s * scale - time.time()))
                 submit(intent.text)
         time.sleep(max(0.0, t0 + seconds - time.time()))
-        player.join(timeout=CLOSE_LIMIT_S)
+        player.join(timeout=max(0.0, t0 + sum(segment_seconds(run.scenario, scale)) + DRAIN_S + STOP_GRACE_S - time.time()))
         if player.is_alive():
-            errors.append(f"an iperf3 did not close within {CLOSE_LIMIT_S:g} s of the scenario's end")
+            errors.append(f"a traffic process was still running {STOP_GRACE_S:g} s after its deadline")
+        conn.execute("DELETE FROM traffic_target")  # here, not in the thread: a late thread can't reach the next run
         closed_after_s = round(time.time() - (t0 + seconds), 1)  # information only: a long queue is a result, not a failure
+        stopped = sorted(p.name for p in work.glob("seg*_*.json") if stopped_by_deadline(p))
         drained = wait_quiet(conn)
-        log_event("scenario", "scenario_stop", data={"run": run.run_id, "drained": drained, "closed_after_s": closed_after_s})
+        log_event("scenario", "scenario_stop", data={"run": run.run_id, "drained": drained, "closed_after_s": closed_after_s,
+                                                     "stopped_at_deadline": stopped})
     finally:
         subprocess.run([*COMPOSE, "stop", "rl-xapp"], env=env, check=False, capture_output=True)
         logs = subprocess.run(["docker", "logs", "rl-xapp"], capture_output=True, text=True, check=False)

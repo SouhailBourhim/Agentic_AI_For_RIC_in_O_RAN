@@ -328,9 +328,10 @@ acknowledge arrived.
   **Measured in M08d** (`over_bound_after_s`): URLLC over 5 ms for 42-44 of the 60 s after S2's window for LLM + RL, 0 for static and LLM only.
 - **The simulator's delay under capacity (found in M08c).** M/M/1 passes 5 ms at an equal split in S2; the real RLC delay stays near 0.6 ms until saturation.
   **Open, with any retraining:** a flat delay curve and queues beyond the 50 Mb cap (14-38 s seen on the cell).
-- **The testbed harness's validity check and leftover thread (found in M08d).** The 180 s close check flags slow queues, not stuck processes, and after it gives up the old
-  traffic thread can clear the next run's `traffic_target`. Fix before any further matrix: detect no progress in iperf3/ping output, and stop (kill) the thread's
-  processes before the next run. Also add a model warm-up before the first LLM run (55.7 s cold parse in M08d).
+- ~~**The testbed harness's validity check and leftover thread (found in M08d).**~~ **Fixed 2026-11-07 (`eval/testbed_control.py`, `testbed/traffic.py`):** every iperf3 (under `timeout`)
+  and ping (`-w`) stops itself 60 s after the scenario's end, so a slow queue is logged (`stopped_at_deadline`), not invalid; a run is invalid if a process is still running
+  30 s after that deadline (stuck); only `play()` clears `traffic_target`; leftover iperf3 containers are removed before each run; one warm-up LLM call before each LLM run's clock
+  starts (`llm_warmup` event). Not yet run on the testbed: the next matrix is the first to use it. Any further matrix also needs its own results folder and table, not M08d's.
 - **Over-serving blocks the S3 pair even when accepted (M08d what-if).** URLLC gets 0.63 of the cell for a 23 Mb/s target; eMBB and BE fall to 0.20 and 0.17. Same open item as
   over-serving above: a reward term and retraining.
 - **LLM only's `finish` (found in M08c).** The model took a transient at 0 Mb/s for a verdict and stopped, and the log recorded `outcome: applied` next to a reason saying the goal can't be met. Not seen in M08d, where the traffic has no gap.
