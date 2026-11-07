@@ -315,7 +315,7 @@ acknowledge arrived.
   targets in force and URLLC's own request rejected as a conflict, URLLC got 8 % of the cell and about 8 s of delay. Implied
   targets (`verifier.verify.with_fair_shares`) raise it to 17.7 Mb/s and 2.9 s; an equal split gives 25 Mb/s and 2 s. The model
   still never relaxes the rejected target. **Open:** whether the agent should relax it or tell the operator what the rejection costs.
-- **Done for M08d, pending its matrix: capacity 79 Mb/s by a rule written first (`testbed/measure_capacity_m08d.py`), and traffic on a clock.** The two items below record how they were found. M07b's own settings now give 73-76 Mb/s against its 69-72, which remains unexplained.
+- **Done in M08d: capacity 79 Mb/s by a rule written first (`testbed/measure_capacity_m08d.py`), and traffic on a clock** (every surge started on time). The two items below record how they were found. M07b's own settings now give 73-76 Mb/s against its 69-72, which remains unexplained. **New from M08d:** the capacity depends on the split (73.5-80.2), and S3's result for LLM + RL sits inside that spread; at the right capacity RL only's swing fails S2 (0.43).
 - **Testbed capacity in the verifier (decided for M08c, then contradicted by it).** `cell_info()` reports M07b's 69 Mb/s
   since 2026-11-07. M08c's standing queues show 81 Mb/s by KPM and 79 received by iperf3 (0.75 Mb/s per PRB). **Open:** why M07b
   measured 0.654 (candidate, untested: it offered 240 Mb/s in total, M08c at most 82.5), which value to use, and then rerunning
@@ -325,9 +325,15 @@ acknowledge arrived.
 - **The swing when an intent expires (found in M08c, S2).** With eMBB's queue standing at t=300, the default objective gives eMBB up to 0.82 and
   URLLC about 0.13, and URLLC's delay reaches about 3 s for 23-28 s. `intent_met` doesn't see it, since it's outside the window. **Open:** whether to
   return to the default gradually, and whether the evaluation should score the seconds after an intent.
+  **Measured in M08d** (`over_bound_after_s`): URLLC over 5 ms for 42-44 of the 60 s after S2's window for LLM + RL, 0 for static and LLM only.
 - **The simulator's delay under capacity (found in M08c).** M/M/1 passes 5 ms at an equal split in S2; the real RLC delay stays near 0.6 ms until saturation.
   **Open, with any retraining:** a flat delay curve and queues beyond the 50 Mb cap (14-38 s seen on the cell).
-- **LLM only's `finish` (found in M08c).** The model took a transient at 0 Mb/s for a verdict and stopped, and the log recorded `outcome: applied` next to a reason saying the goal can't be met.
+- **The testbed harness's validity check and leftover thread (found in M08d).** The 180 s close check flags slow queues, not stuck processes, and after it gives up the old
+  traffic thread can clear the next run's `traffic_target`. Fix before any further matrix: detect no progress in iperf3/ping output, and stop (kill) the thread's
+  processes before the next run. Also add a model warm-up before the first LLM run (55.7 s cold parse in M08d).
+- **Over-serving blocks the S3 pair even when accepted (M08d what-if).** URLLC gets 0.63 of the cell for a 23 Mb/s target; eMBB and BE fall to 0.20 and 0.17. Same open item as
+  over-serving above: a reward term and retraining.
+- **LLM only's `finish` (found in M08c).** The model took a transient at 0 Mb/s for a verdict and stopped, and the log recorded `outcome: applied` next to a reason saying the goal can't be met. Not seen in M08d, where the traffic has no gap.
 - **llama3.1 sets priority on guarantee intents (M04b, low priority).** Seen with llama3.1 only;
   qwen3:8b is the chosen model, so nothing depends on it unless the model changes.
 - **Hermes: some turns get no reply (M05b, measured again in M08b).** The model returns an empty answer after

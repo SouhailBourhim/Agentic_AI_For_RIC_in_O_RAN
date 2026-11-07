@@ -194,6 +194,25 @@ Median [min–max] of the window met:
 
 ![Intent met per controller on the real cell](docs/learn/img/M08c-intent-met.png)
 
+**The same comparison rerun at the measured capacity (M08d).** 79 Mb/s by a rule written before measuring, traffic on the scenario's clock,
+3 repeats, rules committed before the runs. Median [min–max]:
+
+| Goal | Static | RL only | LLM only | LLM + RL |
+|---|---|---|---|---|
+| S1: URLLC ≥ 21 Mb/s, < 10 ms, before a surge | 0.34 | 0.21 [0.19–0.22] | 0.34 | **0.96 [0.96–0.97]** |
+| S2: URLLC ≥ 19 Mb/s, < 5 ms, stated mid-run | **1.00** | 0.43 [0.39–0.46] | **1.00** | 0.97 [0.97–0.99] |
+| S3: eMBB and BE ≥ 23 Mb/s | **0.98** [0.93–0.99] | 0.12 [0.11–0.13] | 0.80 [0.79–0.99]* | 0.53 [0.30–0.73] |
+| S3: URLLC ≥ 23 Mb/s, < 5 ms | 0.00 | 0.18 [0.11–0.21] | 0.00 | 0.00 |
+
+\* 0.99 in all three once a harness gap in two runs' offered load is filled in; the table keeps the logged values.
+
+- **S1 holds, with a wider margin:** LLM + RL is the only controller that serves the surge (URLLC delay 0.6 ms median), at a cost to eMBB and BE.
+- **The right capacity removed a hidden margin.** RL only's split swings twice as much as in M08c and it fails S2. LLM + RL gives BE a share worth 23.1 Mb/s by its capacity and 22.8 on the cell, so S3's first goal drops to 0.53.
+- **What-if:** with the verifier told URLLC's real base latency, it accepts both S3 intents, and then the policy over-serves URLLC (0.63 of the cell): second goal 0.84, first 0.22.
+- **Read with care:** the close check flagged all six S3 RL only runs for a slow queue, not a stuck process (a protocol mistake; all runs count), and the leftover thread caused the gap above. [The note](docs/learn/M08d-eval-testbed-rerun.md) has all of it.
+
+![Intent met per controller, M08d with M08c's medians](docs/learn/img/M08d-intent-met.png)
+
 **The interface, on intents it had never seen (M08b).** The rules were committed before the single run, and the code refuses
 to score the set twice.
 - `qwen3:8b` read 19 of 20 held-out intents correctly (interval 76–99 %), against 10 of 20 for a regex parser, and detected all 6
@@ -250,7 +269,7 @@ internal Docker network whose only exits are two relays, to the gateway and to O
 | M08a | Four-controller comparison on the simulator (static, RL only, LLM only, LLM + RL), 3 scenarios, 10 paired seeds | Done |
 | M08b | Interface evaluation on the held-out intents: extraction, tool calls, out-of-scope attempts, Hermes fidelity and latency | Done |
 | M08c | The four-controller comparison on the testbed: 3 scenarios, 3 repeats, 36 runs | Done |
-| M08d | The same comparison rerun: measured capacity (79 Mb/s), traffic on a clock, plus an S3 what-if; protocol frozen | Next: the matrix |
+| M08d | The same comparison rerun: measured capacity (79 Mb/s), traffic on a clock, plus an S3 what-if; protocol frozen | Done |
 
 The full plan, with interfaces, risks and how each hypothesis gets tested, is in
 [docs/PLAN.md](docs/PLAN.md). The original design document (in French) is

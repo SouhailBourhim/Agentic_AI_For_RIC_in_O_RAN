@@ -38,8 +38,8 @@ def read_csv(path: Path) -> list[dict]:
     return list(csv.DictReader(path.open()))
 
 
-def work_of(scenario: str, controller: str, repeat: int) -> Path:
-    return RESULTS / "testbed" / scenario / controller / f"repeat{repeat}"
+def work_of(scenario: str, controller: str, repeat: int, results: Path = RESULTS, study: str = "testbed") -> Path:
+    return results / study / scenario / controller / f"repeat{repeat}"
 
 
 def repeat_dots(ax: Axes, x: float, rows: list[dict], key: str, colour: str, scale: float = 1.0, **where) -> None:
@@ -112,11 +112,11 @@ def on_grid(t: np.ndarray, y: np.ndarray) -> np.ndarray:
     return np.interp(GRID, t[keep], y[keep])
 
 
-def plot_timeline(scenario: Scenario) -> Figure:
+def plot_timeline(scenario: Scenario, results: Path = RESULTS) -> Figure:
     fig = Figure(figsize=(13, 7.2), facecolor=SURFACE, layout="constrained")
     axes = fig.subplots(3, len(ORDER), sharex=True, sharey="row")
     for col, controller in enumerate(ORDER):
-        runs = [load_run(work_of(scenario.name, controller, r))[0] for r in REPEATS]
+        runs = [load_run(work_of(scenario.name, controller, r, results))[0] for r in REPEATS]
         for s in SLICES:
             band(axes[0, col], GRID, np.array([on_grid(k[s]["t"], k[s]["share"]) for k in runs]), SLICE_COLOURS[s], SLICE_LABELS[s])
             band(axes[1, col], GRID, np.array([on_grid(k[s]["t"], k[s]["thr"]) for k in runs]), SLICE_COLOURS[s])
@@ -145,17 +145,17 @@ def plot_timeline(scenario: Scenario) -> Figure:
     return fig
 
 
-def llm_steps(controller: str, node: str) -> list[float]:
-    return [float(e["data"]["latency_s"]) for path in (RESULTS / "testbed").glob(f"*/{controller}/repeat*/events.jsonl") for e in read_events(path)
+def llm_steps(controller: str, node: str, results: Path = RESULTS) -> list[float]:
+    return [float(e["data"]["latency_s"]) for path in (results / "testbed").glob(f"*/{controller}/repeat*/events.jsonl") for e in read_events(path)
             if e["event"] == "agent_step" and e["data"].get("node") == node and e["data"].get("latency_s")]
 
 
-def plot_latency() -> Figure:
+def plot_latency(results: Path = RESULTS) -> Figure:
     fig = Figure(figsize=(8, 3.4), facecolor=SURFACE, layout="constrained")
     ax = fig.subplots()
     nodes = [("llm_only", "parse"), ("llm_only", "plan"), ("proposed", "parse"), ("proposed", "plan"), ("proposed", "reflect")]
     for x, (controller, node) in enumerate(nodes):
-        ys = llm_steps(controller, node)
+        ys = llm_steps(controller, node, results)
         ax.scatter(x + np.random.default_rng(x).uniform(-0.13, 0.13, len(ys)), ys, s=24, color=ACCENT if controller == "proposed" else NEUTRAL, alpha=0.75, edgecolors=SURFACE, zorder=3)
         ax.hlines(float(np.median(ys)), x - 0.26, x + 0.26, color=TEXT, linewidth=1.6, zorder=4)
     ax.set_xticks(range(len(nodes)), [f"{LABELS[c]}\n{n}" for c, n in nodes], fontsize=8.5)

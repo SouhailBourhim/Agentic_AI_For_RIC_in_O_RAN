@@ -219,3 +219,13 @@ def test_the_seconds_after_an_intent_are_counted_and_only_with_a_bound_and_a_tai
 def test_a_second_port_per_segment_keeps_slices_apart() -> None:
     ports = {spec["port"] + T.traffic.SEGMENT_PORT_STEP * segment for spec in T.traffic.SLICES.values() for segment in range(T.MAX_SEGMENTS)}
     assert len(ports) == len(T.traffic.SLICES) * T.MAX_SEGMENTS
+
+
+def test_played_load_fills_only_missing_ticks():
+    """M08d's correction for the offered-load gap: missing ticks take the rate iperf3 was playing, logged ticks stay as logged."""
+    from eval.plot_testbed_m08d import with_played_load
+    t = np.array([50.0, 100.0, 130.0])
+    kpis = {s: {"t": t, "load": np.array([np.nan, np.nan, 99.0])} for s in ("embb", "urllc", "be")}
+    filled = with_played_load(kpis, "s3")
+    assert filled["be"]["load"].tolist() == [QUIET["be"], QUIET["be"], 99.0]
+    assert filled["urllc"]["load"].tolist() == [QUIET["urllc"], QUIET["urllc"], 99.0]
