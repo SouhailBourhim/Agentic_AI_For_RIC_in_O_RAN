@@ -309,14 +309,24 @@ acknowledge arrived.
   delay stays in seconds. **Open:** where the second tick of
   delay comes from (one candidate: `kpm_monitor`'s own 1 Hz tick between the KPM report and
   `kpm_latest`); and whether to retrain with a random observation delay, which would need fresh test
-  seeds, since the held-out goal-test set has already been used twice.
+  seeds, since the held-out goal-test set has already been used twice. M08c: 2.0-3.9 % per s for RL only, 1.3-3.2 for LLM + RL, flat
+  during S1's surge with a target in force.
 - **A rejected request can leave a slice worse off (found in M08a, S3). Reduced 2026-11-07, not solved.** With eMBB and BE
   targets in force and URLLC's own request rejected as a conflict, URLLC got 8 % of the cell and about 8 s of delay. Implied
   targets (`verifier.verify.with_fair_shares`) raise it to 17.7 Mb/s and 2.9 s; an equal split gives 25 Mb/s and 2 s. The model
   still never relaxes the rejected target. **Open:** whether the agent should relax it or tell the operator what the rejection costs.
-- **Testbed capacity in the verifier (for M08c).** `cell_info()` gives the verifier the simulator's
-  75 Mb/s, while M07b measured 0.654 Mb/s per PRB (69 Mb/s) with the slice scheduler. So the
-  verifier can accept targets on the testbed that are about 8 % too optimistic. Decide before M08c.
+- **Testbed capacity in the verifier (decided for M08c, then contradicted by it).** `cell_info()` reports M07b's 69 Mb/s
+  since 2026-11-07. M08c's standing queues show 81 Mb/s by KPM and 79 received by iperf3 (0.75 Mb/s per PRB). **Open:** why M07b
+  measured 0.654 (candidate, untested: it offered 240 Mb/s in total, M08c at most 82.5), which value to use, and then rerunning
+  S3, whose second intent is rejected at 69 and accepted from 75.
+- **Traffic segments on a clock (found in M08c).** `eval.testbed_control.play_segments` waits for iperf3 to close, so the traffic depends
+  on the controller (2 s late against 14-28 s). Fix before any further testbed matrix.
+- **The swing when an intent expires (found in M08c, S2).** With eMBB's queue standing at t=300, the default objective gives eMBB up to 0.82 and
+  URLLC about 0.13, and URLLC's delay reaches about 3 s for 23-28 s. `intent_met` doesn't see it, since it's outside the window. **Open:** whether to
+  return to the default gradually, and whether the evaluation should score the seconds after an intent.
+- **The simulator's delay under capacity (found in M08c).** M/M/1 passes 5 ms at an equal split in S2; the real RLC delay stays near 0.6 ms until saturation.
+  **Open, with any retraining:** a flat delay curve and queues beyond the 50 Mb cap (14-38 s seen on the cell).
+- **LLM only's `finish` (found in M08c).** The model took a transient at 0 Mb/s for a verdict and stopped, and the log recorded `outcome: applied` next to a reason saying the goal can't be met.
 - **llama3.1 sets priority on guarantee intents (M04b, low priority).** Seen with llama3.1 only;
   qwen3:8b is the chosen model, so nothing depends on it unless the model changes.
 - **Hermes: some turns get no reply (M05b, measured again in M08b).** The model returns an empty answer after

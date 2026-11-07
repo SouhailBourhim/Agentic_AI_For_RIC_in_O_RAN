@@ -173,9 +173,26 @@ median of 10 paired seeds:
   pre-registered checks missed (S3's first goal, 0.79 against 0.80). S3 and over-serving are reduced, not solved, and the
   controller reacts 2–4 s slower.
 - **Read with care:** static and RL only never receive the goals, the scenarios use one wording per intent, and the policy
-  was trained on this simulator. [The note](docs/learn/M08a-eval-sim.md) has the figures and limits; the testbed comes next.
+  was trained on this simulator. [The note](docs/learn/M08a-eval-sim.md) has the figures and limits. S2's separation did not hold on the real cell (M08c, below).
 
 ![Intent met per controller and scenario](docs/learn/img/M08a-intent-met.png)
+
+**The four controllers on the real cell (M08c).** OAI gNB over E2, real speed, 3 repeats, rules committed before the runs.
+Median [min–max] of the window met:
+
+| Goal | Static | RL only | LLM only | LLM + RL |
+|---|---|---|---|---|
+| S1: URLLC ≥ 18 Mb/s, < 10 ms, before a surge | 0.30 [0.28–0.30] | 0.49 [0.42–0.54] | 0.27 [0.26–0.79] | **0.91 [0.91–0.92]** |
+| S2: URLLC ≥ 16.5 Mb/s, < 5 ms, stated mid-run | 1.00 | 1.00 | 1.00 | 1.00 |
+| S3: eMBB and BE ≥ 20 Mb/s | **0.94** [0.94–0.95] | 0.35 [0.34–0.41] | **0.94** [0.94–0.95] | 0.76 [0.75–0.84] |
+| S3: URLLC ≥ 20 Mb/s, < 5 ms | 0.01 [0.00–0.01] | 0.24 [0.22–0.25] | 0.01 [0.00–0.01] | 0.01 [0.00–0.01] |
+
+- **The design holds where a goal needs RL:** in S1 LLM + RL reacts in 6.3 s and keeps URLLC's RLC delay under 1 ms through the surge, with the split steady. It still over-serves: 0.54 of the cell where 0.34 would do.
+- **S2 separates nothing on the real cell.** M08a's 0.98 against 0.00 came from the simulator's delay model; the real RLC delay stays near 0.6 ms until a slice saturates. What differs is the cost to eMBB.
+- **The cell carried about 81 Mb/s, not the 69 the verifier was told.** S3's second intent is rejected at 69 and accepted from 75, so that rejection depends on the input, and the scenarios were lighter than planned. The cause of the gap with M07b isn't established.
+- **Read with care:** 3 repeats, a clean rfsim channel, a policy that sees the offered load, and bounds on RLC delay rather than end to end. The harness's traffic also starts late by a controller-dependent amount, and that partly explains LLM only's S1. [The note](docs/learn/M08c-eval-testbed.md) has all of it.
+
+![Intent met per controller on the real cell](docs/learn/img/M08c-intent-met.png)
 
 **The interface, on intents it had never seen (M08b).** The rules were committed before the single run, and the code refuses
 to score the set twice.
@@ -232,7 +249,7 @@ internal Docker network whose only exits are two relays, to the gateway and to O
 | M07b | PRB-split control on the real gNB over E2 (gNB patch), slice-control xApp, FlexRIC backend, RL xApp image | Done |
 | M08a | Four-controller comparison on the simulator (static, RL only, LLM only, LLM + RL), 3 scenarios, 10 paired seeds | Done |
 | M08b | Interface evaluation on the held-out intents: extraction, tool calls, out-of-scope attempts, Hermes fidelity and latency | Done |
-| M08c | The four-controller comparison on the testbed | Next |
+| M08c | The four-controller comparison on the testbed: 3 scenarios, 3 repeats, 36 runs | Done |
 
 The full plan, with interfaces, risks and how each hypothesis gets tested, is in
 [docs/PLAN.md](docs/PLAN.md). The original design document (in French) is
