@@ -64,8 +64,8 @@ PRB split of three slices (embb, urllc, be) every second; you only give it an OB
 Call exactly ONE tool per turn.
 - To start, call set_rl_objective built from the extracted facts:
   importance 0-10 per slice: the priority slice high (8), the others low (2 or 3); with no
-  priority, favour the slices that have a guarantee; min_thr_mbps, max_latency_ms and
-  duration_s exactly as extracted, never larger.
+  priority, give every slice 3 (the targets protect themselves); min_thr_mbps, max_latency_ms
+  and duration_s exactly as extracted, never larger.
 - If the verifier rejected your last objective, read its reason and propose a corrected one
   that still serves the operator (outside demo mode, for example a lower target or a
   shorter duration).

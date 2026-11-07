@@ -63,7 +63,9 @@ def test_happy_path_parse_plan_verify_apply_observe_reflect(ric_db, cell) -> Non
     assert llm.requests[0]["schema"]["title"] == "ParsedIntent"  # structured output for the parse
     assert cell.backend.now() == 15.0  # 5 s observed on the backend clock
     weights = a1_policy.current_schedule(ric_db)[0].objective.weights.as_list()
-    assert weights == pytest.approx([2 / 12, 8 / 12, 2 / 12])  # importance 2/8/2 -> weights summing to 1
+    assert weights == pytest.approx([0.4, 0.3, 0.3])  # no priority stated: the model's 2/8/2 is not kept
+    last_act = [e["data"] for e in read_events() if e["event"] == "agent_step" and e["data"]["node"] == "act"][-1]
+    assert last_act["ignored_importance"] == {"embb": 2, "urllc": 8, "be": 2}  # and the log says so
 
 
 def test_verifier_rejection_replans(ric_db, cell) -> None:
@@ -212,8 +214,8 @@ def test_an_out_of_scope_request_is_told_what_can_be_asked(ric_db, cell) -> None
 
 def test_one_revision_supersedes_the_applied_objective(ric_db, cell) -> None:
     script = [facts(urllc=10), objective_call(), reflection("revise", "URLLC missed its target"),
-              objective_call(importance={"embb": 1, "urllc": 10, "be": 1}), reflection("revise", "still missed")]
-    record, _ = agent(ric_db, cell, script)
+              objective_call(importance={"embb": 2, "urllc": 8, "be": 2}), reflection("revise", "still missed")]
+    record, _ = agent(ric_db, cell, script, good_enough=1.01)  # any compliance may be revised, for this test
     assert record.state == "cancelled" and "superseded by its revision i0002" in record.reason
     revision = intents.get(ric_db, "i0002")
     assert revision.state == "applied" and revision.supersedes == "i0001"

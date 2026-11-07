@@ -44,6 +44,7 @@ class Settings:
     max_steps: int = 8  # tool calls per intent (proposed mode)
     max_rejections: int = 2  # verifier rejections that still lead to a new plan
     max_revisions: int = 1  # revisions of an applied objective per intent
+    good_enough: float = 0.9  # compliance at which no revision is made, whatever the model says
     wait_for_confirmation: bool = True  # False: stop at awaiting_confirmation (tests)
     poll_s: float = 0.5  # wall seconds between two reads while waiting for the console
 

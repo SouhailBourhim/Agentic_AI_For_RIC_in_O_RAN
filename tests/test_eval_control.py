@@ -10,7 +10,7 @@ from agent.llm import FakeLLM, LLMReply, tool_call
 from agent.parser import parse_facts
 from agent.tools import AgentContext, Settings
 from eval import metrics
-from eval.control import bridge, headline, lever
+from eval.control import FIXED_SEEDS, bridge, fixed, headline, lever
 from eval.extraction import load_intents, score_one
 from eval.harness import CONTROLLERS, ChargedLLM, RunSpec, run_once
 from eval.scenarios import DEV_SEED, SCENARIOS, SEEDS, Scenario, ScenarioIntent, facts
@@ -121,6 +121,8 @@ def test_no_scenario_text_comes_from_the_held_out_split() -> None:
 def test_the_seeds_are_fresh() -> None:
     used = set(EVAL_SEEDS) | set(TEST_REWARD_SEEDS) | set(VALIDATION_REWARD_SEEDS)
     assert not used & set(SEEDS) and DEV_SEED not in used and DEV_SEED not in SEEDS
+    assert not (used | set(SEEDS)) & set(FIXED_SEEDS)
+    assert len(fixed()) == 3 * 2 * 10 + 3 * 10
 
 
 def objective_for(intent: ScenarioIntent, now: float) -> RLObjective:
@@ -224,3 +226,39 @@ def test_the_figures_draw_from_the_table_and_show_never_reached() -> None:
     rows = [row, {**row, "reaction_s": "3.0"}]
     assert values(rows, "reaction_s", study="headline", scenario="s2", intent=1, controller="proposed") == [3.0]
     assert plot_met(rows).axes and plot_reaction(rows).axes
+
+
+# ---------------------------------------------------------------- the fixes of 2026-11-07
+
+
+def scripted_agent(ric_db, tiny_policy_file, llm, text: str, **settings):
+    from conftest import run_agent, start_cell
+
+    runner = start_cell(ric_db, tiny_policy_file)
+    runner.run(5)
+    return run_agent(ric_db, text, mode="eval", llm=llm, runner=runner, **settings)
+
+
+def test_the_first_objective_keeps_the_default_weights_when_no_priority_was_stated(ric_db, tiny_policy_file) -> None:
+    from verifier.objective import DEFAULT_OBJECTIVE
+
+    parse = json.dumps(facts(100.0, urllc=10.0))
+    call = tool_call("set_rl_objective", importance={"embb": 2, "urllc": 8, "be": 2}, min_thr_mbps={"urllc": 10.0}, duration_s=100.0)
+    record = scripted_agent(ric_db, tiny_policy_file, FakeLLM([parse, call]), "x")
+    assert record.state == "applied" and record.objective.weights == DEFAULT_OBJECTIVE.weights
+
+
+def test_a_stated_priority_keeps_the_models_weights(ric_db, tiny_policy_file) -> None:
+    parse = json.dumps({**facts(100.0, urllc=10.0), "priority": "urllc"})
+    call = tool_call("set_rl_objective", importance={"embb": 2, "urllc": 8, "be": 2}, min_thr_mbps={"urllc": 10.0}, duration_s=100.0)
+    record = scripted_agent(ric_db, tiny_policy_file, FakeLLM([parse, call]), "x")
+    assert record.objective.weights.urllc == pytest.approx(8 / 12)
+
+
+def test_a_revision_may_not_be_asked_for_above_the_good_enough_line(ric_db, tiny_policy_file) -> None:
+    """Compliance is computed in code; a small model asked for a revision at 95 % (M08a)."""
+    parse = json.dumps(facts(100.0, urllc=1.0))
+    call = tool_call("set_rl_objective", importance={"urllc": 5}, min_thr_mbps={"urllc": 1.0}, duration_s=100.0)
+    revise = json.dumps({"decision": "revise", "reason": "the model is unsure"})
+    record = scripted_agent(ric_db, tiny_policy_file, FakeLLM([parse, call, revise]), "x", observe_s=5.0, max_revisions=1)
+    assert record.state == "applied" and record.supersedes is None

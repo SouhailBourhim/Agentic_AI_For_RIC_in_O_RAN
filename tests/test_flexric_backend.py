@@ -10,7 +10,7 @@ import pytest
 
 from backends.flexric import N_PRB, PRB_FULL_CELL, FlexRICBackend, shares_to_prbs
 from rl.policy import SMOOTHING_ALPHA, SlicePolicy
-from rl.runner import TESTBED_SMOOTHING_ALPHA, Runner, load_policy
+from rl.runner import SERVED_SMOOTHING_ALPHA, Runner, load_policy
 from store import testbed
 from store.events import read_events
 from xapps.kpm_monitor import cell_info
@@ -128,7 +128,7 @@ def test_the_unchanged_runner_ticks_on_the_testbed_backend(ric_db, tiny_policy_f
     b.close()
 
 
-def test_testbed_filter_is_stronger_than_the_simulators_and_the_simulator_keeps_its_own(tiny_policy_file) -> None:
-    """The champion's recorded evaluation used alpha 0.25: only the testbed runs a different filter."""
-    assert load_policy(tiny_policy_file)[0].alpha == SMOOTHING_ALPHA == 0.25
-    assert load_policy(tiny_policy_file, TESTBED_SMOOTHING_ALPHA)[0].alpha == 0.10
+def test_the_served_filter_is_stronger_than_the_one_training_used(tiny_policy_file) -> None:
+    """Training and the champion's recorded evaluation used alpha 0.25; a loaded policy is served at 0.10."""
+    assert load_policy(tiny_policy_file)[0].alpha == SERVED_SMOOTHING_ALPHA == 0.10
+    assert SMOOTHING_ALPHA == 0.25

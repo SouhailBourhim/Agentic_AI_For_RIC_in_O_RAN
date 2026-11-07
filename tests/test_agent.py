@@ -13,6 +13,7 @@ from agent.apply import ApplyError, apply_intent, cancel_intent
 from agent.parser import parse_facts
 from agent.service import app
 from conftest import run_agent, start_cell
+from verifier.objective import DEFAULT_OBJECTIVE
 from store import a1_policy
 from store.events import read_events
 
@@ -192,8 +193,9 @@ def test_timetable_merges_and_status_shows_merged_with(ric_db, tiny_policy_file)
     segments = [(r.valid_from, r.expires_at, r.intent_ids) for r in a1_policy.current_schedule(ric_db)]
     assert segments == [(20.0, 80.0, ("i0001", "i0002")), (80.0, 130.0, ("i0001",))]
     merged = a1_policy.current_schedule(ric_db)[0].objective
-    assert merged.min_thr_mbps.as_list() == [0.0, 10.0, 20.0]
-    assert merged.weights.as_list() == pytest.approx([0.2, 0.2, 0.6])  # b, applied last
+    assert merged.min_thr_mbps.as_list()[1:] == [10.0, 20.0]  # the merge: highest stated target per slice
+    assert merged.min_thr_mbps.embb == pytest.approx(22.5)  # none stated: its share of what is free, capped
+    assert merged.weights == DEFAULT_OBJECTIVE.weights  # no priority was stated by either
     status = machine.status(ric_db, a.intent_id, now_wall=0.0)
     assert status["in_effect"] and status["merged_with"] == [b.intent_id]
 

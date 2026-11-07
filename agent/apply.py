@@ -22,7 +22,15 @@ from store.events import log_event
 from store.intents import IntentRecord
 from verifier.merge import ActiveIntent, merge
 from verifier.objective import DEFAULT_OBJECTIVE, SLICES, RLObjective
-from verifier.verify import Decision, VerifierState, reverify_after_removal, verify, verify_shares
+from verifier.verify import (
+    DEFAULT_CONFIG,
+    Decision,
+    VerifierState,
+    reverify_after_removal,
+    verify,
+    verify_shares,
+    with_fair_shares,
+)
 
 
 class ApplyError(Exception):
@@ -62,12 +70,14 @@ def decision_dict(decision: Decision) -> dict:
     return {"accepted": decision.accepted, "check": decision.check, "reason": decision.reason}
 
 
-def build_timetable(active: list[ActiveIntent], now: float) -> list[tuple[float, float | None, RLObjective, tuple[str, ...]]]:
-    """(valid_from, expires_at, merged objective, intent_ids) for every segment from now on.
+def build_timetable(active: list[ActiveIntent], state: VerifierState) -> list[tuple[float, float | None, RLObjective, tuple[str, ...]]]:
+    """(valid_from, expires_at, objective that runs, intent_ids) for every segment from now on.
 
     Cut points: now, and every start or end of an intent that is still ahead. Between two cut
-    points the set of active intents does not change, so neither does the merge.
+    points the set of active intents does not change, so neither does the merge. Each segment is the
+    merge plus the implied targets of the slices with none (verifier with_fair_shares).
     """
+    now = state.now_s
     cuts = {now}
     for i in active:
         for t in (i.objective.valid_from, i.objective.valid_until):
@@ -79,7 +89,8 @@ def build_timetable(active: list[ActiveIntent], now: float) -> list[tuple[float,
         merged = merge(active, start)
         if not merged.intent_ids:
             continue  # nothing active: no row, the runner falls back to the default objective
-        objective = RLObjective(**{**merged.objective.model_dump(), "valid_from": start, "valid_until": end})
+        runs = with_fair_shares(merged, state, DEFAULT_CONFIG)
+        objective = RLObjective(**{**runs.model_dump(), "valid_from": start, "valid_until": end})
         segments.append((start, end, objective, merged.intent_ids))
     return segments
 
@@ -92,7 +103,7 @@ def write_timetable(
     segments = [
         a1_policy.Segment(objective=obj, intent_ids=ids, verifier_decision=decision_dict(decision),
                           confirmed_by=confirmed_by, valid_from=start, expires_at=end)
-        for start, end, obj, ids in build_timetable(active, state.now_s)
+        for start, end, obj, ids in build_timetable(active, state)
     ]
     schedule_id = a1_policy.write_schedule(conn, segments, reason, state.now_s)
     log_event("agent", "timetable_written", ts_backend=state.now_s,

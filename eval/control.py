@@ -5,6 +5,7 @@
   uv run python -m eval.control --controllers llm_only proposed        needs Ollama; long
   uv run python -m eval.control --study bridge                         M08c's reference
   uv run python -m eval.control --study lever                          importance 6 or 8, no LLM
+  uv run python -m eval.control --study fixed                          after the fixes, fresh seeds; needs Ollama
 
 A finished run is never played twice, so a stopped command can simply be started again. Raw runs go
 to eval/results/m08a/ (git-ignored); the table of all finished runs to eval/results/m08a/runs.csv and
@@ -22,13 +23,14 @@ from agent.prompts import PARSE_VERSION
 from eval.harness import CONTROLLERS, USES_AGENT, RunSpec, run_once
 from eval.metrics import measure_run
 from eval.scenarios import DEV_SEED, SCENARIOS, SEEDS
-from rl.runner import TESTBED_SMOOTHING_ALPHA, load_policy
+from rl.runner import SERVED_SMOOTHING_ALPHA, load_policy
 
 RESULTS = Path("eval/results/m08a")
 TABLE = Path("docs/learn/data/M08a-runs.csv")
 TESTBED_DELAY_TICKS = 2  # the late view that matches the testbed (M07b)
 BRIDGE_PROPOSED_SEEDS = range(5000, 5005)
 LEVER_IMPORTANCES = (6.0, 8.0)
+FIXED_SEEDS = range(7000, 7010)  # fresh: the fixes were chosen on seeds 6000-6009, not reported as results
 
 
 def headline(controllers: list[str], seeds) -> list[RunSpec]:
@@ -38,11 +40,20 @@ def headline(controllers: list[str], seeds) -> list[RunSpec]:
 def bridge() -> list[RunSpec]:
     """Simulator settings against testbed settings: RL only on all four combinations (the first is in
     the headline study), LLM + RL on the testbed-like one."""
-    settings = [(0.25, TESTBED_DELAY_TICKS), (TESTBED_SMOOTHING_ALPHA, 0), (TESTBED_SMOOTHING_ALPHA, TESTBED_DELAY_TICKS)]
+    settings = [(0.25, TESTBED_DELAY_TICKS), (SERVED_SMOOTHING_ALPHA, 0), (SERVED_SMOOTHING_ALPHA, TESTBED_DELAY_TICKS)]
     specs = [RunSpec("bridge", s, "rl_only", seed, alpha, delay) for s in SCENARIOS for alpha, delay in settings
              for seed in SEEDS]
-    return specs + [RunSpec("bridge", s, "proposed", seed, TESTBED_SMOOTHING_ALPHA, TESTBED_DELAY_TICKS)
+    return specs + [RunSpec("bridge", s, "proposed", seed, SERVED_SMOOTHING_ALPHA, TESTBED_DELAY_TICKS)
                     for s in SCENARIOS for seed in BRIDGE_PROPOSED_SEEDS]
+
+
+def fixed() -> list[RunSpec]:
+    """After the fixes of 2026-11-07, on fresh seeds: the two controllers they change, as served and at
+    the testbed's delay. Static and LLM only do not use the policy, its objective or its filter."""
+    specs = [RunSpec("fixed", s, c, seed, SERVED_SMOOTHING_ALPHA) for s in SCENARIOS for c in ("rl_only", "proposed")
+             for seed in FIXED_SEEDS]
+    return specs + [RunSpec("fixed_late", s, "proposed", seed, SERVED_SMOOTHING_ALPHA, TESTBED_DELAY_TICKS)
+                    for s in SCENARIOS for seed in FIXED_SEEDS]
 
 
 def lever() -> list[RunSpec]:
@@ -72,7 +83,7 @@ def write_table() -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--study", choices=["headline", "bridge", "lever"], default="headline")
+    parser.add_argument("--study", choices=["headline", "bridge", "lever", "fixed"], default="headline")
     parser.add_argument("--controllers", nargs="+", choices=CONTROLLERS, default=list(CONTROLLERS))
     parser.add_argument("--scenarios", nargs="+", choices=list(SCENARIOS), default=list(SCENARIOS))
     parser.add_argument("--dev", action="store_true", help=f"seed {DEV_SEED} only; not in the table")
@@ -81,7 +92,7 @@ def main() -> None:
     if args.dev:
         specs = [RunSpec("dev", s, c, DEV_SEED) for s in SCENARIOS for c in args.controllers]
     else:
-        specs = {"headline": lambda: headline(args.controllers, SEEDS), "bridge": bridge, "lever": lever}[args.study]()
+        specs = {"headline": lambda: headline(args.controllers, SEEDS), "bridge": bridge, "lever": lever, "fixed": fixed}[args.study]()
     specs = [s for s in specs if s.scenario in args.scenarios]
     to_play = [s for s in specs if not (RESULTS / s.run_id / "run.json").exists()]
     print(f"{len(specs)} runs, {len(specs) - len(to_play)} already finished")

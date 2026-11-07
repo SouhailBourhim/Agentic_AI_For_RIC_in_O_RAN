@@ -283,11 +283,48 @@ def print_summary(rows: list[dict]) -> None:
     print(f"\nLLM only: runs where the model called finish at least once, of 10: {dict(sorted(finished.items()))}")
 
 
+def plot_fixes(rows: list[dict]) -> Figure:
+    """The recorded evaluation against the fixes (different, paired-within-study seeds), one panel per question."""
+    fig = Figure(figsize=(13, 3.6), facecolor=SURFACE, layout="constrained")
+    met, cost, urllc, moved = fig.subplots(1, 4)
+    studies = (("headline", NEUTRAL, -0.2, "before"), ("fixed", ACCENT, 0.2, "after"))
+    for study, colour, shift, label in studies:
+        base = {"study": study, "controller": "proposed", "intent": 1}
+        for x, scenario in enumerate(SCENARIOS):
+            strip(met, x + shift, [v * 100 for v in values(rows, "intent_met", scenario=scenario, **base)], colour, x)
+            strip(moved, x + shift, [v * 100 for v in values(rows, "moved_per_s", scenario=scenario, **base)], colour, x)
+        for x, scenario in enumerate(("s1", "s2")):
+            total = np.add(values(rows, "embb_unmet", scenario=scenario, **base), values(rows, "be_unmet", scenario=scenario, **base))
+            strip(cost, x + shift, list(total), colour, x)
+        second = {**base, "intent": 2, "scenario": "s3"}
+        strip(urllc, shift, values(rows, "urllc_thr", **second), colour)
+        met.scatter([], [], color=colour, s=26, label=label)
+    equal = np.median(values(rows, "urllc_thr", study="headline", controller="static", intent=2, scenario="s3"))
+    urllc.axhline(equal, color=TEXT_MUTED, linewidth=1, linestyle=":")
+    urllc.text(0.38, equal - 1.0, "equal split", ha="right", va="top", fontsize=8.5, color=TEXT_MUTED)
+    met.set_xticks(range(3), ["S1", "S2", "S3 first"], fontsize=8.5)
+    met.set_ylim(0, 104)
+    met.legend(frameon=False, fontsize=8.5, loc="lower left")
+    titled(met, "Intent met, %")
+    cost.set_xticks(range(2), ["S1", "S2"], fontsize=8.5)
+    cost.set_ylim(bottom=0)
+    titled(cost, "eMBB + BE unmet demand, Mb/s")
+    urllc.set_xticks([0], ["S3, URLLC's rejected window"], fontsize=8.5)
+    urllc.set_xlim(-0.5, 0.5)
+    urllc.set_ylim(0, 30)
+    titled(urllc, "URLLC throughput, Mb/s")
+    moved.set_xticks(range(3), ["S1", "S2", "S3"], fontsize=8.5)
+    moved.set_ylim(bottom=0)
+    titled(moved, "Split movement, % of the cell per s")
+    fig.suptitle("LLM + RL before and after the fixes. One dot per seed, bar = median", color=TEXT, fontsize=11, x=0.01, ha="left")
+    return fig
+
+
 def main() -> None:
     rows = read_table()
     IMG.mkdir(parents=True, exist_ok=True)
     figures = {"M08a-intent-met": plot_met(rows), "M08a-reaction": plot_reaction(rows), "M08a-cost": plot_cost(rows),
-               "M08a-llm-latency": plot_latency(), "M08a-bridge": plot_bridge(rows)}
+               "M08a-llm-latency": plot_latency(), "M08a-bridge": plot_bridge(rows), "M08a-fixes": plot_fixes(rows)}
     figures |= {f"M08a-{name}": plot_timeline(scenario) for name, scenario in SCENARIOS.items()}
     for name, fig in figures.items():
         fig.savefig(IMG / f"{name}.png", dpi=120)

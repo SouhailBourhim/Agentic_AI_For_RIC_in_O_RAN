@@ -250,10 +250,26 @@ def build_graph(ctx: AgentContext):  # noqa: C901 (one closure per node, kept to
             return args, None
         return {**args, "duration_s": None}, proposed
 
+    def keep_default_weights(state: AgentState, args: dict) -> tuple[dict, dict | None]:
+        """The operator favoured no slice: the first objective keeps the default weights, whatever the
+        model wrote, and the stated targets do the protecting.
+
+        Measured in M08a: the policy's split follows the weights. With 8/2/2 for a stated target URLLC
+        got 68 % of the cell where it needed 40 %, and in S3 8/2/8 left it 8 %. Not asked for, so not
+        the agent's to invent (same rule as the duration). A priority the operator stated is kept, and
+        so is a revision's importance, as that is how a missed target gets pushed harder.
+        """
+        if state["facts"]["priority"] is not None or state.get("active_id") or not args.get("importance"):
+            return args, None
+        return {**args, "importance": {}}, args["importance"]
+
     def set_objective(state: AgentState, args: dict, key: str) -> dict:
         revision_of = state.get("active_id")  # an applied objective exists: this is a revision
         args, ignored_duration = keep_default_duration(state, args)
+        args, ignored_importance = keep_default_weights(state, args)
         extra = {"ignored_duration_s": ignored_duration} if ignored_duration is not None else {}
+        if ignored_importance is not None:
+            extra["ignored_importance"] = ignored_importance
         changes = stated_changes(state["facts"], args) if s.mode == "demo" else []
         if changes:  # demo mode: the operator's numbers are not the agent's to relax
             step(state, "act", tool="set_rl_objective", arguments=args, result="changes stated values",
@@ -349,6 +365,8 @@ def build_graph(ctx: AgentContext):  # noqa: C901 (one closure per node, kept to
                 decision, reason = "done", "no valid reflection; keeping the objective"
             if decision not in ("done", "revise"):
                 decision = "done"
+            if decision == "revise" and comp and min(comp.values()) >= s.good_enough:  # M08a: asked for at 95 %
+                decision, reason = "done", f"every target met at least {s.good_enough:.0%} of the time"
         step(state, "reflect", decision=decision, reason=reason, compliance=comp, latency_s=round(latency, 2))
         if decision == "revise":
             return {"revisions": state["revisions"] + 1, "route": "plan",

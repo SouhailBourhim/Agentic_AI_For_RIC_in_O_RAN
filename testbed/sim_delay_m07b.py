@@ -20,6 +20,7 @@ from matplotlib.figure import Figure
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # repo root
 from backends.sim import DelayedBackend, scenario_traffic  # noqa: E402
+from rl.policy import SMOOTHING_ALPHA  # noqa: E402
 from rl.runner import Runner, load_policy  # noqa: E402
 from sim.cell import CellConfig  # noqa: E402
 from sim.plot import LINE_WIDTH, SLICE_COLOURS, SURFACE, TEXT, TEXT_MUTED, _style  # noqa: E402
@@ -34,7 +35,7 @@ WINDOW = (int(DEMO_SURGE_START_S) + 30, TICKS)  # surge, after its first 30 s
 def run(delay: int, policy_file: Path) -> dict:
     cfg = CellConfig()
     backend = DelayedBackend(cfg, scenario_traffic("demo", cfg), seed=0, delay=delay)
-    policy, _ = load_policy(policy_file)
+    policy, _ = load_policy(policy_file, SMOOTHING_ALPHA)  # as deployed when this was measured
     runner = Runner(backend, policy, db.connect(timeout_s=0.0), cfg.dt_s)
     shares = np.array([runner.tick().shares for _ in range(TICKS)])
     window = shares[WINDOW[0]:WINDOW[1], 0]  # eMBB

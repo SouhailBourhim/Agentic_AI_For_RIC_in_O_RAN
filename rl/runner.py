@@ -43,19 +43,19 @@ from verifier.objective import DEFAULT_OBJECTIVE, MIN_SLICE_SHARE, SLICES, RLObj
 from xapps.kpm_monitor import DEFAULT_TESTBED_DB, cell_info
 
 POLICY_CACHE = Path("var/policy_cache")
-# The testbed shows the policy its KPIs about 2 s later than training did, and at alpha 0.25 the split
-# swings (docs/learn/M07b-slice-control.md). No retraining: a stronger filter on the testbed only.
-TESTBED_SMOOTHING_ALPHA = 0.10
+# The filter on the served split, stronger than the one the policy was trained and first evaluated with
+# (SMOOTHING_ALPHA). The testbed's late KPIs make the split swing at alpha 0.25 (M07b), and the policy
+# jitters on the simulator too (M08a: 5.6-8.5 % of the cell per s, 1.8-3.2 % at this value). No retraining.
+SERVED_SMOOTHING_ALPHA = 0.10
 MAX_PENDING_TICKS = 600  # KPI ticks kept in memory while the database is busy (10 min at 1 s)
 
 
-def load_policy(policy_file: Path | None = None, alpha: float = SMOOTHING_ALPHA) -> tuple[SlicePolicy, str]:
+def load_policy(policy_file: Path | None = None, alpha: float = SERVED_SMOOTHING_ALPHA) -> tuple[SlicePolicy, str]:
     """The policy to serve, loaded ONCE at startup, and a label of its version.
 
     Order: an explicit file (tests, CI); else the MLflow registry's slice-policy@champion,
     copied to var/policy_cache/; else, if MLflow is unavailable, the last cached champion.
-    The deployed smoothing filter is on: alpha 0.25 on the simulator, as in evaluation, and
-    TESTBED_SMOOTHING_ALPHA on the testbed (see main).
+    The deployed smoothing filter is on, on either backend.
     """
     if policy_file is not None:
         return SlicePolicy.load(policy_file, alpha), f"file {policy_file.name}"
@@ -198,8 +198,8 @@ def main() -> None:
     parser.add_argument("--scenario", default="demo", help="sim: steady | urllc_spike | demo")
     parser.add_argument("--speed", type=float, default=1.0, help="sim: 1 = real time, 0 = as fast as possible")
     parser.add_argument("--model-label", default=None, help="version label of --policy-file (the RL xApp image's)")
-    parser.add_argument("--smoothing-alpha", type=float, default=None,
-                        help=f"filter on the split; default {SMOOTHING_ALPHA} (sim), {TESTBED_SMOOTHING_ALPHA} (flexric)")
+    parser.add_argument("--smoothing-alpha", type=float, default=SERVED_SMOOTHING_ALPHA,
+                        help=f"filter on the split; {SMOOTHING_ALPHA} is what training used")
     parser.add_argument("--baseline", choices=["equal"], default=None,
                         help="no RL: an equal split unless a direct_share segment is in force (M08 baselines)")
     parser.add_argument("--ticks", type=int, default=None, help="stop after N ticks (default: run forever)")
@@ -209,8 +209,6 @@ def main() -> None:
     args = parser.parse_args()
 
     alpha = args.smoothing_alpha
-    if alpha is None:
-        alpha = TESTBED_SMOOTHING_ALPHA if args.backend == "flexric" else SMOOTHING_ALPHA
     if args.baseline == "equal":
         policy, model_version = EqualSplitPolicy(), "baseline: equal split, no RL"
     else:

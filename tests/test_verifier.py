@@ -6,7 +6,7 @@ The cell is the simulator's: 75 Mb/s, empty URLLC slice at 2 ms. Now is t = 100 
 import pytest
 
 from verifier.merge import ActiveIntent
-from verifier.objective import RLObjective
+from verifier.objective import RLObjective, SliceValues
 from verifier.verify import DEFAULT_CONFIG, VerifierConfig, VerifierState, reverify_after_removal, verify
 
 NOW = 100.0
@@ -158,7 +158,8 @@ def test_accepted_merge_is_what_runs() -> None:
     merged = decision.merged
     assert merged is not None
     assert merged.intent_ids == ("be20", "i2")
-    assert merged.objective.min_thr_mbps.as_list() == [20.0, 0.0, 20.0]
+    assert merged.objective.min_thr_mbps.embb == merged.objective.min_thr_mbps.be == 20.0
+    assert merged.objective.min_thr_mbps.urllc == pytest.approx(21.0)  # 0.75 of the 46.7 % free, bound's headroom
     assert merged.objective.weights.as_list() == [0.1, 0.8, 0.1]  # the new intent's
     assert merged.objective.max_latency_ms == 10.0
 
@@ -210,3 +211,71 @@ def test_revision_step_is_measured_from_the_objective_in_force() -> None:
     assert verify(revision, STATE).check == "step"  # as a fresh intent: 0.3 -> 0.9
     decision = verify(revision, state, new_intent_id="i2", replacing="i1")
     assert decision.accepted and decision.merged.intent_ids == ("i2",)  # the parent leaves the merge
+
+
+# ---------------------------------------------------------------- implied targets (M08a, S3)
+
+
+def run_objective(active_targets: dict, bound: float | None = None) -> tuple:
+    from verifier.merge import ActiveIntent, merge
+    from verifier.verify import DEFAULT_CONFIG, VerifierState, required_shares, with_fair_shares
+
+    state = VerifierState(now_s=0.0, capacity_mbps=75.0)
+    objective = RLObjective(weights=SliceValues(embb=0.4, urllc=0.3, be=0.3), min_thr_mbps=SliceValues(**active_targets),
+                            max_latency_ms=bound, valid_until=100.0)
+    merged = merge([ActiveIntent(intent_id="a", issued_at=0.0, objective=objective)], 0.0)
+    runs = with_fair_shares(merged, state, DEFAULT_CONFIG)
+    return runs, required_shares(runs, state)
+
+
+def test_a_slice_with_no_target_gets_part_of_what_the_stated_targets_leave() -> None:
+    runs, _ = run_objective({"embb": 22.0, "be": 22.0})
+    assert runs.min_thr_mbps.embb == 22.0 and runs.min_thr_mbps.be == 22.0  # stated targets untouched
+    assert runs.min_thr_mbps.urllc == pytest.approx(22.5)  # 0.75 x 31 Mb/s free, capped by the step limit
+
+
+def test_implied_targets_share_the_free_prbs_and_never_overfill_the_cell() -> None:
+    runs, need = run_objective({"urllc": 18.0}, bound=5.0)  # needs 40 % of the cell
+    assert runs.min_thr_mbps.embb == pytest.approx(0.75 * 0.6 / 2 * 75.0)
+    assert runs.min_thr_mbps.embb == runs.min_thr_mbps.be
+    assert sum(need.values()) <= 1.0 + 1e-9
+
+
+@pytest.mark.parametrize("bound", [5.0, 10.0, 50.0])
+def test_an_implied_urllc_target_counts_the_headroom_of_its_bound(bound) -> None:
+    runs, need = run_objective({"embb": 15.0, "be": 15.0}, bound=bound)
+    assert 0.0 < runs.min_thr_mbps.urllc and sum(need.values()) <= 1.0 + 1e-9
+
+
+def test_with_no_intent_active_nothing_is_implied() -> None:
+    from verifier.merge import merge
+    from verifier.verify import DEFAULT_CONFIG, VerifierState, with_fair_shares
+
+    runs = with_fair_shares(merge([], 0.0), VerifierState(now_s=0.0, capacity_mbps=75.0), DEFAULT_CONFIG)
+    assert runs.min_thr_mbps.as_list() == [0.0, 0.0, 0.0]
+
+
+def test_an_implied_target_never_causes_a_conflict_and_a_stated_conflict_stays_one() -> None:
+    from verifier.merge import ActiveIntent
+    from verifier.verify import VerifierState
+
+    first = RLObjective(weights=SliceValues(embb=0.4, urllc=0.3, be=0.3), min_thr_mbps=SliceValues(embb=22.0, be=22.0),
+                        valid_until=300.0)
+    state = VerifierState(now_s=10.0, capacity_mbps=75.0, active=(ActiveIntent(intent_id="a", issued_at=0.0, objective=first),))
+    new = lambda urllc, bound=None: RLObjective(  # noqa: E731
+        weights=SliceValues(embb=0.4, urllc=0.3, be=0.3), min_thr_mbps=SliceValues(urllc=urllc), max_latency_ms=bound,
+        valid_from=10.0, valid_until=300.0)
+    assert verify(new(20.0), state).accepted  # fits next to the stated targets, despite URLLC's implied 22.5
+    rejected = verify(new(22.0, bound=5.0), state)
+    assert (rejected.accepted, rejected.check) == (False, "conflict")
+
+
+def test_the_decision_shows_what_runs_and_it_is_the_timetables(ric_db, tiny_policy_file) -> None:
+    from conftest import run_agent, start_cell
+
+    runner = start_cell(ric_db, tiny_policy_file)
+    runner.run(2)
+    record = run_agent(ric_db, "garantir 20 Mb/s au slice URLLC pendant 10 minutes", mode="eval", runner=runner)
+    row = ric_db.execute("SELECT objective FROM a1_policy ORDER BY policy_id DESC LIMIT 1").fetchone()
+    assert record.objective.min_thr_mbps.embb == 0.0  # the intent keeps what the operator stated
+    assert '"embb": 0.0' not in row[0]  # what runs has the implied targets

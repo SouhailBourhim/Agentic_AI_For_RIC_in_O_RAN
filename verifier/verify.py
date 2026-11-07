@@ -13,6 +13,9 @@ inputs always give the same decision and the same reason:
     7 conflict         4 and 5 still hold for the merge with the other active intents
     8 step             the objective that runs does not jump too far at once
 
+An accepted decision carries what runs: the merge plus an implied target for each slice nobody stated
+one for (with_fair_shares, added after M08a). Checks 4, 5 and 7 judge the stated targets alone.
+
 Plain Python: no LLM, no randomness, no network, no clock read (the time is in the state).
 tests/test_verifier_purity.py checks this. Each check is explained in docs/learn/M03-verifier.md.
 """
@@ -30,6 +33,7 @@ from verifier.objective import (
     TRAINED_LATENCY_BOUND_MS,
     TRAINED_MAX_TARGET_FRACTION,
     RLObjective,
+    SliceValues,
 )
 
 # Float sums like 0.8 - 0.3 give 0.5000000000000001; a value exactly on a limit is accepted.
@@ -49,6 +53,7 @@ class VerifierConfig(BaseModel):
     max_weight_step: float = Field(default=0.5, gt=0.0)  # per slice, between two merged objectives
     max_share_step: float = Field(default=0.3, gt=0.0)  # per slice, between two direct PRB splits (LLM only)
     max_target_step_fraction: float = Field(default=0.3, gt=0.0)  # per slice, fraction of capacity
+    fair_share_fraction: float = Field(default=0.75, ge=0.0, le=1.0)  # of the free PRBs, for slices with no target
     min_duration_s: float = Field(default=10.0, gt=0.0)  # the policy needs ~10-20 steps to act
     max_duration_s: float = Field(default=86_400.0, gt=0.0)  # one day
     max_start_delay_s: float = Field(default=3_600.0, ge=0.0)  # one hour
@@ -188,6 +193,35 @@ def feasibility_problem(
     return None
 
 
+def with_fair_shares(merged: MergedObjective, state: VerifierState, config: VerifierConfig) -> RLObjective:
+    """The objective that actually runs: the merge, plus a target for each slice nobody stated one for.
+
+    Why (M08a, S3): the verifier protected only stated targets. With eMBB and BE guaranteed and URLLC's
+    own request rejected, the policy left URLLC under its surge with 8 % of the cell, within every check.
+    So each slice with no target gets its share of fair_share_fraction of the PRBs the stated targets
+    leave free, capped at what one change and the policy's training range allow. Fraction below 1, so
+    the stated targets stay easy to meet and some capacity stays free for the weights to decide on.
+
+    Conflicts and feasibility are still judged on stated targets alone: an implied target is taken from
+    what is free, so it can neither exceed the cell nor cause a rejection. The operator's compliance is
+    also computed on the stated objective only. With no intent active nothing is added.
+    """
+    obj = merged.objective
+    free = [s for s in SLICES if getattr(obj.min_thr_mbps, s) == 0.0]
+    if not merged.intent_ids or not free:
+        return obj
+    left = max(0.0, 1.0 - sum(required_shares(obj, state).values()))
+    share = config.fair_share_fraction * left / len(free)
+    cap = min(config.max_target_fraction, config.max_target_step_fraction) * state.capacity_mbps
+    targets = {s: getattr(obj.min_thr_mbps, s) for s in SLICES}
+    for s in free:
+        target = share * state.capacity_mbps
+        if s == "urllc" and obj.max_latency_ms is not None:  # the bound costs headroom (required_shares)
+            target *= max(0.0, 1.0 - state.urllc_base_latency_ms / obj.max_latency_ms)
+        targets[s] = min(target, cap)
+    return obj.model_copy(update={"min_thr_mbps": SliceValues(**targets)})
+
+
 def check_training_range(obj: RLObjective, state: VerifierState, config: VerifierConfig) -> Decision | None:
     """6. The policy was trained on targets up to 40 % of capacity and bounds of 5-50 ms.
 
@@ -279,7 +313,7 @@ def verify(
 ) -> Decision:
     """Accept or reject a proposed objective. Checks 1-8 in order; the first failure wins.
 
-    On acceptance, Decision.merged is merge(active + new) at state.now_s: the objective the RL
+    On acceptance, Decision.merged is merge(active + new) at state.now_s with its implied targets: the objective the RL
     xApp follows from now on, with the intent_ids it comes from. The new intent is treated as
     issued now, so it is the newest one and its weights are used.
 
@@ -313,13 +347,15 @@ def verify(
     if decision is not None:
         return decision
 
-    start = max(obj.valid_from, state.now_s)
-    decision = check_step(merge(running_now, start).objective, merge(with_new, start).objective, state, config)
+    start = max(obj.valid_from, state.now_s)  # the step is measured on what runs, implied targets included
+    decision = check_step(with_fair_shares(merge(running_now, start), state, config),
+                          with_fair_shares(merge(with_new, start), state, config), state, config)
     if decision is not None:
         return decision
 
     merged = merge(with_new, state.now_s)
-    return Decision(accepted=True, check="ok", reason=_accept_reason(merged), merged=merged)
+    runs = MergedObjective(objective=with_fair_shares(merged, state, config), intent_ids=merged.intent_ids)
+    return Decision(accepted=True, check="ok", reason=_accept_reason(merged), merged=runs)
 
 
 def reverify_after_removal(state: VerifierState, config: VerifierConfig = DEFAULT_CONFIG) -> Decision:
