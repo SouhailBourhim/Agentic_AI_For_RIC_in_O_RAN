@@ -40,6 +40,7 @@ from store.events import log_event
 from store.kpi import CellInfo, KpiRecord
 from verifier.objective import SLICES
 
+TESTBED_CAPACITY_MBPS = 69.0  # measured in M07b; eval/testbed_scenarios.py scales the scenarios to it
 DEFAULT_TESTBED_DB = Path("var/ric-testbed.db")  # never the simulator's var/ric.db: the clocks differ
 CONTAINER = "xapp-kpm-slices"
 CELL_ID = "rfsim-gnb-e00-cell-12345678"  # gNB_ID 0xe00, nr_cellid 12345678 (testbed/rfsim-flexric/conf/gnb.conf)
@@ -194,13 +195,14 @@ class SliceAggregator:
 def cell_info() -> CellInfo:
     """What the agent and the verifier need to know about the testbed cell.
 
-    n_prb is the gNB's 106 PRB. The capacity and the URLLC base latency are the simulator's
-    calibrated values (CellConfig, measured on this testbed in the M06 spike), so the verifier
-    judges an intent the same way on both backends.
+    n_prb is the gNB's 106 PRB. The capacity is what this cell measured with the slice scheduler (M07b:
+    0.654 Mb/s per PRB), not the simulator's 75: the verifier then judges what the cell can really carry,
+    and the policy's inputs, fractions of the capacity, mean what they say. The URLLC base latency is
+    the simulator's calibrated value.
     """
     cfg = CellConfig()
     return CellInfo(cell_id=CELL_ID, source="flexric", slices=tuple(SLICES), n_prb=cfg.n_prb,
-                    capacity_mbps=cfg.capacity_mbps, urllc_base_latency_ms=cfg.base_latency_ms["urllc"])
+                    capacity_mbps=TESTBED_CAPACITY_MBPS, urllc_base_latency_ms=cfg.base_latency_ms["urllc"])
 
 
 def replay(lines: Iterable[str], capacity_mbps: float, events: bool = False) -> list[list[KpiRecord]]:

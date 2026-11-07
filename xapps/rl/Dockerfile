@@ -61,4 +61,4 @@ ENV MODEL_FILE=${MODEL_FILE} MODEL_LABEL=${MODEL_LABEL} PYTHONUNBUFFERED=1
 WORKDIR /app
 # var/ is bind-mounted from the repo: var/ric-testbed.db and var/events.jsonl, shared with the
 # KPM monitor, the agent and the exporter running in WSL.
-CMD ["sh", "-c", "exec /opt/venv/bin/python -m rl.runner --backend flexric --keep-db --policy-file /app/model/$MODEL_FILE --model-label \"$MODEL_LABEL [image]\""]
+CMD ["sh", "-c", "exec /opt/venv/bin/python -m rl.runner --backend flexric --keep-db --policy-file /app/model/$MODEL_FILE --model-label \"$MODEL_LABEL [image]\" $RUNNER_ARGS"]

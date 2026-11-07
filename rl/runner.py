@@ -213,7 +213,7 @@ def main() -> None:
         policy, model_version = EqualSplitPolicy(), "baseline: equal split, no RL"
     else:
         policy, model_version = load_policy(args.policy_file, alpha)
-    if args.model_label is not None:
+    if args.model_label is not None and args.baseline is None:  # a baseline serves no model
         model_version = args.model_label
     cfg = CellConfig()
     if args.backend == "flexric":

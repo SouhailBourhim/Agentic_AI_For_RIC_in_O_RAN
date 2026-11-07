@@ -54,7 +54,7 @@ def reaction_s(t: np.ndarray, ok: np.ndarray, start: float, end: float) -> float
     does before `end`. None stays None: a mean over "never" would be an invented number."""
     for i in np.where(in_window(t, start, end))[0]:
         if i + HOLD_S <= len(ok) and ok[i:i + HOLD_S].all() and t[i + HOLD_S - 1] <= end:
-            return float(t[i] - start - 1.0)  # the first second after `start` counts as 0
+            return max(0.0, float(t[i] - start - 1.0))  # the first second after `start` counts as 0; the testbed's clock isn't whole seconds
     return None
 
 

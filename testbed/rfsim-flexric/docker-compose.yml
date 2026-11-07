@@ -62,6 +62,8 @@ services:
             - nearRT-RIC
             - oai-gnb
         user: "${RL_XAPP_USER:-1000:1000}"   # the files it writes in var/ stay yours
+        environment:
+            RUNNER_ARGS: ${RUNNER_ARGS:-}   # M08c: "--baseline equal" for the controllers with no RL
         networks:
             public_net:
                 ipv4_address: 192.168.70.159
