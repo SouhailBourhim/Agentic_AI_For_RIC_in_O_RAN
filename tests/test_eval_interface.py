@@ -143,6 +143,17 @@ def test_the_held_out_split_needs_final_and_is_scored_once(tmp_path) -> None:
     I.guard(tmp_path, "heldout", "hermes", True, *clean)  # one path does not close the others
 
 
+def test_the_older_extraction_command_cannot_score_the_held_out_set_again(tmp_path, monkeypatch) -> None:
+    from eval import extraction
+
+    done = tmp_path / "done.json"
+    done.write_text("{}")
+    monkeypatch.setattr(extraction, "HELD_OUT_SCORED", done)
+    monkeypatch.setattr("sys.argv", ["extraction", "--parser", "rules", "--split", "heldout", "--final"])
+    with pytest.raises(SystemExit, match="already been scored"):
+        extraction.main()
+
+
 def test_the_parse_prompt_hash_changes_with_the_prompt(monkeypatch) -> None:
     before = I.parse_prompt_hash()
     monkeypatch.setattr(I, "PARSE_SYSTEM", I.PARSE_SYSTEM + " ")

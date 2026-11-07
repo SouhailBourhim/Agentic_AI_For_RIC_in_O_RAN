@@ -28,6 +28,7 @@ from agent.schema import ParsedIntent
 
 INTENTS = Path("eval/intents/annotated.jsonl")
 RESULT_DIR = Path("runs/m04b")
+HELD_OUT_SCORED = Path("eval/results/m08b/heldout/extraction/done.json")
 FIELDS = ("priority", "min_thr_embb", "min_thr_urllc", "min_thr_be", "max_latency_ms", "duration_s")
 
 
@@ -118,6 +119,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.split == "heldout" and not args.final:
         raise SystemExit("the held-out split is scored once, in M08b: add --final")
+    if args.split == "heldout" and HELD_OUT_SCORED.exists():
+        raise SystemExit("the held-out split has already been scored (eval/results/m08b); its results stand")
     result = evaluate(args.parser, args.split)
     print_report(result)
     RESULT_DIR.mkdir(parents=True, exist_ok=True)
