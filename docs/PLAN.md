@@ -268,12 +268,14 @@ general, with the testbed confirming rather than producing the main result:
 
 | # | Delivers | Who runs the long part |
 |---|---|---|
-| M09a | Simulator profile calibrated to the testbed (flat RLC delay until saturation, real buffer, 79 Mb/s with its spread, KPIs 2 ticks late), verifier parameters to match; validated against M08c and M08d by a rule written first | Souhail (replay, ~1 h) |
+| M09a ✅ | Simulator profile calibrated to the testbed (flat RLC delay until saturation, real buffer, 79 Mb/s with its spread, KPIs 2 ticks late), verifier parameters to match; validated against M08c and M08d by a rule written first | Souhail (replay, ~1 h) |
 | M09b | Seeded scenario generator in 5 families (F1 load, F2 new goal, F3 fast dynamics, F4 conflicts, F5 easy), the broad benchmark on dev seeds with v7; references: oracle ceiling, LLM + formula (no RL), a fairer LLM only | Souhail |
 | M09c | Policy v8: calibrated profile, random 1-3 tick observation delay, penalty on share above need, objective changes and expiries mid-episode; fresh goal-test seeds | Souhail (training) |
 | M09d | Pre-registered simulator result on test seeds, scored once: P1-P6 as paired differences with bootstrap intervals; written predictions for the testbed sample | Souhail |
 | M09e | Testbed confirmation: 8 instances drawn from the test generator x 4 controllers x 2 repeats, one night | Souhail |
 | M09f | Safety under dangerous in-scope intents (~30), LLM + RL and LLM only, unsafe changes applied must be 0 | me |
+
+**M09a done 2026-11-08:** attempt 1 FAIL (6/8, 25/32), attempt 2 PASS (8/8, 27/32) after the agent's clock was fixed; LLM only can't be reproduced by any simulator (its choices turn on irrelevant input details), so its claims go to the testbed (M09e). Note: `docs/learn/M09a-sim-calibration.md`.
 
 Then a "claims and evidence" synthesis in the README. Full plan: each checkpoint still starts with its own plan for approval.
 
