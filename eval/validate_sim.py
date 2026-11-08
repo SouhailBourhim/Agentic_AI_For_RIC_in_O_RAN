@@ -1,7 +1,7 @@
 """M09a: replay M08c's and M08d's testbed scenarios on the calibrated simulator, and compare with the testbed.
 
   uv run python -m eval.validate_sim --dev            one seed, M08d's S1 and S3, the 4 controllers: for bugs only
-  uv run python -m eval.validate_sim --final          240 runs (2 studies x 3 scenarios x 4 controllers x 10 seeds); needs Ollama
+  uv run python -m eval.validate_sim --final          240 runs (second attempt) (2 studies x 3 scenarios x 4 controllers x 10 seeds); needs Ollama
   uv run python -m eval.validate_sim --compare        the table and the verdict, from finished runs
 
 The rule (docs/DECISIONS.md, M09a pre-registration) was written before any replay. --final refuses uncommitted
@@ -33,9 +33,12 @@ from sim.traffic import TrafficPattern
 from store.events import read_events
 from verifier.objective import SLICES
 
-RESULTS = Path("eval/results/m09a")
+# Second and last attempt (DECISIONS 2026-11-08): the only change is the clock offset. Attempt 1 stays in
+# eval/results/m09a and docs/learn/data/M09a-*-attempt1.csv.
+RESULTS = Path("eval/results/m09a2")
 RUNS_TABLE = Path("docs/learn/data/M09a-sim-runs.csv")
 VALIDATION = Path("docs/learn/data/M09a-validation.csv")
+CLOCK_OFFSET_S = 1_794_000_000.0  # the testbed's era: the agent reads times like "1.794e+09 s", as it did there
 TESTBED_TABLES = {"m08c": Path("docs/learn/data/M08c-runs.csv"), "m08d": Path("docs/learn/data/M08d-runs.csv")}
 TESTBED_RESULTS = {"m08c": Path("eval/results/m08c"), "m08d": Path("eval/results/m08d")}
 STUDIES = ("m08c", "m08d")
@@ -104,7 +107,8 @@ def play(spec: RunSpec, study: str, policy_file: Path, llm) -> Path:
         return work
     return run_once(spec, replay_scenario(study, spec.scenario, spec.controller), work, policy_file,
                     llm if spec.controller in USES_AGENT else None,
-                    cfg=testbed_cell(study, spec.seed), traffic=replay_traffic(study, spec.scenario, spec.controller))
+                    cfg=testbed_cell(study, spec.seed), traffic=replay_traffic(study, spec.scenario, spec.controller),
+                    clock_offset_s=CLOCK_OFFSET_S)
 
 
 def served_policy() -> Path:

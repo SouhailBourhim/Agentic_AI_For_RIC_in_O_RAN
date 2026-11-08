@@ -48,6 +48,7 @@ class SimBackend:
         seed: int = 0,
         speed: float = 0.0,
         cell_id: str = "sim-cell-1",
+        clock_offset_s: float = 0.0,
     ) -> None:
         self.cfg = cfg or CellConfig()
         self.traffic = traffic or default_traffic(self.cfg.capacity_mbps)
@@ -60,6 +61,9 @@ class SimBackend:
         self._loads = {s: self.traffic[s].mean_load_at(0.0) for s in SLICES}
         self._last = {s: SliceStep(0.0, 0.0, 0.0, 0.0, self.cfg.base_latency_ms[s]) for s in SLICES}
         self._next_wall: float | None = None  # wall-clock deadline of the next tick (speed > 0)
+        # M09a: added to every time the backend publishes, so the agent reads times like the testbed's (epoch
+        # seconds) instead of "61 s". The cell's own clock (_time_s, the traffic's t) still starts at 0.
+        self.clock_offset_s = clock_offset_s
 
     def info(self) -> CellInfo:
         return CellInfo(
@@ -74,7 +78,7 @@ class SimBackend:
     def read_kpis(self) -> list[KpiRecord]:
         return [
             KpiRecord(
-                ts=self._time_s,
+                ts=self._time_s + self.clock_offset_s,
                 source="sim",
                 cell_id=self.cell_id,
                 slice=s,
@@ -100,7 +104,7 @@ class SimBackend:
         self._shares = values
 
     def now(self) -> float:
-        return self._time_s
+        return self._time_s + self.clock_offset_s
 
     def sleep(self, seconds: float) -> None:
         """Advance the cell by seconds / dt ticks, pacing against the wall clock if speed > 0.
@@ -137,8 +141,9 @@ class DelayedBackend(SimBackend):
     testbed gives the policy (M07b). A subclass, so the split still goes straight to the cell (only
     the runner calls apply_prb_split, invariant 4)."""
 
-    def __init__(self, cfg: CellConfig, traffic: dict[str, TrafficPattern], seed: int, delay: int) -> None:
-        super().__init__(cfg, traffic, seed=seed, speed=0.0)
+    def __init__(self, cfg: CellConfig, traffic: dict[str, TrafficPattern], seed: int, delay: int,
+                 clock_offset_s: float = 0.0) -> None:
+        super().__init__(cfg, traffic, seed=seed, speed=0.0, clock_offset_s=clock_offset_s)
         self.delay = delay
         self.history: deque = deque(maxlen=delay + 1)
 

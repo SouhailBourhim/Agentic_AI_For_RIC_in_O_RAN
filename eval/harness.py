@@ -102,20 +102,31 @@ def apply_scripted(conn: sqlite3.Connection, intent: ScenarioIntent, high: float
         apply_intent(conn, record.intent_id, now_wall, confirmed_by="auto-eval")
 
 
-def export_kpis(conn: sqlite3.Connection, path: Path) -> None:
+def export_kpis(conn: sqlite3.Connection, path: Path, clock_offset_s: float = 0.0) -> None:
+    """The KPIs on the scenario's clock: the backend's offset (if any) is taken off."""
     rows = conn.execute("SELECT ts, slice, dl_thr_mbps, offered_load_mbps, latency_ms, prb_share_alloc, policy_id "
                         "FROM kpi ORDER BY ts, slice").fetchall()
     with path.open("w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["ts", "slice", "dl_thr_mbps", "offered_load_mbps", "latency_ms", "prb_share_alloc", "policy_id"])
-        writer.writerows(tuple(r) for r in rows)
+        writer.writerows((r[0] - clock_offset_s, *tuple(r)[1:]) for r in rows)
+
+
+def rebase_event_file(path: Path, clock_offset_s: float) -> None:
+    """Events on the scenario's clock, as eval.testbed_control.rebase_events does for the testbed."""
+    if not clock_offset_s or not path.exists():
+        return
+    events = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    path.write_text("".join(json.dumps({**e, "ts_backend": e["ts_backend"] - clock_offset_s} if e.get("ts_backend") is not None else e,
+                                       ensure_ascii=False) + "\n" for e in events))
 
 
 def run_once(spec: RunSpec, scenario: Scenario, work: Path, policy_file: Path | None, llm=None,
-             cfg: CellConfig | None = None, traffic: dict | None = None) -> Path:
+             cfg: CellConfig | None = None, traffic: dict | None = None, clock_offset_s: float = 0.0) -> Path:
     """Play the scenario. Writes kpi.csv, events.jsonl and, last of all, run.json: a run directory
     without run.json did not finish and is played again. `cfg` and `traffic` default to the M01 cell and the
-    scenario's own traffic; M09a passes the testbed profile and the testbed's segments instead."""
+    scenario's own traffic; M09a passes the testbed profile and the testbed's segments instead, and a clock offset
+    so the agent reads epoch-like times as on the testbed (the outputs are on the scenario's clock either way)."""
     if spec.controller in USES_RL and policy_file is None:
         raise ValueError(f"{spec.controller} needs a policy file")
     if spec.controller in USES_AGENT and llm is None:
@@ -130,8 +141,9 @@ def run_once(spec: RunSpec, scenario: Scenario, work: Path, policy_file: Path | 
         conn = db.connect(work / "ric.db")
         cfg = cfg or CellConfig()
         traffic = traffic or scenario_traffic(scenario.name, cfg)
-        backend = (DelayedBackend(cfg, traffic, spec.seed, spec.delay_ticks) if spec.delay_ticks
-                   else SimBackend(cfg, traffic, seed=spec.seed, speed=0.0))
+        backend = (DelayedBackend(cfg, traffic, spec.seed, spec.delay_ticks, clock_offset_s) if spec.delay_ticks
+                   else SimBackend(cfg, traffic, seed=spec.seed, speed=0.0, clock_offset_s=clock_offset_s))
+        elapsed = lambda: backend.now() - clock_offset_s  # noqa: E731  the scenario's clock
         policy = SlicePolicy.load(policy_file, spec.alpha) if spec.controller in USES_RL else EqualSplitPolicy()
         kpi.write_backend_info(conn, backend.info(), spec.run_id)
         runner = Runner(backend, policy, db.connect(work / "ric.db", timeout_s=0.0), cfg.dt_s)
@@ -139,10 +151,10 @@ def run_once(spec: RunSpec, scenario: Scenario, work: Path, policy_file: Path | 
 
         def advance(ticks: int) -> None:
             for _ in range(ticks):
-                if backend.now() >= scenario.seconds:
+                if elapsed() >= scenario.seconds:
                     raise RunOver
                 runner.tick()
-                while waiting and backend.now() >= waiting[0].at_s:
+                while waiting and elapsed() >= waiting[0].at_s:
                     intent = waiting.pop(0)
                     if spec.controller in USES_AGENT:
                         submit(conn, intent.text, time.time())
@@ -156,12 +168,12 @@ def run_once(spec: RunSpec, scenario: Scenario, work: Path, policy_file: Path | 
             ctx = AgentContext(conn=conn, settings=settings, llm=ChargedLLM(llm, advance),
                                wait_backend=lambda s: advance(int(s)))
         try:
-            while backend.now() < scenario.seconds:
+            while elapsed() < scenario.seconds:
                 if ctx is None or process_one(ctx) is None:
                     advance(1)
         except RunOver:
             log_event("harness", "run_over", ts_backend=backend.now())
-        export_kpis(conn, work / "kpi.csv")
+        export_kpis(conn, work / "kpi.csv", clock_offset_s)
         conn.close()
     finally:
         for key, value in saved.items():
@@ -169,6 +181,7 @@ def run_once(spec: RunSpec, scenario: Scenario, work: Path, policy_file: Path | 
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
+    rebase_event_file(work / "events.jsonl", clock_offset_s)
     for leftover in ("ric.db", "ric.db-wal", "ric.db-shm"):  # the csv and the events are the record
         (work / leftover).unlink(missing_ok=True)
     (work / "run.json").write_text(json.dumps({**asdict(spec), "run_id": spec.run_id,

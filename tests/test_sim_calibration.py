@@ -64,3 +64,32 @@ def test_a_panel_fails_only_on_a_clear_reversal() -> None:
     assert V.panel_mismatches(testbed, {"static": 0.30, "rl_only": 0.25, "llm_only": 0.37, "proposed": 0.90}) == []  # ties inside 0.05
     assert V.panel_mismatches(testbed, {"static": 0.34, "rl_only": 0.21, "llm_only": 0.34, "proposed": 0.20}) == [
         "static/proposed", "llm_only/proposed"]
+
+
+@pytest.mark.parametrize("controller", ["static", "rl_only"])
+def test_the_clock_offset_changes_what_the_agent_reads_and_nothing_else(controller, tmp_path, tiny_policy_file) -> None:
+    """M09a's second attempt: epoch-like backend times, as on the testbed. On the scenario's clock the run is identical."""
+    import csv
+    import json
+
+    from eval.harness import RunSpec, run_once
+    from eval.scenarios import Scenario
+
+    scenario = Scenario("s2", "short", 15, ())
+    cell = calibrated_cell("m08d", 9000)
+    traffic = V.replay_traffic("m08d", "s2", controller)
+    out = {}
+    for offset in (0.0, V.CLOCK_OFFSET_S):
+        work = run_once(RunSpec("test", "s2", controller, 9000, delay_ticks=2), scenario, tmp_path / f"o{offset:g}",
+                        tiny_policy_file, cfg=cell, traffic=traffic, clock_offset_s=offset)
+        with (work / "kpi.csv").open() as f:
+            rows = list(csv.reader(f))
+        log = work / "events.jsonl"  # a static run with no intent logs nothing
+        events = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+        out[offset] = (rows, [(e["event"], e.get("ts_backend")) for e in events])
+    rows_plain, rows_offset = out[0.0][0], out[V.CLOCK_OFFSET_S][0]
+    assert len(rows_plain) == len(rows_offset) > 30
+    for a, b in zip(rows_plain[1:], rows_offset[1:], strict=True):
+        assert float(a[0]) == pytest.approx(float(b[0])) and a[1:] == b[1:]
+    assert [(n, t) for n, t in out[0.0][1]] == [(n, pytest.approx(t) if t is not None else None) for n, t in out[V.CLOCK_OFFSET_S][1]]
+    assert SimBackend(CellConfig(), clock_offset_s=V.CLOCK_OFFSET_S).now() == V.CLOCK_OFFSET_S
