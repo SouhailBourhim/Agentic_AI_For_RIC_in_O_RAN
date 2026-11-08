@@ -36,6 +36,7 @@ SUMMARY = Path("docs/learn/data/M09b-summary.csv")
 CONTROLLERS = ("static", "rl_only", "llm_only", "llm_only_v2", "proposed", "formula", "oracle")
 STUDY = "m09b_dev"
 FEASIBLE = 0.9  # the oracle meets it in at least 90 % of the seconds (DECISIONS)
+CEILING_MARGIN, CEILING_SHARE = 0.05, 0.05  # beaten by > 0.05 on > 5 % of intents: a reference, not a ceiling (DECISIONS)
 BOOTSTRAP = 2000
 
 
@@ -179,18 +180,19 @@ def write_table() -> list[dict]:
     return rows
 
 
-def bootstrap_ci(values: np.ndarray, seed: int = 0) -> tuple[float, float]:
-    """95 % interval of the median by resampling instances (the unit of the benchmark)."""
+def bootstrap_ci(values: np.ndarray, seed: int = 0, stat=np.median) -> tuple[float, float]:
+    """95 % interval of a statistic (median by default) by resampling instances (the unit of the benchmark)."""
     if len(values) == 0:
         return float("nan"), float("nan")
     rng = np.random.default_rng(seed)
-    medians = np.median(rng.choice(values, size=(BOOTSTRAP, len(values)), replace=True), axis=1)
-    return float(np.percentile(medians, 2.5)), float(np.percentile(medians, 97.5))
+    draws = stat(rng.choice(values, size=(BOOTSTRAP, len(values)), replace=True), axis=1)
+    return float(np.percentile(draws, 2.5)), float(np.percentile(draws, 97.5))
 
 
 def summarise(rows: list[dict]) -> list[dict]:
-    """Per family and controller: median intent met with its interval; and the median paired difference
-    with LLM + RL, instance by instance and intent by intent, with its interval."""
+    """Per family and controller: mean and median intent met with their intervals; and the paired difference with
+    LLM + RL, intent by intent, as a mean and a median with intervals. The mean is the one to read: intent met is
+    often exactly 0 or 1, so a median difference jumps between ties (dev analysis; M09d pre-registers its own)."""
     out = []
     for family in FAMILIES:
         mine = [r for r in rows if r["family"] == family]
@@ -200,17 +202,37 @@ def summarise(rows: list[dict]) -> list[dict]:
             values = np.array(list(theirs.values()))
             if not len(values):
                 continue
+            row = {"family": family, "controller": controller, "n": len(values)}
+            for name, stat in (("mean", np.mean), ("median", np.median)):
+                low, high = bootstrap_ci(values, stat=stat)
+                row |= {f"{name}_met": round(float(stat(values)), 3), f"{name}_low": round(low, 3), f"{name}_high": round(high, 3)}
             paired = np.array([ours[k] - v for k, v in theirs.items() if k in ours])
-            low, high = bootstrap_ci(values)
-            d_low, d_high = bootstrap_ci(paired) if controller != "proposed" else (float("nan"), float("nan"))
-            out.append({"family": family, "controller": controller, "n": len(values), "median_met": round(float(np.median(values)), 3),
-                        "ci_low": round(low, 3), "ci_high": round(high, 3),
-                        "proposed_minus_this": round(float(np.median(paired)), 3) if controller != "proposed" else "",
-                        "diff_ci_low": round(d_low, 3) if controller != "proposed" else "", "diff_ci_high": round(d_high, 3) if controller != "proposed" else ""})
+            for name, stat in (("mean", np.mean), ("median", np.median)):
+                if controller == "proposed":
+                    row |= {f"{name}_diff": "", f"{name}_diff_low": "", f"{name}_diff_high": ""}
+                    continue
+                low, high = bootstrap_ci(paired, stat=stat)
+                row |= {f"{name}_diff": round(float(stat(paired)), 3), f"{name}_diff_low": round(low, 3), f"{name}_diff_high": round(high, 3)}
+            out.append(row)
     with SUMMARY.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(out[0]))
         writer.writeheader()
         writer.writerows(out)
+    return out
+
+
+def ceiling_check(rows: list[dict]) -> dict[str, float]:
+    """Per family, the share of intents on which some controller beats the oracle by more than CEILING_MARGIN.
+    Above CEILING_SHARE overall, the oracle is reported as a reference, not a ceiling (DECISIONS)."""
+    oracle = {(r["instance"], r["intent"]): r["intent_met"] for r in rows if r["controller"] == "oracle"}
+    beaten: dict[tuple, bool] = {k: False for k in oracle}
+    for r in rows:
+        k = (r["instance"], r["intent"])
+        if r["controller"] != "oracle" and k in oracle and r["intent_met"] > oracle[k] + CEILING_MARGIN:
+            beaten[k] = True
+    family = {k: next(r["family"] for r in rows if (r["instance"], r["intent"]) == k) for k in oracle}
+    out = {f: float(np.mean([b for k, b in beaten.items() if family[k] == f])) for f in FAMILIES if any(family[k] == f for k in oracle)}
+    out["all"] = float(np.mean(list(beaten.values())))
     return out
 
 
@@ -235,8 +257,11 @@ def main() -> None:
         return
     rows = write_table()
     for r in summarise(rows):
-        diff = f"  LLM+RL minus this {r['proposed_minus_this']} [{r['diff_ci_low']}, {r['diff_ci_high']}]" if r["proposed_minus_this"] != "" else ""
-        print(f"{r['family']} {r['controller']:12s} n={r['n']:3d} median {r['median_met']:.2f} [{r['ci_low']:.2f}, {r['ci_high']:.2f}]{diff}")
+        diff = f"  LLM+RL minus this {r['mean_diff']:+.3f} [{r['mean_diff_low']:+.3f}, {r['mean_diff_high']:+.3f}]" if r["mean_diff"] != "" else ""
+        print(f"{r['family']} {r['controller']:12s} n={r['n']:3d} mean {r['mean_met']:.2f} [{r['mean_low']:.2f}, {r['mean_high']:.2f}]{diff}")
+    check = ceiling_check(rows)
+    verdict = "a ceiling" if check["all"] <= CEILING_SHARE else "a reference, not a ceiling"
+    print("intents where a controller beats the oracle by > 0.05:", {k: round(v, 3) for k, v in check.items()}, f"-> the oracle is {verdict}")
 
 
 if __name__ == "__main__":

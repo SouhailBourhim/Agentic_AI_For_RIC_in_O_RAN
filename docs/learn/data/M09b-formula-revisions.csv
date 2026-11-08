@@ -1,0 +1,3 @@
+revision,repeats,peak_window_s,mean_met,f1_mean,f2_mean,f3_mean,f4_mean,f5_mean,change
+3,3,0,0.879,0.986,1.0,0.522,0.853,1.0,74 Mb/s sizing; over the bound URLLC takes all the slack; bounded URLLC first when needs exceed the cell
+4,3,30,0.945,0.986,1.0,0.936,0.853,1.0,revision 3 + bounded URLLC sized to its peak load over the last 30 s

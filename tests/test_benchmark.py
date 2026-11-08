@@ -73,9 +73,37 @@ def test_the_formula_gives_each_target_its_need_and_urllc_its_load_under_a_bound
 def test_the_oracle_picks_a_split_that_meets_a_feasible_goal() -> None:
     cfg = CellConfig(capacity_mbps=79.0, delay_model="flat", max_backlog_mb=400.0, base_latency_ms={s: 0.6 for s in SLICES})
     intent = ScenarioIntent(0.0, "x", facts(300.0, urllc=25.0, max_latency_ms=5.0), 0.0)
-    loads = np.array([40.0, 30.0, 25.0])
+    loads = np.tile([40.0, 30.0, 25.0], (60, 1))
     split = choose(apply_min_share(split_grid(), MIN_SLICE_SHARE), [intent], loads, np.zeros(3), np.full(3, 0.6), cfg, np.full(3, 1 / 3))
     assert split[1] * 79.0 >= 30.0  # URLLC must carry its whole load to stay under the bound
+
+
+def test_the_oracle_drains_a_full_urllc_queue_instead_of_serving_embb() -> None:
+    """The dev benchmark's failure (f3_03): URLLC's queue at the buffer limit when its bounded intent starts.
+    No split meets the bound within a second; looking 60 s ahead, draining the queue does, later."""
+    cfg = CellConfig(capacity_mbps=79.0, delay_model="flat", max_backlog_mb=407.7, base_latency_ms={s: 0.6 for s in SLICES})
+    intent = ScenarioIntent(80.0, "x", facts(240.0, urllc=11.0, max_latency_ms=5.0), 80.0)
+    loads = np.tile([41.0, 33.0, 20.0], (60, 1))
+    full = np.array([0.0, 407.7, 0.0])
+    split = choose(apply_min_share(split_grid(), MIN_SLICE_SHARE), [intent], loads, full, np.full(3, 0.6), cfg,
+                   np.array([0.475, 0.3, 0.225]), t=80.0)
+    assert split[1] * 79.0 > 33.0 + 407.7 / 60  # above its load by enough to empty the buffer within the horizon
+
+
+def test_the_formula_gives_urllc_the_slack_while_over_the_bound() -> None:
+    cfg = CellConfig(capacity_mbps=79.0)
+    loads = {"embb": 40.0, "urllc": 30.0, "be": 20.0}
+    objective = RLObjective(weights=SliceValues(embb=0.4, urllc=0.3, be=0.3), min_thr_mbps=SliceValues(urllc=11.0), max_latency_ms=5.0)
+    shares = {s: 1 / 3 for s in SLICES}
+
+    def urllc_share(latency_ms: float) -> float:
+        lat = {"embb": 0.6, "urllc": latency_ms, "be": 0.6}
+        obs = build_observation(loads, loads, lat, shares, {s: 1.0 for s in SLICES}, objective, cfg)
+        return float(FormulaPolicy(0.6).shares(obs)[SLICES.index("urllc")])
+
+    under = 30.0 / 74.0 / (1 - 0.6 / 5.0)  # under the bound: its load and margin, sized against 74 Mb/s
+    assert urllc_share(3.0) == pytest.approx(under)
+    assert urllc_share(800.0) == pytest.approx(1.0 - 2 * MIN_SLICE_SHARE)  # over it: all the slack (no other targets here)
 
 
 def test_joint_feasibility_needs_all_intents_at_once() -> None:
@@ -128,3 +156,14 @@ def test_the_fairer_llm_only_serves_a_second_request_while_it_runs(controller, j
     assert bool(told_30) == joins
     if joins:
         assert second.text in told_30[0]
+
+
+def test_the_formula_serves_a_bounded_urllc_first_when_the_needs_exceed_the_cell() -> None:
+    cfg = CellConfig(capacity_mbps=79.0)
+    loads = {"embb": 37.0, "urllc": 33.0, "be": 19.5}
+    objective = RLObjective(weights=SliceValues(embb=0.4, urllc=0.3, be=0.3),
+                            min_thr_mbps=SliceValues(embb=23.7, urllc=12.0, be=23.7), max_latency_ms=10.0)
+    obs = build_observation(loads, loads, {s: 0.6 for s in SLICES}, {s: 1 / 3 for s in SLICES}, {s: 1.0 for s in SLICES}, objective, cfg)
+    shares = FormulaPolicy(0.6).shares(obs)
+    assert shares.sum() == pytest.approx(1.0)
+    assert shares[SLICES.index("urllc")] == pytest.approx(33.0 / 74.0 / (1 - 0.6 / 10.0))  # its whole need, not scaled

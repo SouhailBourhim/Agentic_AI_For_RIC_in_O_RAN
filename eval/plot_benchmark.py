@@ -58,16 +58,16 @@ def plot_met(rows: list[dict]) -> Figure:
 
 
 def plot_paired(summary: list[dict]) -> Figure:
-    """LLM + RL minus each other controller, per family: median paired difference with its 95 % interval."""
+    """LLM + RL minus each other controller, per family: mean paired difference with its 95 % interval."""
     others = [c for c in CONTROLLERS if c != "proposed"]
     fig = Figure(figsize=(14, 3.8), facecolor=SURFACE, layout="constrained")
     axes = fig.subplots(1, len(FAMILIES), sharey=True)
     for ax, family in zip(axes, FAMILIES):
         for y, c in enumerate(others):
             row = next((r for r in summary if r["family"] == family and r["controller"] == c), None)
-            if row is None or row["proposed_minus_this"] == "":
+            if row is None or row["mean_diff"] == "":
                 continue
-            mid, low, high = (float(row[k]) * 100 for k in ("proposed_minus_this", "diff_ci_low", "diff_ci_high"))
+            mid, low, high = (float(row[k]) * 100 for k in ("mean_diff", "mean_diff_low", "mean_diff_high"))
             ax.hlines(y, low, high, color=NEUTRAL, linewidth=2)
             ax.scatter(mid, y, s=30, color=ACCENT if low > 0 else (TEXT if high < 0 else NEUTRAL), zorder=3)
         ax.axvline(0, color=TEXT_MUTED, linewidth=0.8, linestyle=":")
@@ -75,7 +75,7 @@ def plot_paired(summary: list[dict]) -> Figure:
         ax.set_xlim(-105, 105)
         titled(ax, FAMILY_TITLES[family])
         ax.set_xlabel("LLM + RL minus it, points", color=TEXT_MUTED)
-    fig.suptitle("Paired by intent: right of 0, LLM + RL meets its goal more often. Purple = interval above 0, black = below",
+    fig.suptitle("Paired by intent, mean difference: right of 0, LLM + RL meets its goal more often. Purple = interval above 0, black = below",
                  color=TEXT, fontsize=11, x=0.01, ha="left")
     return fig
 
