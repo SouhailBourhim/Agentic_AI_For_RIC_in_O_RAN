@@ -47,6 +47,8 @@ class Settings:
     good_enough: float = 0.9  # compliance at which no revision is made, whatever the model says
     wait_for_confirmation: bool = True  # False: stop at awaiting_confirmation (tests)
     poll_s: float = 0.5  # wall seconds between two reads while waiting for the console
+    llm_only_prompt: str = "v1"  # M09b: the fairer LLM only baseline uses "v2" (agent/prompts.py LLM_ONLY_PLAN)
+    llm_only_joins: bool = False  # M09b, fairer LLM only: intents submitted while one runs join it (agent/graph.py)
 
 
 @dataclass

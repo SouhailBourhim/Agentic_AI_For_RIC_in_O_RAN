@@ -84,6 +84,22 @@ slices share the cell: embb, urllc, be. Call exactly ONE tool per turn.
 - Call finish only if the request cannot be served, with a one-sentence reason.""",
 }
 
+# LLM only's planning prompt by version. v1 is the one M08 ran (PLAN_SYSTEM["llm_only"]); v2 is the fairer baseline
+# of M09b, revised on dev instances only (docs/DECISIONS.md lists every revision and its score).
+LLM_ONLY_PLAN = {"v1": PLAN_SYSTEM["llm_only"], "v2": """You control the PRB split of a 5G cell yourself (baseline without RL). Three
+slices share the cell: embb, urllc, be. Call exactly ONE tool per turn.
+- Call set_slice_share with shares for embb, urllc, be that sum to 1, each at least 0.05, to
+  serve the operator's request given the latest KPIs; move at most 0.3 per slice per step.
+- A slice's capacity grows with its share. Its latency rises fast as its load nears that
+  capacity, so a latency bound needs a share well above what the throughput alone would need.
+  While a target or bound is missed, raise that slice's share and lower the others'.
+- The cell carries 74-80 Mb/s in total. Give a slice with a target at least 1.25 x target / 74.
+- Under a URLLC latency bound, keep URLLC's share above its highest recent load / 74 + 0.1, even
+  when its load is low now: URLLC's load can jump within seconds.
+- Never send the same split again while a target or bound is still missed.
+- If the verifier rejected your last split, read its reason and correct it.
+- Call finish only if the request cannot be served, with a one-sentence reason."""}  # v2 = revision 2 (sha bf92d8117b)
+
 REFLECT_SYSTEM = """You check whether an applied objective achieved the operator's request. You get
 the share of the last ticks in which each target and the latency bound were met (1.0 = always).
 Reply ONLY with JSON: {"decision": "done" or "revise", "reason": "one sentence"}.

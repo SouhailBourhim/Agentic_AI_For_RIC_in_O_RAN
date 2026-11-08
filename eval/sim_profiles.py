@@ -19,9 +19,10 @@ from verifier.objective import SLICES
 CALIBRATION = Path("docs/learn/data/M09a-calibration.csv")
 KPI_DELAY_TICKS = 2  # M07b
 # True capacity, uniform per seed: M08c's backlogged seconds (10-90 %), M08d's measurement by split.
-TRUE_CAPACITY_MBPS = {"m08c": (78.2, 84.7), "m08d": (73.5, 80.2)}
+TRUE_CAPACITY_MBPS = {"m08c": (78.2, 84.7), "m08d": (73.5, 80.2), "m09": (73.5, 80.2)}
 # What each study told the verifier and the policy: capacity, and the URLLC base latency the verifier sized with.
-TOLD = {"m08c": (69.0, 2.0), "m08d": (79.0, 2.0)}
+# M09b on: 79 Mb/s and the calibrated base latency (None = the cell's own), as decided after M09a.
+TOLD = {"m08c": (69.0, 2.0), "m08d": (79.0, 2.0), "m09": (79.0, None)}
 CAPACITY_STREAM = 9  # a separate random stream, so drawing the capacity doesn't shift the traffic's noise
 
 

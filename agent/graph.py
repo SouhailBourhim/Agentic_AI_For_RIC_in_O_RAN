@@ -26,7 +26,7 @@ from agent import tools
 from agent.apply import apply_intent, backend_now, decision_dict
 from agent.intents import expire_pending
 from agent.parser import parse_facts
-from agent.prompts import PARSE_VERSION, PLAN_SYSTEM, REFLECT_SYSTEM, parse_messages
+from agent.prompts import LLM_ONLY_PLAN, PARSE_VERSION, PLAN_SYSTEM, REFLECT_SYSTEM, parse_messages
 from agent.schema import DEFAULT_DURATION_S, NOTHING_TO_DO, SCOPE_HINT, ParsedIntent, clarify, stated_changes
 from agent.tools import AgentContext
 from store import intents
@@ -58,6 +58,7 @@ class AgentState(TypedDict, total=False):
     objective: dict | None  # the applied objective of active_id
     compliance: dict | None
     end_backend: float | None  # llm_only: when the intent's duration is over
+    requests: list[dict] | None  # llm_only_joins: every request served together (id, text, facts, end)
     route: str
     outcome: str  # final: applied, rejected, awaiting_confirmation, expired, failed
     reason: str
@@ -158,7 +159,8 @@ def build_graph(ctx: AgentContext):  # noqa: C901 (one closure per node, kept to
         user = (f"Operator request: {state['text']}\nExtracted facts: {json.dumps(state['facts'])}\n"
                 f"Backend time: {backend_now(conn):g} s\n" + "\n".join(state.get("scratch", [])) +
                 (DEMO_RULE if s.mode == "demo" else "") + "\nChoose exactly one tool.")
-        messages = [{"role": "system", "content": PLAN_SYSTEM[s.controller]}, {"role": "user", "content": user}]
+        system = LLM_ONLY_PLAN[s.llm_only_prompt] if s.controller == "llm_only" else PLAN_SYSTEM[s.controller]
+        messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         latency = 0.0
         for _ in (1, 2):
             reply = ctx.llm.chat(messages, tools=tools.definitions(s.controller))
@@ -329,6 +331,39 @@ def build_graph(ctx: AgentContext):  # noqa: C901 (one closure per node, kept to
                 return {"route": "end", "outcome": record.state, "reason": record.reason or record.state}
             ctx.sleep(s.poll_s)
 
+    # ------------------------------------------------------------------ the fairer LLM only (M09b)
+    def join_new_requests(state: AgentState) -> dict:
+        """llm_only_joins: claim the intents submitted since the last decision and serve them with this one.
+
+        Without it LLM only's loop holds its first intent until it expires and a second request waits (M08c).
+        The merged facts follow verifier.merge's rule: the highest target per slice, the tightest bound, over
+        the requests still running. Each joined intent keeps its own record and is closed in finish_record.
+        """
+        now = backend_now(conn)
+        requests = state.get("requests") or [{"id": state["intent_id"], "text": state["text"], "facts": state["facts"],
+                                               "end": state.get("end_backend") or now}]
+        for record in intents.in_states(conn, ("received",)):
+            if not intents.claim(conn, record.intent_id, "received", "processing", ctx.now_wall()):
+                continue
+            facts, latency, attempts = llm_parse(ctx.llm, record.text) if ctx.llm is not None else (parse_facts(record.text), 0.0, 0)
+            step(state, "parse", prompt=PARSE_VERSION, latency_s=round(latency, 2), attempts=attempts, joined=record.intent_id,
+                 facts=facts.model_dump() if facts else None)
+            if facts is None or not facts.understood:
+                intents.set_state(conn, record.intent_id, "rejected", ctx.now_wall(), reason="not understood while joining")
+                log_event("agent", "agent_done", record.intent_id, now, {"outcome": "rejected", "reason": "not understood"})
+                continue
+            intents.set_state(conn, record.intent_id, "processing", ctx.now_wall(), parsed=facts.model_dump())
+            duration = facts.duration_s if facts.duration_s is not None else DEFAULT_DURATION_S
+            requests.append({"id": record.intent_id, "text": record.text, "facts": facts.model_dump(), "end": now + duration})
+        running = [r for r in requests if r["end"] > now] or requests[-1:]
+        merged = dict(running[-1]["facts"])
+        merged["min_thr_mbps"] = {sl: max((r["facts"]["min_thr_mbps"][sl] for r in running if r["facts"]["min_thr_mbps"][sl] is not None),
+                                          default=None) for sl in merged["min_thr_mbps"]}
+        bounds = [r["facts"]["max_latency_ms"] for r in running if r["facts"]["max_latency_ms"] is not None]
+        merged["max_latency_ms"] = min(bounds) if bounds else None
+        return {"requests": requests, "facts": merged, "text": " Then: ".join(r["text"] for r in running),
+                "end_backend": max(r["end"] for r in requests)}
+
     # ------------------------------------------------------------------ observe and reflect
     def observe(state: AgentState) -> dict:
         if s.observe_s <= 0:
@@ -336,9 +371,10 @@ def build_graph(ctx: AgentContext):  # noqa: C901 (one closure per node, kept to
         result = tools.wait_and_observe(ctx, s.observe_s)
         if s.controller == "llm_only":
             step(state, "observe", result=result)
-            if backend_now(conn) >= (state.get("end_backend") or 0.0):
-                return done(state, "the intent's duration is over")
-            return {"scratch": note(state, f"KPIs since your last split: {json.dumps(result)}"), "route": "plan"}
+            joined = join_new_requests(state) if s.llm_only_joins else {}
+            if backend_now(conn) >= (joined.get("end_backend") or state.get("end_backend") or 0.0):
+                return {**joined, **done(state, "the intent's duration is over")}
+            return {**joined, "scratch": note(state, f"KPIs since your last split: {json.dumps(result)}"), "route": "plan"}
         objective = RLObjective.model_validate(state["objective"])
         comp = tools.compliance(ctx, objective, s.observe_s)
         step(state, "observe", result=result, compliance=comp)
@@ -391,6 +427,11 @@ def finish_record(ctx: AgentContext, state: AgentState) -> None:
     if record.state in ("processing", "interpreted"):
         intents.set_state(ctx.conn, state["intent_id"], "rejected", ctx.now_wall(),
                           reason=state.get("reason") or "agent stopped")
+    for joined in (state.get("requests") or [])[1:]:  # llm_only_joins: the requests served with this one
+        if intents.get(ctx.conn, joined["id"]).state == "processing":
+            final = "applied" if state.get("active_id") else "rejected"
+            intents.set_state(ctx.conn, joined["id"], final, ctx.now_wall(), reason=f"served together with {state['intent_id']}")
+            log_event("agent", "agent_done", joined["id"], backend_now(ctx.conn), {"outcome": final, "joined": state["intent_id"]})
     log_event("agent", "agent_done", state["intent_id"], backend_now(ctx.conn),
               {"outcome": state.get("outcome"), "reason": state.get("reason"), "steps": state.get("steps"),
                "revisions": state.get("revisions"), "active_id": state.get("active_id")})

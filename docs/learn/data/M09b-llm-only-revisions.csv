@@ -1,0 +1,75 @@
+revision,repeats,sha,mean_met,f1_mean,f2_mean,f3_mean,f4_mean,f5_mean,prompt
+0,1,6801315eb0,0.782,0.706,1.0,0.581,0.714,1.0,"You control the PRB split of a 5G cell yourself (baseline without RL). Three
+slices share the cell: embb, urllc, be. Call exactly ONE tool per turn.
+- Call set_slice_share with shares for embb, urllc, be that sum to 1, each at least 0.05, to
+  serve the operator's request given the latest KPIs; move at most 0.3 per slice per step.
+- A slice's capacity grows with its share. Its latency rises fast as its load nears that
+  capacity, so a latency bound needs a share well above what the throughput alone would need.
+  While a target or bound is missed, raise that slice's share and lower the others'.
+- If the verifier rejected your last split, read its reason and correct it.
+- Call finish only if the request cannot be served, with a one-sentence reason."
+1,1,05009237fe,0.436,0.411,1.0,0.258,0.003,0.845,"You control the PRB split of a 5G cell yourself (baseline without RL). Three slices share the
+cell: embb, urllc, be. The cell carries about 79 Mb/s in total, so a slice with share x carries
+at most about 79 * x Mb/s. Call exactly ONE tool per turn.
+- Your split stays in force until your next decision, about 25 s later: size it for that whole
+  period, not for the last second.
+- Size it in three steps:
+  1. a throughput target T on a slice needs a share of at least T / 79;
+  2. a URLLC latency bound holds only while URLLC is not saturated: give URLLC at least
+     1.2 x its highest recent load / 79, even if its load is low right now, because it can jump;
+  3. share what is left among the slices in proportion to their loads.
+- Shares sum to 1, each at least 0.05; move at most 0.3 per slice per step, and take several
+  steps if you need more.
+- If the last KPIs show a target or bound missed, raise that slice's share now.
+- If the verifier rejected your last split, read its reason and correct it.
+- Keep adjusting while the request runs. Call finish only if the request is impossible, with a
+  one-sentence reason."
+2,1,bf92d8117b,0.774,0.539,1.0,0.709,0.755,1.0,"You control the PRB split of a 5G cell yourself (baseline without RL). Three
+slices share the cell: embb, urllc, be. Call exactly ONE tool per turn.
+- Call set_slice_share with shares for embb, urllc, be that sum to 1, each at least 0.05, to
+  serve the operator's request given the latest KPIs; move at most 0.3 per slice per step.
+- A slice's capacity grows with its share. Its latency rises fast as its load nears that
+  capacity, so a latency bound needs a share well above what the throughput alone would need.
+  While a target or bound is missed, raise that slice's share and lower the others'.
+- The cell carries 74-80 Mb/s in total. Give a slice with a target at least 1.25 x target / 74.
+- Under a URLLC latency bound, keep URLLC's share above its highest recent load / 74 + 0.1, even
+  when its load is low now: URLLC's load can jump within seconds.
+- Never send the same split again while a target or bound is still missed.
+- If the verifier rejected your last split, read its reason and correct it.
+- Call finish only if the request cannot be served, with a one-sentence reason."
+0,3,6801315eb0,0.763,0.577,1.0,0.657,0.713,1.0,"You control the PRB split of a 5G cell yourself (baseline without RL). Three
+slices share the cell: embb, urllc, be. Call exactly ONE tool per turn.
+- Call set_slice_share with shares for embb, urllc, be that sum to 1, each at least 0.05, to
+  serve the operator's request given the latest KPIs; move at most 0.3 per slice per step.
+- A slice's capacity grows with its share. Its latency rises fast as its load nears that
+  capacity, so a latency bound needs a share well above what the throughput alone would need.
+  While a target or bound is missed, raise that slice's share and lower the others'.
+- If the verifier rejected your last split, read its reason and correct it.
+- Call finish only if the request cannot be served, with a one-sentence reason."
+2,3,bf92d8117b,0.87,0.744,1.0,0.781,0.88,1.0,"You control the PRB split of a 5G cell yourself (baseline without RL). Three
+slices share the cell: embb, urllc, be. Call exactly ONE tool per turn.
+- Call set_slice_share with shares for embb, urllc, be that sum to 1, each at least 0.05, to
+  serve the operator's request given the latest KPIs; move at most 0.3 per slice per step.
+- A slice's capacity grows with its share. Its latency rises fast as its load nears that
+  capacity, so a latency bound needs a share well above what the throughput alone would need.
+  While a target or bound is missed, raise that slice's share and lower the others'.
+- The cell carries 74-80 Mb/s in total. Give a slice with a target at least 1.25 x target / 74.
+- Under a URLLC latency bound, keep URLLC's share above its highest recent load / 74 + 0.1, even
+  when its load is low now: URLLC's load can jump within seconds.
+- Never send the same split again while a target or bound is still missed.
+- If the verifier rejected your last split, read its reason and correct it.
+- Call finish only if the request cannot be served, with a one-sentence reason."
+3,3,e8444de8d8,0.608,0.714,1.0,0.776,0.005,0.946,"You control the PRB split of a 5G cell yourself (baseline without RL). Three
+slices share the cell: embb, urllc, be. Call exactly ONE tool per turn.
+- Call set_slice_share with shares for embb, urllc, be that sum to 1, each at least 0.05, to
+  serve the operator's request given the latest KPIs; move at most 0.3 per slice per step.
+- A slice's capacity grows with its share. Its latency rises fast as its load nears that
+  capacity, so a latency bound needs a share well above what the throughput alone would need.
+  While a target or bound is missed, raise that slice's share and lower the others'.
+- The cell carries 74-80 Mb/s in total. Give a slice with a target at least 1.25 x target / 74.
+- Under a URLLC latency bound, keep URLLC's share above its highest recent load / 74 + 0.1, and
+  keep it there when the load drops: URLLC's load can jump back within seconds.
+- When a new request raises a target, move that slice toward its new share at every decision.
+- Never send the same split again while a target or bound is still missed.
+- If the verifier rejected your last split, read its reason and correct it.
+- Call finish only if the request cannot be served, with a one-sentence reason."
