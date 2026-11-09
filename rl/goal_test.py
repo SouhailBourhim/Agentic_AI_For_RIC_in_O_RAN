@@ -321,6 +321,15 @@ def recipe_of(name: str) -> str:
     return name.split("_seed")[0]
 
 
+def runs_without_best(models: list[Path]) -> list[str]:
+    """Trained runs next to the given `_best` checkpoints that have none: no validation ever beat the equal split
+    (rl.train.ValidationCheckpoint saves one only then). On a held-out split each is a failing seed, so "every seed
+    must pass" is judged over all the seeds trained, not only the ones that left a checkpoint (M09c seed 40)."""
+    folders = {path.parent for path in models}
+    return sorted(final.stem + "_best" for folder in folders for final in folder.glob("*_seed*.zip")
+                  if not final.stem.endswith("_best") and not final.with_name(final.stem + "_best.zip").exists())
+
+
 def check(models: list[Path], min_share: float | None = None) -> None:
     """Validity of both case sets: enough material cases, blind controllers fail. Uses no trained
     policy unless models are given (then only with its objective input frozen)."""
@@ -370,11 +379,15 @@ def run_split(split: str, models: list[Path], final: bool, min_share: float | No
         results[path.stem] = m
         print(f"{path.stem:<28}{m['t1a_share_positive']:6.2f}{m['t1b_captured']:7.2f}{m['reward']:8.3f}"
               f"{m['original_gap']:10.3f}  {'PASS' if m['pass'] else 'FAIL'}")
+    if split in FINAL_SPLITS:
+        for name in runs_without_best(models):
+            results[name] = {"pass": False, "no_checkpoint": True, "t1b_captured": float("nan")}
+            print(f"{name:<28}  no checkpoint (never beat the equal split on validation)  FAIL")
     recipes: dict[str, list[str]] = {}
     for name in results:
         recipes.setdefault(recipe_of(name), []).append(name)
     summary = {r: {"all_pass": all(results[n]["pass"] for n in names),
-                   "mean_t1b": float(np.mean([results[n]["t1b_captured"] for n in names])),
+                   "mean_t1b": float(np.nanmean([results[n]["t1b_captured"] for n in names])),
                    "seeds": len(names)} for r, names in recipes.items()}
     print("\nper recipe (every seed must pass):")
     for r, s in summary.items():

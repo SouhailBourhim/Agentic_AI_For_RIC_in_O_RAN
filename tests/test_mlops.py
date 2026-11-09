@@ -163,3 +163,14 @@ def test_champion_is_none_without_a_store(monkeypatch: pytest.MonkeyPatch, tmp_p
     monkeypatch.setenv("RIC_MLFLOW_URI", f"sqlite:///{tmp_path}/absent/mlflow.db")
     assert registry.champion() is None
     assert not (tmp_path / "absent").exists()
+
+
+def test_experiment_created_by_another_process_meanwhile_is_reused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """rl.sweep starts its runs together: two can both see the experiment missing; the second must not fail."""
+    import mlflow
+
+    first = tracking.use_experiment("race-test")
+    real_get = mlflow.get_experiment_by_name
+    calls = iter([None])  # the first look says "missing", as it did for the slower process
+    monkeypatch.setattr(mlflow, "get_experiment_by_name", lambda name: next(calls, real_get(name)))
+    assert tracking.use_experiment("race-test") == first

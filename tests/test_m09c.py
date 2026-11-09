@@ -152,3 +152,13 @@ def test_the_m09_held_out_split_needs_final() -> None:
     assert "m09_test" in M09_SEEDS
     with pytest.raises(SystemExit):
         run_split("m09_test", [], final=False, min_share=0.05)
+
+
+def test_a_seed_without_a_checkpoint_is_counted_on_the_held_out_split(tmp_path: Path) -> None:
+    """A seed that never beat the equal split leaves no _best file; "every seed must pass" must still see it."""
+    from rl.goal_test import runs_without_best
+
+    for seed in (40, 41):
+        (tmp_path / f"td3_x_seed{seed}.zip").touch()
+    (tmp_path / "td3_x_seed41_best.zip").touch()
+    assert runs_without_best([tmp_path / "td3_x_seed41_best.zip"]) == ["td3_x_seed40_best"]

@@ -51,7 +51,13 @@ def use_experiment(name: str) -> str:
     experiment = mlflow.get_experiment_by_name(name)
     if experiment is None:
         location = (artifact_root() / name).as_uri()
-        mlflow.create_experiment(name, artifact_location=location)
+        try:
+            mlflow.create_experiment(name, artifact_location=location)
+        except Exception:
+            # rl.sweep starts its runs together: another process may have created it since we looked (M09c confirm
+            # lost 4 of 5 training runs this way). If it really is missing, the error is real: raise it.
+            if mlflow.get_experiment_by_name(name) is None:
+                raise
     return mlflow.set_experiment(name).experiment_id
 
 
