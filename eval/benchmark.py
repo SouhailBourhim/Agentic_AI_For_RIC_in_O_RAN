@@ -35,8 +35,11 @@ RUNS = Path("docs/learn/data/M09b-runs.csv")
 SUMMARY = Path("docs/learn/data/M09b-summary.csv")
 SELECTION = Path("docs/learn/data/M09c-selection.csv")
 FAMILY_DROP = 0.02  # M09c: a new policy may not lower any family's mean intent met by more than this (DECISIONS)
-CONTROLLERS = ("static", "rl_only", "llm_only", "llm_only_v2", "proposed", "formula", "oracle")
+CONTROLLERS = ("static", "rl_only", "llm_only", "llm_only_v2", "proposed", "formula", "oracle", "formula_a10")
 STUDY = "m09b_dev"
+# Controllers added after M09b keep their dev runs in their own folder, so M09b's runs (and their fingerprint in
+# the evidence manifest) stay as they were; the table reads them from there, next to the others.
+OWN_STUDY = {"formula_a10": "m09g_formula_a10"}
 FEASIBLE = 0.9  # the oracle meets it in at least 90 % of the seconds (DECISIONS)
 CEILING_MARGIN, CEILING_SHARE = 0.05, 0.05  # beaten by > 0.05 on > 5 % of intents: a reference, not a ceiling (DECISIONS)
 BOOTSTRAP = 2000
@@ -46,8 +49,12 @@ def profile_cell(instance: Instance):
     return testbed_cell("m09", instance.seed)
 
 
+def study_of(controller: str, study: str = STUDY) -> str:
+    return OWN_STUDY.get(controller, study) if study == STUDY else study
+
+
 def work_of(instance: Instance, controller: str, study: str = STUDY) -> Path:
-    return RESULTS / RunSpec(study, instance.name, controller, instance.seed).run_id
+    return RESULTS / RunSpec(study_of(controller, study), instance.name, controller, instance.seed).run_id
 
 
 # ---------------------------------------------------------------- the parse check (H7)
@@ -89,7 +96,8 @@ def play(instance: Instance, controller: str, policy: Path, llm, study: str = ST
     if (work / "run.json").exists():
         return work
     delay = 0 if controller == "oracle" else KPI_DELAY_TICKS  # the oracle reads the cell itself, no late view
-    spec = RunSpec(study, instance.name, controller, instance.seed, alpha=SERVED_SMOOTHING_ALPHA, delay_ticks=delay)
+    spec = RunSpec(study_of(controller, study), instance.name, controller, instance.seed, alpha=SERVED_SMOOTHING_ALPHA,
+                   delay_ticks=delay)
     return run_once(spec, instance.scenario(), work, policy, llm if controller in USES_AGENT else None,
                     cfg=cell, traffic=traffic, clock_offset_s=CLOCK_OFFSET_S)
 
@@ -317,8 +325,8 @@ def main() -> None:
         return
     if args.dev:
         full = args.limit is None and set(args.families) == set(FAMILIES)
-        if full and (set(args.controllers) == set(CONTROLLERS) or args.policy is not None):
-            guard_final(commit())  # a full matrix, or a selection run (M09c), comes after its rules in the history
+        if full and (set(args.controllers) == set(CONTROLLERS) or args.policy is not None or set(args.controllers) & set(OWN_STUDY)):
+            guard_final(commit())  # a full matrix, a selection run (M09c) or a diagnostic (M09g) comes after its rules
         play_matrix(args.families, args.controllers, args.limit, args.policy, args.study)
         return
     rows = write_table()

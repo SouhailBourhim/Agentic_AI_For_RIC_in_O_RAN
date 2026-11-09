@@ -32,7 +32,7 @@ from agent.worker import process_one
 from backends.sim import DelayedBackend, SimBackend, scenario_traffic
 from eval.scenarios import Scenario, ScenarioIntent
 from eval.oracle import OraclePolicy
-from rl.baselines import EqualSplitPolicy, FormulaPolicy
+from rl.baselines import EqualSplitPolicy, FormulaPolicy, SmoothedPolicy
 from rl.policy import SMOOTHING_ALPHA, SlicePolicy
 from rl.runner import Runner
 from sim.cell import CellConfig
@@ -44,8 +44,9 @@ CONTROLLERS = ("static", "rl_only", "llm_only", "proposed")
 USES_RL = ("rl_only", "proposed", "scripted")  # scripted: the over-serving side study, no LLM
 # M09b's references: "formula" is LLM + formula (the proposed agent, rl.baselines.FormulaPolicy instead of RL);
 # "llm_only_v2" is the fairer LLM only (its revised prompt); "oracle" is the ceiling (eval/oracle.py), no agent.
-USES_AGENT = ("llm_only", "proposed", "formula", "llm_only_v2")
-AGENT_CONTROLLER = {"formula": "proposed", "llm_only_v2": "llm_only"}  # the agent's mode for each controller
+# M09g's diagnostic: "formula_a10" is LLM + formula behind the served RL policy's filter (spec.alpha).
+USES_AGENT = ("llm_only", "proposed", "formula", "llm_only_v2", "formula_a10")
+AGENT_CONTROLLER = {"formula": "proposed", "llm_only_v2": "llm_only", "formula_a10": "proposed"}  # the agent's mode
 PROMPT_VERSION = {"llm_only_v2": "v2"}
 OBSERVE_S = 20.0  # the worker's default: LLM only's decision period, the proposed loop's observation
 OTHER_IMPORTANCE = 2.0  # of the slices without a target, in the scripted runs (agent/graph.py's rule)
@@ -153,6 +154,8 @@ def run_once(spec: RunSpec, scenario: Scenario, work: Path, policy_file: Path | 
             policy = SlicePolicy.load(policy_file, spec.alpha)
         elif spec.controller == "formula":
             policy = FormulaPolicy(cfg.told_urllc_base_latency_ms)
+        elif spec.controller == "formula_a10":
+            policy = SmoothedPolicy(FormulaPolicy(cfg.told_urllc_base_latency_ms), spec.alpha)
         elif spec.controller == "oracle":  # evaluation only: reads the simulated cell itself (eval/oracle.py)
             policy = OraclePolicy(backend, scenario, cfg)
         else:

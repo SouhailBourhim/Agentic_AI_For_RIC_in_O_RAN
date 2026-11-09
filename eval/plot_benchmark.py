@@ -12,13 +12,15 @@ from pathlib import Path
 import numpy as np
 from matplotlib.figure import Figure
 
-from eval.benchmark import CEILING_SHARE, CONTROLLERS, RUNS, SUMMARY, ceiling_check
+from eval.benchmark import CEILING_SHARE, OWN_STUDY, RUNS, SUMMARY, ceiling_check
+from eval.benchmark import CONTROLLERS as ALL_CONTROLLERS
 from eval.generator import FAMILIES
 from eval.plot_control import ACCENT, IMG, NEUTRAL, titled
 from sim.plot import SURFACE, TEXT, TEXT_MUTED
 
 LABELS = {"static": "Static", "rl_only": "RL only", "llm_only": "LLM only", "llm_only_v2": "LLM only v2",
           "proposed": "LLM + RL", "formula": "LLM + formula", "oracle": "Oracle"}
+CONTROLLERS = tuple(c for c in ALL_CONTROLLERS if c not in OWN_STUDY)  # M09b's figures: M09b's controllers only
 FAMILY_TITLES = {"f1": "F1 adapt to load", "f2": "F2 new goal", "f3": "F3 fast dynamics", "f4": "F4 verifier edge", "f5": "F5 easy"}
 
 

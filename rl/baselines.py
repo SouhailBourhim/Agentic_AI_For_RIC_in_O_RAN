@@ -11,6 +11,7 @@ from collections import deque
 
 import numpy as np
 
+from sim.cell import smooth_split
 from sim.env import KPI_FEATURES_PER_SLICE, LATENCY_SCALE_MS
 from verifier.objective import MIN_SLICE_SHARE, SLICES
 
@@ -81,6 +82,28 @@ class FormulaPolicy:
         rest = np.maximum(loads - need, 0.0)
         extra = (1.0 - need.sum()) * (rest / rest.sum() if rest.sum() > 1e-9 else np.full(N_SLICES, 1.0 / N_SLICES))
         return need + extra
+
+
+class SmoothedPolicy:
+    """Any `.shares()` controller behind the same output filter as the served RL policy (M09g, diagnostic D1).
+
+    The formula acts unfiltered, while LLM + RL is served behind alpha 0.10 (rl.runner.SERVED_SMOOTHING_ALPHA):
+    a split it asks for takes ~10 s to arrive. Wrapping the formula in the same filter tells how much of its
+    lead on dev comes from acting at once rather than from what it asks for. Same function as SlicePolicy
+    (sim.cell.smooth_split), same place (inside the policy, before the runner's per-slice floor)."""
+
+    def __init__(self, inner, alpha: float) -> None:
+        if not 0.0 < alpha <= 1.0:
+            raise ValueError(f"alpha must be in (0, 1], got {alpha}")
+        self.inner, self.alpha = inner, alpha
+        self._previous: np.ndarray | None = None
+
+    def reset(self) -> None:
+        self._previous = None
+
+    def shares(self, obs: np.ndarray) -> np.ndarray:
+        self._previous = smooth_split(self._previous, self.inner.shares(obs), self.alpha)
+        return self._previous.astype(np.float32)
 
 
 def equal_split(_obs: np.ndarray) -> np.ndarray:
