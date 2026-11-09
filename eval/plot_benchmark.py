@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 from matplotlib.figure import Figure
 
-from eval.benchmark import CONTROLLERS, RUNS, SUMMARY
+from eval.benchmark import CEILING_SHARE, CONTROLLERS, RUNS, SUMMARY, ceiling_check
 from eval.generator import FAMILIES
 from eval.plot_control import ACCENT, IMG, NEUTRAL, titled
 from sim.plot import SURFACE, TEXT, TEXT_MUTED
@@ -48,12 +48,15 @@ def plot_met(rows: list[dict]) -> Figure:
                 ax.scatter(x + jitter, ys, s=10, facecolors="none", edgecolors=TEXT_MUTED, linewidths=0.6, zorder=2)
             else:
                 ax.scatter(x + jitter, ys, s=10, color=colour(c), alpha=0.55, linewidths=0, zorder=2)
-            ax.hlines(np.median(ys), x - 0.3, x + 0.3, color=TEXT, linewidth=1.6, zorder=3)
+            ax.hlines(np.mean(ys), x - 0.3, x + 0.3, color=TEXT, linewidth=1.6, zorder=3)
         ax.set_xticks(range(len(CONTROLLERS)), [LABELS[c] for c in CONTROLLERS], rotation=60, ha="right", fontsize=8)
         ax.set_ylim(-4, 104)
         titled(ax, FAMILY_TITLES[family])
     axes[0].set_ylabel("seconds of the window met, %", color=TEXT_MUTED)
-    fig.suptitle("Dev benchmark, policy v7: one dot per intent, bar = median. Outline = the oracle's ceiling", color=TEXT, fontsize=11, x=0.01, ha="left")
+    beaten = ceiling_check([{**r, "intent_met": float(r["intent_met"])} for r in rows])
+    role = "the ceiling" if beaten["all"] <= CEILING_SHARE else (
+        "a reference: beaten by > 0.05 on " + ", ".join(f"{v:.0%} of {f.upper()}" for f, v in beaten.items() if f != "all" and v > 0) + " intents")
+    fig.suptitle(f"Dev benchmark, policy v7: one dot per intent, bar = mean. Outline = the oracle, {role}", color=TEXT, fontsize=11, x=0.01, ha="left")
     return fig
 
 
