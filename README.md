@@ -148,7 +148,7 @@ comparison to a simulator calibrated against the testbed, with generated scenari
   within 0.006 across plays (LLM only swings by up to 0.99). But **a simple formula behind the
   same agent and verifier matches or beats it**, most clearly on fast dynamics: the RL policy had
   no load history in its input.
-- **Policy v8: retrained, not confirmed** (M09c). The training was moved to the calibrated cell
+- **Policy v8: retrained, not confirmed** ([M09c](docs/learn/M09c-policy-v8.md)). The training was moved to the calibrated cell
   with late KPIs, intent expiries, on/off loads and a 30 s load history in the observation. On
   the dev benchmark, LLM + RL rose from 0.79 to 0.85 mean intent met (F3 0.60 → 0.76), and a
   4-recipe ablation showed the load history is what fixes F3. On the held-out goal test, scored
@@ -192,7 +192,7 @@ over static splits and LLM-only control, not over a hand-written formula.
 | M06 / M07a / M07b | OAI testbed with three slices; KPM xApp and gNB fix; PRB-split control over E2 | Done |
 | M08a–d | Four-controller comparison on the simulator and the real cell; interface evaluation on held-out intents | Done |
 | M09a / M09b | Calibrated and validated simulator; generated scenarios and a 7-controller dev benchmark | Done |
-| M09c | Policy v8 in the calibrated setting | Trained; not confirmed, v7 stays champion (note in progress) |
+| M09c | Policy v8 in the calibrated setting, 4-recipe ablation | Done: not confirmed, v7 stays champion ([note](docs/learn/M09c-policy-v8.md)) |
 | M09d / M09e / M09f | Test-seed result scored once; testbed confirmation; dangerous intents | Planned |
 
 The original design document (in French) is
