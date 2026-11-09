@@ -110,22 +110,39 @@ def test_gate_needs_a_held_out_pass_and_rollback_restores(tmp_path: Path) -> Non
     v1 = registry.register(_tiny_td3(tmp_path / "td3_old_seed0.zip"), {"promotion_basis": "bootstrap"})
     registry.client().set_registered_model_alias(registry.MODEL_NAME, registry.CHAMPION, v1)
     path = _tiny_td3(tmp_path / "td3_new_seed1_best.zip", seed=1)
-    v2 = registry.register(path, {"validation_t1b": "0.7", "validation_reward": "0.26", "min_share": floor})
+    v2 = registry.register(path, {"validation_t1b": "0.7", "validation_reward": "0.26", "min_share": floor,
+                                  "profile": registry.M09_PROFILE})
 
     assert registry.promote() is False  # no held-out goal test recorded yet
     assert str(registry.alias_version(registry.CHAMPION).version) == v1
 
     tracking.log_evaluation("goal-test", "td3_new_seed1_best", {"t1b_captured": 0.8, "pass": False},
-                            {"split": "test", "final": "true", "recipe_all_pass": "False", "min_share": floor})
+                            {"split": "m09_test", "final": "true", "recipe_all_pass": "False", "min_share": floor})
     assert registry.promote() is False  # recorded, but FAIL
 
     tracking.log_evaluation("goal-test", "td3_new_seed1_best", {"t1b_captured": 0.8, "pass": True},
-                            {"split": "test", "final": "true", "recipe_all_pass": "True", "min_share": floor})
+                            {"split": "m09_test", "final": "true", "recipe_all_pass": "True", "min_share": floor})
+    assert registry.promote() is False  # M09c: the dev benchmark hasn't recorded it beating the champion
+
+    tracking.log_evaluation("benchmark", "td3_new_seed1_best", {"mean_met": 0.9}, {"beats_champion": "False"})
+    assert registry.promote() is False
+    tracking.log_evaluation("benchmark", "td3_new_seed1_best", {"mean_met": 0.95}, {"beats_champion": "True"})
     assert registry.promote() is True
     assert str(registry.alias_version(registry.CHAMPION).version) == v2
 
     assert registry.rollback() is True
     assert str(registry.alias_version(registry.CHAMPION).version) == v1
+
+
+def test_gate_refuses_a_version_not_trained_in_the_m09c_setting(tmp_path: Path) -> None:
+    """M09c: a version that passed the old held-out test, trained on the M01 cell with the floor, can't be
+    promoted: the observation now carries the load history and the cell is the calibrated one."""
+    old = _tiny_td3(tmp_path / "td3_m01_seed3_best.zip", seed=3)
+    registry.register(old, {"validation_t1b": "0.99", "validation_reward": "0.3", "min_share": str(MIN_SLICE_SHARE)})
+    tracking.log_evaluation("goal-test", "td3_m01_seed3_best", {"t1b_captured": 0.9, "pass": True},
+                            {"split": "test", "final": "true", "recipe_all_pass": "True", "min_share": str(MIN_SLICE_SHARE)})
+    chosen, reasons = registry.gate(registry.versions()[-1:])
+    assert chosen is None and "not trained in the M09c setting" in reasons[0]
 
 
 def test_gate_refuses_a_version_trained_without_the_floor(tmp_path: Path) -> None:

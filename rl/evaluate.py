@@ -37,7 +37,7 @@ from mlops import tracking
 from rl.baselines import equal_split, proportional_to_load
 from rl.policy import SlicePolicy
 from sim.cell import CellConfig, shares_from_action
-from sim.env import OBJECTIVE_FEATURES, SlicingEnv, objective_to_vector
+from sim.env import OBJECTIVE_SLICE, SlicingEnv, objective_to_vector
 from sim.plot import run_episode
 from sim.scenarios import urllc_spike
 from verifier.objective import SLICES, RLObjective, SliceValues
@@ -66,7 +66,7 @@ Controller = Callable[[np.ndarray], np.ndarray]
 
 
 def episode_metrics(controller: Controller, seed: int, steps: int = EPISODE_STEPS,
-                    min_share: float | None = None) -> dict[str, float]:
+                    min_share: float | None = None, env_options: dict | None = None) -> dict[str, float]:
     """Run one random episode and summarise it.
 
     - reward: mean reward per step
@@ -77,7 +77,8 @@ def episode_metrics(controller: Controller, seed: int, steps: int = EPISODE_STEP
       i.e. the fraction of the cell's PRBs moved each step. Diagnostic added after the M02
       figures showed a policy flipping its split every step.
     """
-    env = SlicingEnv(episode_steps=steps, min_share=min_share)  # min_share: the M04a per-slice floor
+    # min_share: the M04a per-slice floor; env_options: the M09c cell (rl.goal_test.M09_SETTING)
+    env = SlicingEnv(episode_steps=steps, min_share=min_share, **(env_options or {}))
     obs, _ = env.reset(seed=seed)
     if hasattr(controller, "reset"):  # the smoothed policy starts each episode fresh
         controller.reset()
@@ -145,7 +146,7 @@ def objective_sensitivity(policy: SlicePolicy, states: np.ndarray) -> dict[str, 
         shares = {}
         for name, objective in OBJECTIVES.items():
             x = obs.copy()
-            x[-OBJECTIVE_FEATURES:] = objective_to_vector(objective, cfg)
+            x[OBJECTIVE_SLICE] = objective_to_vector(objective, cfg)
             shares[name] = shares_from_action(policy.raw_action(x))[1]
         gaps.append(shares["protect URLLC"] - shares["maximise eMBB"])
     gaps = np.array(gaps)

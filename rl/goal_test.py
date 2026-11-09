@@ -6,6 +6,8 @@ Run with:
   uv run python -m rl.goal_test --split test --final        the held-out test, run ONCE at the end
   ... --min-share 0.05                                      same test with the per-slice PRB floor
                                                             (M04a round; results in runs/m04a_floor/)
+  uv run python -m rl.goal_test --split m09_validation --min-share 0.05          M09c, calibrated cell
+  uv run python -m rl.goal_test --split m09_test --final --min-share 0.05        M09c held-out, ONCE
 
 Why a new test. M02's test asked for a URLLC share gap >= 0.10 between "protect URLLC" and
 "maximise eMBB" on one scenario. A reward-optimal controller scores anywhere in 0.034-0.120
@@ -32,6 +34,12 @@ objective input is frozen) has advantage 0 in every case, so it fails by constru
 Two disjoint case sets: VALIDATION (used to develop: choose checkpoints and the recipe) and
 TEST (held out; used once on the confirmation seeds).
 
+M09c adds two splits on the calibrated cell, m09_validation and m09_test (rl/m09.py's setting: true
+capacity drawn per episode and told 79 Mb/s, KPIs 2 ticks late, load history, filter at the served
+alpha 0.10, 120-step episodes with random and on/off loads). The old sets are spent; these use fresh
+seeds (7000s, 8000s) and the same criteria, scored with reward v2 at the told capacity. m09_test runs
+once, with --final, on the confirmation seeds.
+
 With min_share (M04a), every rollout (policy, oracle, equal split, reward episodes) runs in an env
 that applies the per-slice PRB floor, as the deployed runner does. Everything else (scenarios,
 objectives, seeds, thresholds) is unchanged. The M04a round is the SECOND use of the test set.
@@ -40,7 +48,7 @@ objectives, seeds, thresholds) is unchanged. The M04a round is the SECOND use of
 import argparse
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -48,10 +56,11 @@ import numpy as np
 from mlops import tracking
 from rl.baselines import equal_split, proportional_to_load
 from rl.evaluate import OBJECTIVES, SPIKE_STEPS, episode_metrics
+from rl import m09
 from rl.oracle import GreedyOracle
-from rl.policy import SlicePolicy
+from rl.policy import SMOOTHING_ALPHA, SlicePolicy
 from sim.cell import CellConfig
-from sim.env import OBJECTIVE_FEATURES, SlicingEnv, objective_arrays, objective_to_vector, sample_objective
+from sim.env import OBJECTIVE_SLICE, SlicingEnv, objective_arrays, objective_to_vector, sample_objective
 from sim.reward import compute_reward_batch
 from sim.scenarios import urllc_spike
 from sim.traffic import TrafficPattern, sample_traffic
@@ -65,6 +74,9 @@ TEST_REWARD_SEEDS = range(1000, 1100)  # the M02 random episodes
 VALIDATION_REWARD_SEEDS = range(2000, 2050)
 RESULT_DIR = Path("runs/m02b")
 FLOOR_RESULT_DIR = Path("runs/m04a_floor")  # the M04a retraining with the per-slice floor
+M09_RESULT_DIR = Path("runs/m09c")  # M09c: the calibrated cell's splits
+M09_SCENARIOS, M09_OBJECTIVES = 8, 6
+M09_SEEDS = {"m09_validation": 7000, "m09_test": 8000}  # scenarios +i, objectives +100+i, reward episodes +200..
 
 CFG = CellConfig()
 C = CFG.capacity_mbps
@@ -131,12 +143,44 @@ class CaseSet:
     reward_seeds: range
 
 
+@dataclass(frozen=True)
+class Setting:
+    """The cell and actuator rules a case set is played in: M02b's (the defaults) or M09c's."""
+
+    env: dict = field(default_factory=dict)  # SlicingEnv keyword arguments
+    steps: int = EPISODE_STEPS
+    alpha: float = SMOOTHING_ALPHA  # the filter of the policy and the oracle
+    capacity_mbps: float = C  # what rewards are normalised by: the capacity the policy is told
+
+
+M09_CELL = m09.cell("m09")
+M09_SETTING = Setting({**m09.env_options("m09", "on"), "kpi_delay_range": m09.TEST_KPI_DELAY},
+                      m09.EPISODE_STEPS, m09.FILTER_ALPHA, M09_CELL.told_capacity_mbps)
+
+
+def m09_case_set(split: str) -> CaseSet:
+    """Random scenarios (a third with on/off loads) and objectives on the told capacity, fixed by fresh seeds."""
+    base, told = M09_SEEDS[split], M09_CELL.told_capacity_mbps
+    scenarios = {f"{split} scenario {i}": sample_traffic(np.random.default_rng(base + i), m09.EPISODE_STEPS, told,
+                                                         (1.5, 5.0), toggle_prob=0.34, noise_std=m09.noise_std())
+                 for i in range(M09_SCENARIOS)}
+    objectives = {f"{split} objective {i}": sample_objective(np.random.default_rng(base + 100 + i), M09_CELL)
+                  for i in range(M09_OBJECTIVES)}
+    return CaseSet(split, scenarios, objectives, range(base + 200, base + (250 if split == "m09_validation" else 300)))
+
+
 def case_set(split: str) -> CaseSet:
     if split == "test":
         return CaseSet("test", held_out_scenarios(), held_out_objectives(), TEST_REWARD_SEEDS)
     if split == "validation":
         return CaseSet("validation", validation_scenarios(), validation_objectives(), VALIDATION_REWARD_SEEDS)
+    if split in M09_SEEDS:
+        return m09_case_set(split)
     raise ValueError(f"unknown split {split!r}")
+
+
+def setting_of(split: str) -> Setting:
+    return M09_SETTING if split in M09_SEEDS else Setting()
 
 
 # --- Rollouts and scoring ------------------------------------------------------------------
@@ -144,14 +188,15 @@ def case_set(split: str) -> CaseSet:
 
 def rollout(act: Callable[[SlicingEnv, np.ndarray], np.ndarray], traffic: dict[str, TrafficPattern],
             told: RLObjective, reset: Callable[[], None] | None = None,
-            min_share: float | None = None) -> dict[str, np.ndarray]:
+            min_share: float | None = None, setting: Setting | None = None) -> dict[str, np.ndarray]:
     """Run one episode with `told` as the objective in the observation; log the KPIs."""
-    env = SlicingEnv(episode_steps=EPISODE_STEPS, min_share=min_share)
+    setting = setting or Setting()
+    env = SlicingEnv(episode_steps=setting.steps, min_share=min_share, **setting.env)
     obs, _ = env.reset(seed=0, options={"objective": told, "traffic": traffic})
     if reset is not None:
         reset()
     log: dict[str, list] = {"thr": [], "load": [], "lat_urllc": [], "share_urllc": []}
-    for _ in range(EPISODE_STEPS):
+    for _ in range(setting.steps):
         obs, _, _, _, info = env.step(np.asarray(act(env, obs), dtype=np.float32))
         log["thr"].append([info["throughput_mbps"][s] for s in SLICES])
         log["load"].append([info["load_mbps"][s] for s in SLICES])
@@ -160,42 +205,44 @@ def rollout(act: Callable[[SlicingEnv, np.ndarray], np.ndarray], traffic: dict[s
     return {k: np.array(v) for k, v in log.items()}
 
 
-def score(log: dict[str, np.ndarray], objective: RLObjective) -> float:
+def score(log: dict[str, np.ndarray], objective: RLObjective, capacity_mbps: float = C) -> float:
     """Mean reward per step of a logged episode under `objective` (reward v2)."""
     w, t, b = objective_arrays(objective)
     n = len(log["lat_urllc"])
     rewards = compute_reward_batch(np.repeat(w, n, axis=0), np.repeat(t, n, axis=0), np.repeat(b, n),
-                                   log["thr"], log["load"], log["lat_urllc"], C)
+                                   log["thr"], log["load"], log["lat_urllc"], capacity_mbps)
     return float(rewards.mean())
 
 
-def controller_rollouts(controller: Controller, cases: CaseSet,
-                        min_share: float | None = None) -> dict[tuple[str, str], dict[str, np.ndarray]]:
+def controller_rollouts(controller: Controller, cases: CaseSet, min_share: float | None = None,
+                        setting: Setting | None = None) -> dict[tuple[str, str], dict[str, np.ndarray]]:
     """One rollout per (scenario, objective told) for an obs -> action controller."""
     reset = getattr(controller, "reset", None)
-    return {(sc, told): rollout(lambda _env, obs: controller(obs), traffic, obj, reset, min_share)
+    return {(sc, told): rollout(lambda _env, obs: controller(obs), traffic, obj, reset, min_share, setting)
             for sc, traffic in cases.scenarios.items() for told, obj in cases.objectives.items()}
 
 
-def oracle_rollouts(cases: CaseSet, min_share: float | None = None) -> dict[tuple[str, str], dict[str, np.ndarray]]:
+def oracle_rollouts(cases: CaseSet, min_share: float | None = None,
+                    setting: Setting | None = None) -> dict[tuple[str, str], dict[str, np.ndarray]]:
     """One rollout per (scenario, objective) of the oracle optimising that objective."""
+    setting = setting or Setting()
     out = {}
     for sc, traffic in cases.scenarios.items():
         for told, obj in cases.objectives.items():
-            oracle = GreedyOracle(obj, min_share=min_share)
-            out[(sc, told)] = rollout(lambda env, _obs: oracle.act(env), traffic, obj, oracle.reset, min_share)
+            oracle = GreedyOracle(obj, alpha=setting.alpha, min_share=min_share)
+            out[(sc, told)] = rollout(lambda env, _obs: oracle.act(env), traffic, obj, oracle.reset, min_share, setting)
     return out
 
 
-def advantages(rollouts: dict, cases: CaseSet) -> dict[tuple[str, str, str], float]:
+def advantages(rollouts: dict, cases: CaseSet, capacity_mbps: float = C) -> dict[tuple[str, str, str], float]:
     """R_A(told A) - R_A(told B) for every scenario and ordered pair (A, B), A != B."""
     out = {}
     for sc in cases.scenarios:
         for a, obj_a in cases.objectives.items():
-            own = score(rollouts[(sc, a)], obj_a)
+            own = score(rollouts[(sc, a)], obj_a, capacity_mbps)
             for b in cases.objectives:
                 if b != a:
-                    out[(sc, a, b)] = own - score(rollouts[(sc, b)], obj_a)
+                    out[(sc, a, b)] = own - score(rollouts[(sc, b)], obj_a, capacity_mbps)
     return out
 
 
@@ -210,8 +257,11 @@ def goal_metrics(policy_adv: dict, oracle_adv: dict) -> dict[str, float]:
             "t1b_captured": float(captured)}
 
 
-def mean_reward(controller: Controller, seeds: range, min_share: float | None = None) -> float:
-    return float(np.mean([episode_metrics(controller, seed, min_share=min_share)["reward"] for seed in seeds]))
+def mean_reward(controller: Controller, seeds: range, min_share: float | None = None,
+                setting: Setting | None = None) -> float:
+    setting = setting or Setting()
+    steps = {} if setting.env == {} else {"steps": setting.steps, "env_options": setting.env}  # M02b: as before
+    return float(np.mean([episode_metrics(controller, seed, min_share=min_share, **steps)["reward"] for seed in seeds]))
 
 
 class GoalTest:
@@ -219,17 +269,21 @@ class GoalTest:
 
     def __init__(self, split: str, min_share: float | None = None) -> None:
         self.cases = case_set(split)
+        self.setting = setting_of(split)
+        self.alpha = self.setting.alpha  # the filter a policy is scored with (rl.train's checkpoint uses it)
         self.min_share = min_share  # None: no floor (M02b); 0.05: the M04a actuator rules
-        self.oracle_adv = advantages(oracle_rollouts(self.cases, min_share), self.cases)
-        self.equal_reward = mean_reward(equal_split, self.cases.reward_seeds, min_share)
+        self.oracle_adv = advantages(oracle_rollouts(self.cases, min_share, self.setting), self.cases,
+                                     self.setting.capacity_mbps)
+        self.equal_reward = mean_reward(equal_split, self.cases.reward_seeds, min_share, self.setting)
 
     def evaluate(self, controller: Controller, with_reward: bool = True) -> dict[str, float | bool]:
-        policy_adv = advantages(controller_rollouts(controller, self.cases, self.min_share), self.cases)
+        policy_adv = advantages(controller_rollouts(controller, self.cases, self.min_share, self.setting), self.cases,
+                                self.setting.capacity_mbps)
         m: dict[str, float | bool] = goal_metrics(policy_adv, self.oracle_adv)
         m["t1a_pass"] = m["t1a_share_positive"] >= T1A_MIN_SHARE
         m["t1b_pass"] = m["t1b_captured"] >= T1B_MIN_CAPTURED
         if with_reward:
-            m["reward"] = mean_reward(controller, self.cases.reward_seeds, self.min_share)
+            m["reward"] = mean_reward(controller, self.cases.reward_seeds, self.min_share, self.setting)
             m["equal_split_reward"] = self.equal_reward
             m["t2_pass"] = m["reward"] > self.equal_reward
             m["pass"] = bool(m["t1a_pass"] and m["t1b_pass"] and m["t2_pass"])
@@ -248,7 +302,7 @@ class FrozenObjective:
 
     def __call__(self, obs: np.ndarray) -> np.ndarray:
         x = obs.copy()
-        x[-OBJECTIVE_FEATURES:] = self.vector
+        x[OBJECTIVE_SLICE] = self.vector
         return self.policy(x)
 
 
@@ -284,15 +338,24 @@ def check(models: list[Path], min_share: float | None = None) -> None:
                   f"T1b {m['t1b_captured']:.2f}  -> {'PASS' if m['t1a_pass'] and m['t1b_pass'] else 'fail'}")
 
 
+FINAL_SPLITS = ("test", "m09_test")  # held out: run once, with --final, on the confirmation seeds
+
+
+def result_dir_of(split: str, min_share: float | None) -> Path:
+    if split in M09_SEEDS:
+        return M09_RESULT_DIR
+    return RESULT_DIR if min_share is None else FLOOR_RESULT_DIR
+
+
 def run_split(split: str, models: list[Path], final: bool, min_share: float | None = None) -> None:
-    result_dir = RESULT_DIR if min_share is None else FLOOR_RESULT_DIR
+    result_dir = result_dir_of(split, min_share)
     final_result = result_dir / "test_result.json"
-    if split == "test":
+    if split in FINAL_SPLITS:
         if not final:
             raise SystemExit("the held-out test runs once, on the confirmation seeds: add --final")
         if final_result.exists():
             raise SystemExit(f"{final_result} exists: the held-out test has already been run")
-        if min_share is not None:
+        if split == "test" and min_share is not None:
             print("NOTE: second use of the held-out test set (first: M02b, runs/m02b/test_result.json)")
     test = GoalTest(split, min_share)
     print(f"{split}: material cases {sum(v >= MATERIAL_THRESHOLD for v in test.oracle_adv.values())} "
@@ -300,9 +363,10 @@ def run_split(split: str, models: list[Path], final: bool, min_share: float | No
     print(f"{'model':<28}{'T1a':>6}{'T1b':>7}{'reward':>8}{'orig gap':>10}  verdict")
     results = {}
     for path in models:
-        policy = SlicePolicy.load(path)
+        policy = SlicePolicy.load(path, test.alpha)
         m = test.evaluate(policy)
-        m["original_gap"] = original_criterion(policy, min_share)
+        # The M02 criterion is on the M01 cell's URLLC spike: not meaningful for the M09c splits.
+        m["original_gap"] = original_criterion(policy, min_share) if split not in M09_SEEDS else float("nan")
         results[path.stem] = m
         print(f"{path.stem:<28}{m['t1a_share_positive']:6.2f}{m['t1b_captured']:7.2f}{m['reward']:8.3f}"
               f"{m['original_gap']:10.3f}  {'PASS' if m['pass'] else 'FAIL'}")
@@ -325,13 +389,13 @@ def run_split(split: str, models: list[Path], final: bool, min_share: float | No
         out["chosen_recipe"] = chosen
         print("\nchosen recipe (rule: all seeds pass on validation, then highest mean T1b):",
               chosen or "NONE: stop and report before touching the test")
-    path = final_result if split == "test" else result_dir / f"{split}.json"
+    path = final_result if split in FINAL_SPLITS else result_dir / f"{split}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(out, indent=2))
     print(f"wrote {path}")
     # One MLflow evaluation run per model; the registry gate reads the final ones (mlops/registry.py).
     for name, m in results.items():
-        tags = {"split": split, "final": str(split == "test").lower(),
+        tags = {"split": split, "final": str(split in FINAL_SPLITS).lower(),
                 "recipe_all_pass": str(summary[recipe_of(name)]["all_pass"]),
                 "min_share": str(min_share)}
         tracking.log_evaluation("goal-test", name, m, tags, result_file=path)
@@ -339,13 +403,14 @@ def run_split(split: str, models: list[Path], final: bool, min_share: float | No
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--split", choices=["validation", "test"])
+    parser.add_argument("--split", choices=["validation", "test", *M09_SEEDS])
     parser.add_argument("--check", action="store_true", help="validity checks of both case sets")
     parser.add_argument("--models", default=None, help="glob of model zips (default depends on --split)")
     parser.add_argument("--final", action="store_true", help="required to run the held-out test")
     parser.add_argument("--min-share", type=float, default=None, help="per-slice PRB floor (M04a: 0.05)")
     args = parser.parse_args()
-    default = {"validation": "models/m02b/dev/*_best.zip", "test": "models/m02b/confirm/*_best.zip"}
+    default = {"validation": "models/m02b/dev/*_best.zip", "test": "models/m02b/confirm/*_best.zip",
+               "m09_validation": "models/m09c/dev/*_best.zip", "m09_test": "models/m09c/confirm/*_best.zip"}
     pattern = args.models or default.get(args.split or "", "models/m02/*_seed*.zip")
     models = sorted(Path().glob(pattern))
     if args.check:

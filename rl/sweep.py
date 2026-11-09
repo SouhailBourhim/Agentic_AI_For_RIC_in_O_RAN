@@ -3,6 +3,8 @@
 Run with:
   uv run python -m rl.sweep dev                       15 runs: 5 recipes x 3 seeds (models/m02b/dev/)
   uv run python -m rl.sweep confirm --recipe full     5 fresh seeds of one recipe (models/m02b/confirm/)
+  uv run python -m rl.sweep m09c-dev                  M09c: 4 recipes x 3 seeds (models/m09c/dev/)
+  uv run python -m rl.sweep m09c-confirm --recipe v8  M09c: 5 fresh seeds of the chosen recipe (models/m09c/confirm/)
   add --dry-run to print the commands without running them.
 
 The development round is an ablation: the full recipe, and four versions each missing one
@@ -16,11 +18,17 @@ import sys
 import time
 from pathlib import Path
 
+from rl.m09 import RECIPES as M09C_RECIPES
+
 TIMESTEPS = 400_000
 THREADS = 2  # 15 runs x 2 threads = 30 of the 32 hardware threads
 VAL_EVERY = 25_000
 DEV_SEEDS = (0, 1, 2)
 CONFIRM_SEEDS = (10, 11, 12, 13, 14)  # never used before
+M09C_DEV_SEEDS = (30, 31, 32)  # M09c (DECISIONS): never used before
+M09C_CONFIRM_SEEDS = (40, 41, 42, 43, 44)
+# What every M09c recipe keeps from v7's recipe (M04a floor round); the rest is rl/m09.py's setting and recipe.
+M09C_COMMON = {"relabel": 0.8, "surge-max": 5.0, "load-scale": 1.2, "min-share": 0.05}
 
 # Every M02b change on (B1 reward v2, B2 relabeling, B3 coverage, B4 filter in the loop).
 FULL = {"relabel": 0.8, "filter-in-loop": True, "surge-max": 5.0, "load-scale": 1.2,
@@ -40,6 +48,8 @@ def command(recipe: str, seed: int, group: str) -> list[str]:
     args = [sys.executable, "-m", "rl.train", "--algo", "td3", "--tag", f"_{recipe}", "--seed", str(seed),
             "--timesteps", str(TIMESTEPS), "--threads", str(THREADS), "--val-every", str(VAL_EVERY),
             "--group", group]
+    if recipe in M09C_RECIPES:
+        return args + ["--m09", recipe] + [x for flag, value in M09C_COMMON.items() for x in (f"--{flag}", str(value))]
     for flag, value in RECIPES[recipe].items():
         if value is True:
             args.append(f"--{flag}")
@@ -72,11 +82,17 @@ def launch(runs: list[tuple[str, int]], group: str, dry_run: bool) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("round", choices=["dev", "confirm"])
-    parser.add_argument("--recipe", choices=sorted(RECIPES), help="the recipe to confirm")
+    parser.add_argument("round", choices=["dev", "confirm", "m09c-dev", "m09c-confirm"])
+    parser.add_argument("--recipe", choices=sorted(RECIPES) + sorted(M09C_RECIPES), help="the recipe to confirm")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
-    if args.round == "dev":
+    if args.round == "m09c-dev":
+        launch([(r, s) for r in M09C_RECIPES for s in M09C_DEV_SEEDS], "m09c/dev", args.dry_run)
+    elif args.round == "m09c-confirm":
+        if args.recipe not in M09C_RECIPES:
+            parser.error("m09c-confirm needs --recipe, one of rl.m09.RECIPES (chosen by the rule in DECISIONS)")
+        launch([(args.recipe, s) for s in M09C_CONFIRM_SEEDS], "m09c/confirm", args.dry_run)
+    elif args.round == "dev":
         launch([(r, s) for r in RECIPES for s in DEV_SEEDS], "m02b/dev", args.dry_run)
     else:
         if not args.recipe:

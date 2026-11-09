@@ -8,8 +8,8 @@ The idea. The objective does not change how the cell behaves (traffic, queues, t
 and latency depend only on the split), it only changes how a step is scored. So a stored
 transition (state, split, next state) is equally real under any other objective, as long as
 the objective part of the observations and the reward are replaced consistently. Every time
-a batch is sampled, RELABEL_FRACTION of it gets a fresh random objective: the last 7 values of
-obs and next_obs are overwritten, and the reward is recomputed from the step's raw KPIs with
+a batch is sampled, RELABEL_FRACTION of it gets a fresh random objective: the 7 objective values of
+obs and next_obs (sim.env.OBJECTIVE_SLICE) are overwritten, and the reward is recomputed from the step's raw KPIs with
 the same reward function as the environment (sim.reward.compute_reward_batch). Each congested
 state then teaches the policy what many objectives want. This is the idea behind hindsight
 experience replay (Andrychowicz et al., 2017), applied to objectives instead of goal states.
@@ -26,17 +26,18 @@ from stable_baselines3.common.type_aliases import ReplayBufferSamples
 from stable_baselines3.common.vec_env import VecNormalize
 
 from sim.cell import CellConfig
-from sim.env import OBJECTIVE_FEATURES, objective_vectors, sample_objective_vectors
+from sim.env import OBJECTIVE_SLICE, objective_vectors, sample_objective_vectors
 from sim.reward import DEFAULT_REWARD_VERSION, RewardVersion, compute_reward_batch
 from verifier.objective import SLICES
 
-KPI_COLUMNS = 7  # throughput x3, load x3, URLLC latency: everything the reward needs
+KPI_COLUMNS = 10  # throughput x3, load x3, URLLC latency, split x3: everything the reward needs (v3: the split)
 
 
 def kpis_from_info(info: dict[str, Any]) -> list[float]:
-    """The raw KPIs of one step, from the env's info dict, in KPI column order."""
+    """The raw KPIs of one step, from the env's info dict, in KPI column order. They are the true
+    KPIs of the step, not the late ones the observation shows (M09c), as the env's reward uses."""
     return ([info["throughput_mbps"][s] for s in SLICES] + [info["load_mbps"][s] for s in SLICES]
-            + [info["latency_ms"]["urllc"]])
+            + [info["latency_ms"]["urllc"]] + [info["shares"][s] for s in SLICES])
 
 
 class RelabelReplayBuffer(ReplayBuffer):
@@ -55,6 +56,7 @@ class RelabelReplayBuffer(ReplayBuffer):
         capacity_mbps: float = CellConfig().capacity_mbps,
         reward_version: RewardVersion = DEFAULT_REWARD_VERSION,
         seed: int = 0,
+        urllc_base_ms: float | None = None,
     ) -> None:
         if n_envs != 1 or optimize_memory_usage:
             raise ValueError("RelabelReplayBuffer supports one env and optimize_memory_usage=False")
@@ -64,6 +66,7 @@ class RelabelReplayBuffer(ReplayBuffer):
         self.relabel_fraction = relabel_fraction
         self.cfg = CellConfig(capacity_mbps=capacity_mbps)
         self.reward_version = reward_version
+        self.urllc_base_ms = urllc_base_ms  # reward v3 only: the URLLC base latency the verifier sizes with
         self.rng = np.random.default_rng(seed)
 
     def add(self, obs: np.ndarray, next_obs: np.ndarray, action: np.ndarray, reward: np.ndarray,
@@ -81,11 +84,12 @@ class RelabelReplayBuffer(ReplayBuffer):
         if n:
             weights, targets, bound = sample_objective_vectors(self.rng, n, self.cfg)
             vectors = objective_vectors(weights, targets, bound, self.cfg).astype(np.float32)
-            obs[chosen, -OBJECTIVE_FEATURES:] = vectors
-            next_obs[chosen, -OBJECTIVE_FEATURES:] = vectors  # same objective on both sides
+            obs[chosen, OBJECTIVE_SLICE] = vectors
+            next_obs[chosen, OBJECTIVE_SLICE] = vectors  # same objective on both sides
             k = self.kpis[batch_inds[chosen]]
             rewards[chosen] = compute_reward_batch(weights, targets, bound, k[:, 0:3], k[:, 3:6], k[:, 6],
-                                                   self.cfg.capacity_mbps, self.reward_version)
+                                                   self.cfg.capacity_mbps, self.reward_version,
+                                                   shares=k[:, 7:10], urllc_base_ms=self.urllc_base_ms)
         return obs, next_obs, rewards
 
     def _get_samples(self, batch_inds: np.ndarray, env: VecNormalize | None = None) -> ReplayBufferSamples:

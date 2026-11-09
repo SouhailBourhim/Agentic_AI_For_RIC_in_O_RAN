@@ -31,6 +31,12 @@ M02b training options (each answers a finding of docs/learn/M02-ddpg.md, part M0
 M04a option:
 - --min-share F: the per-slice PRB floor (sim.cell.apply_min_share) in the env after the filter,
   as the deployed runner applies it; the validation checkpoint is scored with the same floor.
+
+M09c option:
+- --m09 RECIPE: train in the M09c setting (rl/m09.py: calibrated cell, late KPIs, filter at the served
+  alpha, switches and expiries, on/off loads, 120-step episodes) with one of its recipes (rl.m09.RECIPES),
+  which sets the cell, the reward and the load history. --episode-steps, --reward and --filter-in-loop are
+  then set by the recipe; the checkpoint is scored on the goal test's m09_validation split.
 """
 
 import argparse
@@ -45,6 +51,7 @@ from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.noise import NormalActionNoise
 
 from mlops import tracking
+from rl import m09
 from rl.policy import SMOOTHING_ALPHA, SlicePolicy
 from rl.relabel import RelabelReplayBuffer
 from sim.env import SlicingEnv
@@ -85,9 +92,12 @@ def make_model(
     hp = HYPERPARAMETERS
     buffer: dict = {}
     if relabel > 0:
+        cell = env.unwrapped.base_cfg if hasattr(env.unwrapped, "base_cfg") else None
+        told = {} if cell is None else {"capacity_mbps": cell.told_capacity_mbps,
+                                        "urllc_base_ms": cell.told_urllc_base_latency_ms}
         buffer = {"replay_buffer_class": RelabelReplayBuffer,
                   "replay_buffer_kwargs": {"relabel_fraction": relabel, "reward_version": reward_version,
-                                           "seed": seed}}
+                                           "seed": seed, **told}}
     n_actions = env.action_space.shape[0]
     noise = NormalActionNoise(mean=np.zeros(n_actions), sigma=hp["noise_sigma"] * np.ones(n_actions))
     return ALGORITHMS[algo](
@@ -120,21 +130,24 @@ class ValidationCheckpoint(BaseCallback):
     the highest T1b (captured share of the oracle's advantage), then the highest reward.
     """
 
-    def __init__(self, every: int, path: Path, start: int = VALIDATION_START, min_share: float | None = None) -> None:
+    def __init__(self, every: int, path: Path, start: int = VALIDATION_START, min_share: float | None = None,
+                 m09_recipe: str | None = None) -> None:
         super().__init__()
         from rl.goal_test import GoalTest  # imported here: building it computes the oracle once
 
         self.every = every
         self.path = path
         self.start = start
-        self.test = GoalTest("validation", min_share)  # scored with the same floor as in training
+        # Scored with the same floor as in training; M09c on its own validation split, in its own cell.
+        self.test = (GoalTest("validation", min_share) if m09_recipe is None
+                     else GoalTest("m09_validation", min_share))
         self.best_key: tuple[float, float] | None = None
         self.history: list[dict] = []
 
     def _on_step(self) -> bool:
         if self.num_timesteps < self.start or self.num_timesteps % self.every:
             return True
-        m = self.test.evaluate(SlicePolicy(self.model))
+        m = self.test.evaluate(SlicePolicy(self.model, self.test.alpha))
         m["step"] = self.num_timesteps
         self.history.append(m)
         for key in ("t1a_share_positive", "t1b_captured", "reward"):
@@ -184,6 +197,7 @@ def train(
     group: str = DEFAULT_GROUP,
     track: bool = True,
     min_share: float | None = None,
+    m09_recipe: str | None = None,
 ) -> Path:
     """Train one seed and save the model; returns the model path.
 
@@ -197,15 +211,21 @@ def train(
     model_dir.mkdir(parents=True, exist_ok=True)
     model_path = model_dir / f"{name}.zip"
 
+    options: dict = {"episode_steps": episode_steps, "objective_switch_prob": objective_switch_prob,
+                     "action_filter_alpha": SMOOTHING_ALPHA if filter_in_loop else None}
+    if m09_recipe is not None:  # M09c: the recipe sets the cell, the reward and the history (rl/m09.py)
+        recipe = m09.RECIPES[m09_recipe]
+        reward_version, episode_steps, filter_in_loop = recipe["reward"], m09.EPISODE_STEPS, True
+        options = {"episode_steps": episode_steps, "action_filter_alpha": m09.FILTER_ALPHA,
+                   **m09.training_options(recipe["profile"], recipe["history"])}
+        objective_switch_prob = options["objective_switch_prob"]
     env = Monitor(
         SlicingEnv(
-            episode_steps=episode_steps,
             load_scale=load_scale,
-            objective_switch_prob=objective_switch_prob,
             surge_range=(1.5, surge_max),
-            action_filter_alpha=SMOOTHING_ALPHA if filter_in_loop else None,
             reward_version=reward_version,  # type: ignore[arg-type]
             min_share=min_share,
+            **options,
         ),
         filename=str(run_dir / name / "monitor.csv"),
     )
@@ -215,11 +235,14 @@ def train(
                 "load_scale": load_scale, "objective_switch_prob": objective_switch_prob,
                 "relabel": relabel, "filter_in_loop": filter_in_loop, "surge_max": surge_max,
                 "episode_steps": episode_steps, "reward_version": reward_version, "val_every": val_every,
-                "min_share": min_share,
+                "min_share": min_share, "m09_recipe": m09_recipe,
+                **({} if m09_recipe is None else {**m09.RECIPES[m09_recipe], "filter_alpha": m09.FILTER_ALPHA,
+                                                  "kpi_delay_range": list(m09.KPI_DELAY_RANGE),
+                                                  "expiry_share": m09.EXPIRY_SHARE, "toggle_prob": m09.TOGGLE_PROB}),
                 **HYPERPARAMETERS}
     callbacks: list[BaseCallback] = [TrackingCallback()]
     if val_every:
-        callbacks.append(ValidationCheckpoint(val_every, model_path, min_share=min_share))
+        callbacks.append(ValidationCheckpoint(val_every, model_path, min_share=min_share, m09_recipe=m09_recipe))
     with tracking.training_run(name, group, settings, enabled=track):
         model.learn(total_timesteps=timesteps, tb_log_name=name, progress_bar=False,
                     callback=CallbackList(callbacks))
@@ -251,10 +274,11 @@ def main() -> None:
     parser.add_argument("--group", default=DEFAULT_GROUP, help="models/<group>/ and runs/<group>/")
     parser.add_argument("--no-track", action="store_true", help="do not record the run in MLflow")
     parser.add_argument("--min-share", type=float, default=None, help="per-slice PRB floor in the env (M04a: 0.05)")
+    parser.add_argument("--m09", choices=sorted(m09.RECIPES), default=None, help="M09c setting and recipe (rl/m09.py)")
     args = parser.parse_args()
     train(args.seed, args.timesteps, args.threads, args.algo, args.load_scale, args.objective_switch_prob,
           args.tag, args.relabel, args.filter_in_loop, args.surge_max, args.episode_steps, args.reward,
-          args.val_every, args.group, track=not args.no_track, min_share=args.min_share)
+          args.val_every, args.group, track=not args.no_track, min_share=args.min_share, m09_recipe=args.m09)
 
 
 if __name__ == "__main__":

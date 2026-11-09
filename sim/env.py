@@ -9,8 +9,10 @@ Throughputs and targets are divided by the cell capacity, so the policy sees fra
 and keeps working when the capacity is recalibrated to the testbed.
 """
 
+import dataclasses
+from collections import deque
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Literal
 
 import gymnasium as gym
 import numpy as np
@@ -19,6 +21,7 @@ from sim.cell import CellConfig, SliceStep, apply_min_share, shares_from_action,
 from sim.reward import DEFAULT_REWARD_VERSION, RewardVersion, compute_reward
 from sim.traffic import DEFAULT_SURGE_RANGE, TrafficPattern, sample_traffic
 from verifier.objective import (
+    DEFAULT_OBJECTIVE,
     SLICES,
     TRAINED_LATENCY_BOUND_MS,
     TRAINED_MAX_TARGET_FRACTION,
@@ -31,6 +34,39 @@ OBS_CLIP = 10.0  # every observation value is clipped to [0, 10]
 KPI_FEATURES_PER_SLICE = 5  # load, throughput, latency, prb_share, prb_used
 OBJECTIVE_FEATURES = 7  # 3 weights, 3 minimum targets, 1 latency bound
 OBS_SIZE = KPI_FEATURES_PER_SLICE * len(SLICES) + OBJECTIVE_FEATURES
+# Where the objective sits in the observation, whatever follows it (M09c appends the load history after it).
+OBJECTIVE_SLICE = slice(KPI_FEATURES_PER_SLICE * len(SLICES), OBS_SIZE)
+# M09c: each slice's peak offered load over the last HISTORY_S seconds, / C, appended after the objective.
+# A policy trained without it reads only the first OBS_SIZE values (rl.policy.SlicePolicy), so v7 is unchanged.
+HISTORY_FEATURES = len(SLICES)
+HISTORY_S = 30.0
+OBS_SIZE_WITH_HISTORY = OBS_SIZE + HISTORY_FEATURES
+HistoryMode = Literal["off", "on"]
+
+
+class LoadHistory:
+    """Each slice's peak offered load over the last HISTORY_S seconds, from the loads the policy sees.
+
+    One instance in SlicingEnv (training) and one in the RL runner (deployment): the same code
+    gives the same features in both. It is fed the late KPIs the policy reads, not the true ones,
+    so in training it has exactly the lag it will have when deployed. Why a peak: a latency bound
+    under bursty load is met by sizing to the recent peak, which a one-tick observation can't
+    see (M09b: F3, LLM + formula 0.92 against v7's 0.60).
+    """
+
+    def __init__(self, window_s: float = HISTORY_S, dt_s: float = 1.0) -> None:
+        self.loads: deque[list[float]] = deque(maxlen=max(1, round(window_s / dt_s)))
+
+    def reset(self) -> None:
+        self.loads.clear()
+
+    def update(self, loads_mbps: Mapping[str, float]) -> None:
+        self.loads.append([float(loads_mbps[s]) for s in SLICES])
+
+    def features(self, capacity_mbps: float) -> np.ndarray:
+        if not self.loads:
+            return np.zeros(HISTORY_FEATURES, dtype=np.float32)
+        return np.clip(np.max(np.array(self.loads), axis=0) / capacity_mbps, 0.0, OBS_CLIP).astype(np.float32)
 
 
 def objective_vectors(
@@ -139,6 +175,12 @@ class SlicingEnv(gym.Env):
         action_filter_alpha: float | None = None,
         reward_version: RewardVersion = DEFAULT_REWARD_VERSION,
         min_share: float | None = None,
+        capacity_range: tuple[float, float] | None = None,
+        kpi_delay_range: tuple[int, int] | None = None,
+        history: HistoryMode = "off",
+        expiry_share: float = 0.0,
+        toggle_prob: float = 0.0,
+        noise_std: float | None = None,
     ) -> None:
         """Training options (all off by default, so evaluation episodes and scripted
         scenarios are unchanged):
@@ -154,8 +196,29 @@ class SlicingEnv(gym.Env):
         min_share applies the per-slice PRB floor (sim.cell.apply_min_share) after the filter, as
         the RL runner does when deployed (M04a). None = no floor, the M01-M02b behaviour, so the
         recorded evaluations of earlier policies reproduce exactly.
+        M09c options (all off by default; the random generator is touched only when they're on):
+        - capacity_range: the cell's true capacity is drawn per episode in this range, while the
+          observation, the objective and the reward are normalised by what the cell reports
+          (cfg.told_capacity_mbps), as the runner does through backend.info();
+        - kpi_delay_range: the KPI part of the observation is from k ticks ago, k drawn per episode
+          (the testbed's KPIs arrive 2 ticks late, M07b); the objective part is always current;
+        - history: "on" appends LoadHistory's features after the objective;
+        - expiry_share: at an objective switch, the chance of returning to DEFAULT_OBJECTIVE (an
+          intent expiring) instead of drawing a new objective;
+        - toggle_prob, noise_std: passed to sample_traffic (on/off loads, load noise).
         """
-        self.cfg = cfg or CellConfig()
+        self.base_cfg = cfg or CellConfig()
+        self.cfg = self.base_cfg  # this episode's cell: its capacity is redrawn per episode with capacity_range
+        self.obs_cfg = CellConfig(capacity_mbps=self.base_cfg.told_capacity_mbps)  # what the policy is told
+        self.capacity_range = capacity_range
+        self.kpi_delay_range = kpi_delay_range
+        self.kpi_delay = 0
+        self.history = history
+        self.load_history = LoadHistory(dt_s=self.base_cfg.dt_s)
+        self.expiry_share = expiry_share
+        self.toggle_prob = toggle_prob
+        self.noise_std = noise_std
+        self._seen: deque[dict[str, dict[str, float]]] = deque(maxlen=(kpi_delay_range or (0, 0))[1] + 1)
         self.episode_steps = episode_steps
         self.load_scale = load_scale
         self.objective_switch_prob = objective_switch_prob
@@ -164,7 +227,8 @@ class SlicingEnv(gym.Env):
         self.reward_version = reward_version
         self.min_share = min_share
         self.action_space = gym.spaces.Box(0.0, 1.0, shape=(len(SLICES),), dtype=np.float32)
-        self.observation_space = gym.spaces.Box(0.0, OBS_CLIP, shape=(OBS_SIZE,), dtype=np.float32)
+        size = OBS_SIZE if history == "off" else OBS_SIZE_WITH_HISTORY
+        self.observation_space = gym.spaces.Box(0.0, OBS_CLIP, shape=(size,), dtype=np.float32)
         # Filled by reset():
         self.objective: RLObjective
         self.traffic: dict[str, TrafficPattern]
@@ -182,10 +246,17 @@ class SlicingEnv(gym.Env):
         super().reset(seed=seed)
         options = options or {}
         episode_s = self.episode_steps * self.cfg.dt_s
-        self.objective = options.get("objective") or sample_objective(self.np_random, self.cfg)
+        if self.capacity_range is not None:
+            capacity = float(self.np_random.uniform(*self.capacity_range))
+            self.cfg = dataclasses.replace(self.base_cfg, capacity_mbps=capacity,
+                                           reported_capacity_mbps=self.base_cfg.told_capacity_mbps)
+        self.objective = options.get("objective") or sample_objective(self.np_random, self.obs_cfg)
         self.traffic = options.get("traffic") or sample_traffic(
-            self.np_random, episode_s, self.load_scale * self.cfg.capacity_mbps, self.surge_range
+            self.np_random, episode_s, self.load_scale * self.cfg.capacity_mbps, self.surge_range,
+            self.toggle_prob, self.noise_std,
         )
+        if self.kpi_delay_range is not None:
+            self.kpi_delay = int(self.np_random.integers(self.kpi_delay_range[0], self.kpi_delay_range[1] + 1))
         self.time_s = 0.0
         self.step_count = 0
         self.shares = np.full(len(SLICES), 1.0 / len(SLICES))
@@ -195,6 +266,9 @@ class SlicingEnv(gym.Env):
         self.last = {
             s: SliceStep(0.0, 0.0, 0.0, 0.0, self.cfg.base_latency_ms[s]) for s in SLICES
         }
+        self._seen.clear()
+        self.load_history.reset()
+        self._advance_view()
         return self._observation(), self._info()
 
     def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
@@ -220,13 +294,18 @@ class SlicingEnv(gym.Env):
             )
             for i, s in enumerate(SLICES)
         }
-        reward = compute_reward(self.objective, self.last, self.loads, self.cfg, self.reward_version)
+        reward = compute_reward(self.objective, self.last, self.loads, self.obs_cfg, self.reward_version,
+                                shares=self.shares, urllc_base_ms=self.cfg.told_urllc_base_latency_ms)
         # Only touch the random generator when the option is on, so that with the default the
         # random stream (hence every evaluation episode) is exactly what it was before.
         if self.objective_switch_prob > 0 and self.np_random.random() < self.objective_switch_prob:
-            self.objective = sample_objective(self.np_random, self.cfg)  # seen from the next step
+            if self.expiry_share > 0 and self.np_random.random() < self.expiry_share:
+                self.objective = DEFAULT_OBJECTIVE  # the intent expired: the runner's default again
+            else:
+                self.objective = sample_objective(self.np_random, self.obs_cfg)  # seen from the next step
         self.time_s += self.cfg.dt_s
         self.step_count += 1
+        self._advance_view()
         truncated = self.step_count >= self.episode_steps
         return self._observation(), reward, False, truncated, self._info()
 
@@ -234,17 +313,28 @@ class SlicingEnv(gym.Env):
         """Change the objective mid-episode (a new intent arrives). Takes effect next step."""
         self.objective = objective
 
+    def _advance_view(self) -> None:
+        """Record this step's KPIs, and feed the history what the policy sees (kpi_delay ticks late)."""
+        self._seen.append({
+            "loads_mbps": dict(self.loads),
+            "throughput_mbps": {s: self.last[s].throughput_mbps for s in SLICES},
+            "latency_ms": {s: self.last[s].latency_ms for s in SLICES},
+            "shares": dict(zip(SLICES, map(float, self.shares))),
+            "prb_used": {s: self.last[s].prb_used for s in SLICES},
+        })
+        self.load_history.update(self._view()["loads_mbps"])
+
+    def _view(self) -> dict[str, dict[str, float]]:
+        """The KPIs the policy sees: kpi_delay ticks ago, or the oldest kept at an episode's start."""
+        return self._seen[max(0, len(self._seen) - 1 - self.kpi_delay)]
+
     def _observation(self) -> np.ndarray:
-        """5 KPI features per slice, then the 7 objective features (see build_observation)."""
-        return build_observation(
-            loads_mbps=self.loads,
-            throughput_mbps={s: self.last[s].throughput_mbps for s in SLICES},
-            latency_ms={s: self.last[s].latency_ms for s in SLICES},
-            shares=dict(zip(SLICES, map(float, self.shares))),
-            prb_used={s: self.last[s].prb_used for s in SLICES},
-            objective=self.objective,
-            cfg=self.cfg,
-        )
+        """5 KPI features per slice, then the 7 objective features (see build_observation),
+        then the load history if the env has it."""
+        obs = build_observation(**self._view(), objective=self.objective, cfg=self.obs_cfg)
+        if self.history == "off":
+            return obs
+        return np.concatenate([obs, self.load_history.features(self.obs_cfg.capacity_mbps)]).astype(np.float32)
 
     def _info(self) -> dict[str, Any]:
         """Raw values in real units, for logs, the demo and the KPI store later."""

@@ -50,9 +50,19 @@ class SlicePolicy:
         """Forget the previous action (start of an episode, or after a restart)."""
         self._previous = None
 
+    @property
+    def n_inputs(self) -> int | None:
+        """How many observation values the actor was trained on: 22, or 25 with the load history (M09c).
+        None (all of them) for a stand-in model with no observation space, as in some tests."""
+        space = getattr(self.model, "observation_space", None)
+        return None if space is None else int(space.shape[0])
+
     def raw_action(self, obs: np.ndarray) -> np.ndarray:
-        """The actor's output, unfiltered: 3 numbers in [0, 1]."""
-        action, _ = self.model.predict(obs, deterministic=True)
+        """The actor's output, unfiltered: 3 numbers in [0, 1].
+
+        The runner builds the full observation (with the load history, M09c); a policy trained
+        without the history gets only the first 22 values, the layout it was trained on (v7)."""
+        action, _ = self.model.predict(np.asarray(obs)[..., : self.n_inputs], deterministic=True)
         return np.asarray(action, dtype=np.float64)
 
     def action(self, obs: np.ndarray) -> np.ndarray:

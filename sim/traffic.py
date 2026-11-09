@@ -89,12 +89,19 @@ def sample_traffic(
     episode_s: float,
     capacity_mbps: float,
     surge_range: tuple[float, float] = DEFAULT_SURGE_RANGE,
+    toggle_prob: float = 0.0,
+    noise_std: float | None = None,
 ) -> dict[str, TrafficPattern]:
     """A random scenario: each slice gets a random shape, level and timing.
 
     Used in training (M02) so the policy sees many situations, not one scripted scenario.
     The random generator is called in the same order whatever surge_range is, so the
     default reproduces exactly the episodes defined before the option existed.
+    M09c options, both off by default (the generator is then called exactly as before):
+    - toggle_prob: the chance per slice of an on/off pattern instead, alternating between the
+      base and the peak every TOGGLE_PHASE_S seconds (fast dynamics, as a slice whose users come
+      and go); played with the "steps" kind;
+    - noise_std: the load noise of every pattern (the calibrated cell's iperf3 is almost constant).
     """
     traffic = {}
     for s in SLICES:
@@ -104,5 +111,22 @@ def sample_traffic(
         peak = base * float(rng.uniform(*surge_range))
         start = float(rng.uniform(0.1, 0.6) * episode_s)
         end = float(start + rng.uniform(0.1, 0.4) * episode_s)
-        traffic[s] = TrafficPattern(kind, base, peak, start, end)
+        noise = {} if noise_std is None else {"noise_std": noise_std}
+        if toggle_prob > 0 and rng.random() < toggle_prob:
+            traffic[s] = TrafficPattern("steps", base, peak, steps=toggles(rng, episode_s, base, peak), **noise)
+        else:
+            traffic[s] = TrafficPattern(kind, base, peak, start, end, **noise)
     return traffic
+
+
+TOGGLE_PHASE_S = (5.0, 40.0)  # how long each on or off phase lasts
+
+
+def toggles(rng: np.random.Generator, episode_s: float, low: float, high: float) -> tuple[tuple[float, float], ...]:
+    """On/off steps over the episode: (start_s, Mb/s), starting at a random level and phase."""
+    level, t, steps = bool(rng.random() < 0.5), 0.0, []
+    while t < episode_s:
+        steps.append((t, high if level else low))
+        t += float(rng.uniform(*TOGGLE_PHASE_S))
+        level = not level
+    return tuple(steps)

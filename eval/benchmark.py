@@ -3,6 +3,8 @@
   uv run python -m eval.benchmark --parse-check                 the real model parses every dev intent; mismatches drop the instance
   uv run python -m eval.benchmark --dev [--families f1 f3] [--controllers static proposed] [--limit 5]
   uv run python -m eval.benchmark --table                       the table and the per-family summary, from finished runs
+  uv run python -m eval.benchmark --dev --controllers proposed --policy <zip> --study m09c_<name>   M09c: another policy
+  uv run python -m eval.benchmark --compare m09c_<name>          M09c: LLM + RL with it against v7's runs (selection rule)
 
 Dev seeds only: the test seeds belong to M09d (eval.generator refuses them). A finished run is never played again.
 --dev with no filter refuses uncommitted code, so the full matrix comes after its rules in the history.
@@ -33,6 +35,8 @@ RESULTS = Path("eval/results/m09b")
 PARSE = Path("docs/learn/data/M09b-parse.csv")
 RUNS = Path("docs/learn/data/M09b-runs.csv")
 SUMMARY = Path("docs/learn/data/M09b-summary.csv")
+SELECTION = Path("docs/learn/data/M09c-selection.csv")
+FAMILY_DROP = 0.02  # M09c: a new policy may not lower any family's mean intent met by more than this (DECISIONS)
 CONTROLLERS = ("static", "rl_only", "llm_only", "llm_only_v2", "proposed", "formula", "oracle")
 STUDY = "m09b_dev"
 FEASIBLE = 0.9  # the oracle meets it in at least 90 % of the seconds (DECISIONS)
@@ -44,8 +48,8 @@ def profile_cell(instance: Instance):
     return testbed_cell("m09", instance.seed)
 
 
-def work_of(instance: Instance, controller: str) -> Path:
-    return RESULTS / RunSpec(STUDY, instance.name, controller, instance.seed).run_id
+def work_of(instance: Instance, controller: str, study: str = STUDY) -> Path:
+    return RESULTS / RunSpec(study, instance.name, controller, instance.seed).run_id
 
 
 # ---------------------------------------------------------------- the parse check (H7)
@@ -80,27 +84,28 @@ def dropped() -> set[str]:
 # ---------------------------------------------------------------- the runs
 
 
-def play(instance: Instance, controller: str, policy: Path, llm) -> Path:
-    work = work_of(instance, controller)
+def play(instance: Instance, controller: str, policy: Path, llm, study: str = STUDY) -> Path:
+    work = work_of(instance, controller, study)
     cell = profile_cell(instance)
     traffic = instance.traffic(noise_std())
     if (work / "run.json").exists():
         return work
     delay = 0 if controller == "oracle" else KPI_DELAY_TICKS  # the oracle reads the cell itself, no late view
-    spec = RunSpec(STUDY, instance.name, controller, instance.seed, alpha=SERVED_SMOOTHING_ALPHA, delay_ticks=delay)
+    spec = RunSpec(study, instance.name, controller, instance.seed, alpha=SERVED_SMOOTHING_ALPHA, delay_ticks=delay)
     return run_once(spec, instance.scenario(), work, policy, llm if controller in USES_AGENT else None,
                     cfg=cell, traffic=traffic, clock_offset_s=CLOCK_OFFSET_S)
 
 
-def play_matrix(families, controllers, limit: int | None) -> None:
+def play_matrix(families, controllers, limit: int | None, policy_file: Path | None = None, study: str = STUDY) -> None:
     skip = dropped()
     instances = [i for i in dev_instances(families, limit or PER_FAMILY) if i.name not in skip]
     print(f"{len(instances)} instances ({len(skip)} dropped by the parse check), {len(controllers)} controllers", flush=True)
-    llm, policy = OllamaClient(), served_policy()
-    RESULTS.mkdir(parents=True, exist_ok=True)
+    llm, policy = OllamaClient(), policy_file or served_policy()
+    (RESULTS / study).mkdir(parents=True, exist_ok=True)
+    (RESULTS / study / "policy.json").write_text(json.dumps({"policy": str(policy)}))  # what --compare names
     total = len(instances) * len(controllers)
     for n, (inst, controller) in enumerate(((i, c) for i in instances for c in controllers), 1):
-        work = play(inst, controller, policy, llm)
+        work = play(inst, controller, policy, llm, study)
         wall = json.loads((work / "run.json").read_text()).get("wall_s", "")
         print(f"[{n}/{total}] {inst.name} {controller}: {wall} s", flush=True)
 
@@ -236,24 +241,82 @@ def ceiling_check(rows: list[dict]) -> dict[str, float]:
     return out
 
 
+def proposed_met(study: str) -> dict[tuple[str, int], tuple[str, float]]:
+    """LLM + RL's intent met per (instance, intent) in a study's finished runs, with the family."""
+    out = {}
+    for inst in dev_instances():
+        work = work_of(inst, "proposed", study)
+        if (work / "run.json").exists():
+            for k, row in enumerate(measure_run(work, inst.scenario())["intents"]):
+                out[(inst.name, k)] = (inst.family, row["intent_met"])
+    return out
+
+
+def compare(study: str) -> dict:
+    """M09c's selection rule: LLM + RL with the study's policy against v7's runs (the M09b dev benchmark), paired by
+    intent. It beats v7 if its mean intent met is higher and no family's mean is lower by more than FAMILY_DROP.
+    Appends to docs/learn/data/M09c-selection.csv and records the verdict for the registry gate (mlops.registry)."""
+    from mlops import tracking
+
+    new, old = proposed_met(study), proposed_met(STUDY)
+    keys = sorted(set(new) & set(old))
+    if not keys:
+        raise SystemExit(f"no LLM + RL runs in both {study} and {STUDY}")
+    policy = Path(json.loads((RESULTS / study / "policy.json").read_text())["policy"])
+    row: dict = {"study": study, "policy": policy.stem, "intents": len(keys),
+                 "mean_met": round(float(np.mean([new[k][1] for k in keys])), 4),
+                 "v7_mean_met": round(float(np.mean([old[k][1] for k in keys])), 4)}
+    below = 0
+    for family in FAMILIES:
+        mine = [k for k in keys if new[k][0] == family]
+        if mine:
+            a, b = float(np.mean([new[k][1] for k in mine])), float(np.mean([old[k][1] for k in mine]))
+            row |= {f"{family}_met": round(a, 4), f"{family}_v7": round(b, 4)}
+            below += a < b
+            row.setdefault("drops", [])
+            if a < b - FAMILY_DROP:
+                row["drops"].append(family)
+    drops = row.pop("drops", [])
+    row |= {"families_below_v7": below, "families_dropped": " ".join(drops),
+            "beats_champion": row["mean_met"] > row["v7_mean_met"] and not drops}
+    new_file = not SELECTION.exists()
+    with SELECTION.open("a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=list(row))
+        if new_file:
+            writer.writeheader()
+        writer.writerow(row)
+    tracking.log_evaluation("benchmark", policy.stem, {k: v for k, v in row.items() if isinstance(v, float)},
+                            {"study": study, "beats_champion": str(row["beats_champion"]), "champion_runs": STUDY})
+    return row
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--parse-check", action="store_true")
     group.add_argument("--dev", action="store_true")
     group.add_argument("--table", action="store_true")
+    group.add_argument("--compare", metavar="STUDY", help="M09c: LLM + RL in STUDY against v7's dev runs")
     parser.add_argument("--families", nargs="+", choices=FAMILIES, default=list(FAMILIES))
     parser.add_argument("--controllers", nargs="+", choices=CONTROLLERS, default=list(CONTROLLERS))
     parser.add_argument("--limit", type=int, help="instances per family (default all 40)")
+    parser.add_argument("--policy", type=Path, help="M09c: play with this policy file instead of the served v7")
+    parser.add_argument("--study", default=STUDY, help="M09c: results folder for a --policy run (e.g. m09c_v8)")
     args = parser.parse_args()
+    if args.compare:
+        print(compare(args.compare))
+        return
+    if args.policy is not None and args.study == STUDY:
+        parser.error("--policy needs its own --study, so v7's runs are never overwritten")
     if args.parse_check:
         rows = parse_check(dev_instances(args.families, args.limit or PER_FAMILY))
         print(f"{sum(r['correct'] for r in rows)} of {len(rows)} intents parsed as stated")
         return
     if args.dev:
-        if args.limit is None and set(args.families) == set(FAMILIES) and set(args.controllers) == set(CONTROLLERS):
-            guard_final(commit())
-        play_matrix(args.families, args.controllers, args.limit)
+        full = args.limit is None and set(args.families) == set(FAMILIES)
+        if full and (set(args.controllers) == set(CONTROLLERS) or args.policy is not None):
+            guard_final(commit())  # a full matrix, or a selection run (M09c), comes after its rules in the history
+        play_matrix(args.families, args.controllers, args.limit, args.policy, args.study)
         return
     rows = write_table()
     for r in summarise(rows):

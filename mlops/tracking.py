@@ -144,7 +144,7 @@ def find_run(experiment: str, **tags: str) -> Any:
     return runs[0] if runs else None
 
 
-TRAINING_EXPERIMENTS = ("m04a_floor-confirm", "m02b-confirm", "m02b-dev", "m02-round2", "m02-round1")
+TRAINING_EXPERIMENTS = ("m09c-confirm", "m09c-dev", "m04a_floor-confirm", "m02b-confirm", "m02b-dev", "m02-round2", "m02-round1")
 
 
 def training_run_of(model_name: str) -> Any:

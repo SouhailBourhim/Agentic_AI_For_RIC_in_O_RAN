@@ -21,11 +21,16 @@ moves `champion` to a version only if
   2. that test recorded that its recipe passed on every confirmation seed, and
   3. it is the version the deployment rule picks among those: highest validation T1b, then
      validation reward (rule fixed in M02b before any result).
+M09c adds, for a version trained in the M09c setting (tag profile from its settings file):
+  4. its held-out goal test is the calibrated cell's (split m09_test), and
+  5. the dev benchmark recorded that LLM + RL with it beats the champion (eval.benchmark --compare:
+     higher mean intent met, no family lower by more than 0.02; rule in DECISIONS).
+     A version not trained in that setting can't be promoted once the observation has the load history.
 Otherwise it refuses and prints why. The evidence is read from the MLflow evaluation runs, not
 typed in.
 
 Each version stores the SB3 model file as an MLflow "pyfunc" model with a *signature*: input
-22 float32 values (the observation), output 3 PRB shares. The signature documents the
+22 float32 values (the observation; 25 with M09c's load history), output 3 PRB shares. The signature documents the
 observation contract every backend must respect. Its predict() is the raw actor (stateless);
 the deployed smoothing filter keeps state, so the runner builds SlicePolicy from the file.
 """
@@ -52,6 +57,8 @@ REGISTRY_EXPERIMENT = "registry"
 GOAL_TEST_EXPERIMENT = "goal-test"
 BOOTSTRAP_MODEL = Path("models/m02/td3_seed2.zip")
 BOOTSTRAP_BASIS = "M02 fallback rule (option A, rl/select.py); goal-conditioning criterion FAIL"
+BENCHMARK_EXPERIMENT = "benchmark"  # eval.benchmark --compare records there (M09c)
+M09_PROFILE = "m09"
 
 
 class SlicePolicyModel(mlflow.pyfunc.PythonModel):
@@ -65,13 +72,20 @@ class SlicePolicyModel(mlflow.pyfunc.PythonModel):
     def predict(self, context: Any, model_input: np.ndarray, params: dict | None = None) -> np.ndarray:
         from sim.cell import shares_from_action
 
-        obs = np.asarray(model_input, dtype=np.float32).reshape(-1, 22)
+        obs = np.asarray(model_input, dtype=np.float32).reshape(-1, self.policy.n_inputs)
         return np.array([shares_from_action(self.policy.raw_action(o)) for o in obs])
 
 
-def signature() -> ModelSignature:
-    # Unnamed tensors: predict() then receives a plain (n, 22) array, not a dict of named inputs.
-    return ModelSignature(inputs=Schema([TensorSpec(np.dtype(np.float32), (-1, 22))]),
+def n_inputs(model_path: Path) -> int:
+    """The observation size the model was trained on: 22, or 25 with the load history (M09c)."""
+    from rl.policy import SlicePolicy
+
+    return int(SlicePolicy.load(model_path).n_inputs or 22)
+
+
+def signature(inputs: int = 22) -> ModelSignature:
+    # Unnamed tensors: predict() then receives a plain (n, inputs) array, not a dict of named inputs.
+    return ModelSignature(inputs=Schema([TensorSpec(np.dtype(np.float32), (-1, inputs))]),
                           outputs=Schema([TensorSpec(np.dtype(np.float64), (-1, 3))]))
 
 
@@ -94,18 +108,24 @@ def best_validation(model_path: Path) -> dict[str, float]:
             "validation_reward": best["reward"], "validation_step": best["step"]}
 
 
-def trained_min_share(model_path: Path) -> str:
-    """The per-slice floor the model was trained with, from its settings file ('None' = no floor)."""
+def trained_setting(model_path: Path, key: str) -> str:
+    """One training setting of the model, from its settings file ('None' if absent)."""
     settings = model_path.with_name(f"{model_path.stem.removesuffix('_best')}.json")
     if not settings.exists():
         return "None"
-    return str(json.loads(settings.read_text()).get("min_share"))
+    return str(json.loads(settings.read_text()).get(key))
+
+
+def trained_min_share(model_path: Path) -> str:
+    """The per-slice floor the model was trained with, from its settings file ('None' = no floor)."""
+    return trained_setting(model_path, "min_share")
 
 
 def register(model_path: Path, extra_tags: dict[str, str] | None = None) -> str:
     """Log a model file as a pyfunc model and register it; returns the new version number."""
     model_name = model_path.stem
     tags = {"model_name": model_name, "source_file": str(model_path), "min_share": trained_min_share(model_path),
+            "profile": trained_setting(model_path, "profile"),
             **{k: str(v) for k, v in best_validation(model_path).items()}, **(extra_tags or {})}
     training = tracking.training_run_of(model_name.removesuffix("_best"))
     if training is not None:
@@ -114,7 +134,7 @@ def register(model_path: Path, extra_tags: dict[str, str] | None = None) -> str:
     with mlflow.start_run(run_name=f"register {model_name}", tags={"model_name": model_name, **tracking.git_state()}):
         info = mlflow.pyfunc.log_model(
             name="policy", python_model=SlicePolicyModel(), artifacts={"sb3_zip": str(model_path)},
-            signature=signature(), input_example=np.zeros((1, 22), dtype=np.float32),
+            signature=signature(n_inputs(model_path)), input_example=np.zeros((1, n_inputs(model_path)), dtype=np.float32),
             registered_model_name=MODEL_NAME,
         )
     version = str(info.registered_model_version)
@@ -154,8 +174,14 @@ def final_goal_test(model_name: str) -> Any:
     return tracking.find_run(GOAL_TEST_EXPERIMENT, model_name=model_name, final="true")
 
 
+def beats_champion(model_name: str) -> bool:
+    """eval.benchmark --compare's verdict for this model (M09c), read from MLflow."""
+    record = tracking.find_run(BENCHMARK_EXPERIMENT, model_name=model_name)
+    return record is not None and record.data.tags.get("beats_champion") == "True"
+
+
 def gate(candidates: list[Any]) -> tuple[Any | None, list[str]]:
-    """Apply the three checks; returns (the version to promote or None, the reasons)."""
+    """Apply the checks (0-3, and M09c's 4-5); returns (the version to promote or None, the reasons)."""
     reasons, passing = [], []
     for v in candidates:
         name = v.tags.get("model_name", "?")
@@ -173,6 +199,12 @@ def gate(candidates: list[Any]) -> tuple[Any | None, list[str]]:
             reasons.append(f"v{v.version} {name}: its recipe did not pass on every confirmation seed")
         elif "validation_t1b" not in v.tags:
             reasons.append(f"v{v.version} {name}: no validation numbers")
+        elif v.tags.get("profile") != M09_PROFILE:
+            reasons.append(f"v{v.version} {name}: not trained in the M09c setting (profile {v.tags.get('profile', 'None')})")
+        elif record.data.tags.get("split") != "m09_test":
+            reasons.append(f"v{v.version} {name}: its held-out goal test is not the calibrated cell's (m09_test)")
+        elif not beats_champion(name):
+            reasons.append(f"v{v.version} {name}: the dev benchmark did not record LLM + RL beating the champion with it")
         else:
             passing.append(v)
     if not passing:
@@ -196,7 +228,8 @@ def promote() -> bool:
     if current is not None:
         c.set_model_version_tag(MODEL_NAME, chosen.version, "previous_champion", str(current.version))
     c.set_model_version_tag(MODEL_NAME, chosen.version, "promotion_basis",
-                            f"gate: held-out goal test PASS, trained with min_share {MIN_SLICE_SHARE}")
+                            f"gate: held-out goal test PASS, trained with min_share {MIN_SLICE_SHARE}, "
+                            f"profile {M09_PROFILE}, beats the champion on the dev benchmark")
     c.set_registered_model_alias(MODEL_NAME, CHAMPION, chosen.version)
     print(f"gate: champion -> version {chosen.version} ({chosen.tags['model_name']})")
     return True
