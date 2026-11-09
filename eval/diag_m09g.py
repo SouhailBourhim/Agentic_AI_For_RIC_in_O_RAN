@@ -86,9 +86,9 @@ def plot_d1(rows: list[dict]) -> Figure:
                linewidth=0.8, label=LABELS[c])
     ax.set_xticks(range(len(families)), [r["family"].upper() for r in families])
     ax.set_ylim(0, 105)
-    ax.set_ylabel("mean seconds of the window met, %", color=TEXT_MUTED)
     titled(ax, "D1: the formula behind LLM + RL's filter (alpha 0.10), dev seeds")
-    ax.legend(frameon=False, fontsize=8, loc="lower left", ncols=3)
+    ax.set_ylabel("mean seconds of the window met, %", color=TEXT_MUTED)  # after titled(), which clears it
+    fig.legend(frameon=False, fontsize=8, loc="outside lower center", ncols=3)
     return fig
 
 

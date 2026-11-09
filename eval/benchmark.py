@@ -107,8 +107,9 @@ def play_matrix(families, controllers, limit: int | None, policy_file: Path | No
     instances = [i for i in dev_instances(families, limit or PER_FAMILY) if i.name not in skip]
     print(f"{len(instances)} instances ({len(skip)} dropped by the parse check), {len(controllers)} controllers", flush=True)
     llm, policy = OllamaClient(), policy_file or served_policy()
-    (RESULTS / study).mkdir(parents=True, exist_ok=True)
-    (RESULTS / study / "policy.json").write_text(json.dumps({"policy": str(policy)}))  # what --compare names
+    for folder in {study_of(c, study) for c in controllers}:  # only the folders this call plays into (M09g)
+        (RESULTS / folder).mkdir(parents=True, exist_ok=True)
+        (RESULTS / folder / "policy.json").write_text(json.dumps({"policy": str(policy)}))  # what --compare names
     total = len(instances) * len(controllers)
     for n, (inst, controller) in enumerate(((i, c) for i in instances for c in controllers), 1):
         work = play(inst, controller, policy, llm, study)
