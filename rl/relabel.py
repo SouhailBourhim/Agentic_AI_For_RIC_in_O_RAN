@@ -30,14 +30,18 @@ from sim.env import OBJECTIVE_SLICE, objective_vectors, sample_objective_vectors
 from sim.reward import DEFAULT_REWARD_VERSION, RewardVersion, compute_reward_batch
 from verifier.objective import SLICES
 
-KPI_COLUMNS = 10  # throughput x3, load x3, URLLC latency, split x3: everything the reward needs (v3: the split)
+# throughput x3, load x3, URLLC latency, split x3, previous split x3: everything the reward needs (v3: the split;
+# M09h's switching cost: the split before). The switching cost doesn't depend on the objective, but a relabeled
+# reward is recomputed from these columns, so it must be in it too.
+KPI_COLUMNS = 13
 
 
 def kpis_from_info(info: dict[str, Any]) -> list[float]:
     """The raw KPIs of one step, from the env's info dict, in KPI column order. They are the true
     KPIs of the step, not the late ones the observation shows (M09c), as the env's reward uses."""
     return ([info["throughput_mbps"][s] for s in SLICES] + [info["load_mbps"][s] for s in SLICES]
-            + [info["latency_ms"]["urllc"]] + [info["shares"][s] for s in SLICES])
+            + [info["latency_ms"]["urllc"]] + [info["shares"][s] for s in SLICES]
+            + [info["previous_shares"][s] for s in SLICES])
 
 
 class RelabelReplayBuffer(ReplayBuffer):
@@ -57,6 +61,7 @@ class RelabelReplayBuffer(ReplayBuffer):
         reward_version: RewardVersion = DEFAULT_REWARD_VERSION,
         seed: int = 0,
         urllc_base_ms: float | None = None,
+        switch_cost: float = 0.0,
     ) -> None:
         if n_envs != 1 or optimize_memory_usage:
             raise ValueError("RelabelReplayBuffer supports one env and optimize_memory_usage=False")
@@ -67,6 +72,7 @@ class RelabelReplayBuffer(ReplayBuffer):
         self.cfg = CellConfig(capacity_mbps=capacity_mbps)
         self.reward_version = reward_version
         self.urllc_base_ms = urllc_base_ms  # reward v3 only: the URLLC base latency the verifier sizes with
+        self.switch_cost = switch_cost  # M09h: the env's switching cost, so a relabeled reward keeps it
         self.rng = np.random.default_rng(seed)
 
     def add(self, obs: np.ndarray, next_obs: np.ndarray, action: np.ndarray, reward: np.ndarray,
@@ -89,7 +95,8 @@ class RelabelReplayBuffer(ReplayBuffer):
             k = self.kpis[batch_inds[chosen]]
             rewards[chosen] = compute_reward_batch(weights, targets, bound, k[:, 0:3], k[:, 3:6], k[:, 6],
                                                    self.cfg.capacity_mbps, self.reward_version,
-                                                   shares=k[:, 7:10], urllc_base_ms=self.urllc_base_ms)
+                                                   shares=k[:, 7:10], urllc_base_ms=self.urllc_base_ms,
+                                                   switch_cost=self.switch_cost, previous_shares=k[:, 10:13])
         return obs, next_obs, rewards
 
     def _get_samples(self, batch_inds: np.ndarray, env: VecNormalize | None = None) -> ReplayBufferSamples:

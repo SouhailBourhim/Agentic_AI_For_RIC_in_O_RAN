@@ -36,7 +36,7 @@ from backends.sim import SimBackend, scenario_traffic
 from rl.baselines import EqualSplitPolicy
 from rl.policy import SMOOTHING_ALPHA, SlicePolicy
 from sim.cell import CellConfig, apply_min_share
-from sim.env import LoadHistory, build_observation
+from sim.env import LoadHistory, applied_features, build_observation
 from store import a1_policy, db, kpi
 from store.events import log_event
 from verifier.objective import DEFAULT_OBJECTIVE, MIN_SLICE_SHARE, SLICES, RLObjective
@@ -89,7 +89,7 @@ def seen_loads(records: list[KpiRecord]) -> dict[str, float]:
 
 
 def observation_from_records(records: list[KpiRecord], objective: RLObjective, cfg: CellConfig,
-                             history: LoadHistory | None = None) -> np.ndarray:
+                             history: LoadHistory | None = None, applied: np.ndarray | None = None) -> np.ndarray:
     """The policy input built from one tick of KPI records (same function as in training).
 
     Fields a backend cannot measure are replaced conservatively: an unknown offered load by
@@ -97,6 +97,8 @@ def observation_from_records(records: list[KpiRecord], objective: RLObjective, c
     known in the simulator; the testbed mapping is in docs/PLAN.md section 3.
     With a LoadHistory (M09c), its 3 features follow the objective, as in SlicingEnv(history="on");
     a policy trained without them reads only the first 22 values (rl.policy.SlicePolicy).
+    With the split applied at the last tick (M09h), its 3 values follow the history, as in
+    SlicingEnv(applied_split=True): the runner knows it now, while the KPIs' own prb_share is as late as they are.
     """
     by_slice = {r.slice: r for r in records}
     obs = build_observation(
@@ -110,7 +112,10 @@ def observation_from_records(records: list[KpiRecord], objective: RLObjective, c
     )
     if history is None:
         return obs
-    return np.concatenate([obs, history.features(cfg.capacity_mbps)]).astype(np.float32)
+    parts = [obs, history.features(cfg.capacity_mbps)]
+    if applied is not None:
+        parts.append(applied_features(applied))
+    return np.concatenate(parts).astype(np.float32)
 
 
 @dataclass(frozen=True)
@@ -132,6 +137,7 @@ class Runner:
         info = backend.info()
         self.cfg = CellConfig(n_prb=info.n_prb, capacity_mbps=info.capacity_mbps, dt_s=dt_s)
         self.history = LoadHistory(dt_s=dt_s)  # the policy's load history (M09c), fed every tick
+        self.applied = np.full(len(SLICES), 1.0 / len(SLICES))  # the split applied last tick (M09h), as at env reset
         self.row: a1_policy.PolicyRow | None = None  # last segment read successfully
         self.last_policy_id: int | None = None  # policy in force at the previous tick
         self.pending: list[tuple[list[KpiRecord], int | None]] = []  # KPI ticks not written yet
@@ -157,10 +163,11 @@ class Runner:
         if row is not None and row.mode == "direct_share" and row.shares is not None:
             shares = np.asarray(row.shares, dtype=np.float64)
         else:
-            obs = observation_from_records(records, objective, self.cfg, self.history)
+            obs = observation_from_records(records, objective, self.cfg, self.history, self.applied)
             shares = self.policy.shares(obs)
         shares = apply_min_share(shares, MIN_SLICE_SHARE)  # always the last step before applying
         self.backend.apply_prb_split([float(x) for x in shares])
+        self.applied = np.asarray(shares, dtype=np.float64)
         self.backend.sleep(self.dt_s)
 
         policy_id = row.policy_id if row is not None else None

@@ -77,7 +77,10 @@ RESULT_DIR = Path("runs/m02b")
 FLOOR_RESULT_DIR = Path("runs/m04a_floor")  # the M04a retraining with the per-slice floor
 M09_RESULT_DIR = Path("runs/m09c")  # M09c: the calibrated cell's splits
 M09_SCENARIOS, M09_OBJECTIVES = 8, 6
-M09_SEEDS = {"m09_validation": 7000, "m09_test": 8000}  # scenarios +i, objectives +100+i, reward episodes +200..
+M09_SEEDS = {"m09_validation": 7000, "m09_test": 8000,  # scenarios +i, objectives +100+i, reward episodes +200..
+             "m10_validation": 11000, "m10_test": 12000}  # M09h's fresh seeds: same cases, in v9's 28-value observation
+M10_SPLITS = ("m10_validation", "m10_test")
+M10_RESULT_DIR = Path("runs/m09h")
 
 CFG = CellConfig()
 C = CFG.capacity_mbps
@@ -157,6 +160,9 @@ class Setting:
 M09_CELL = m09.cell("m09")
 M09_SETTING = Setting({**m09.env_options("m09", "on"), "kpi_delay_range": m09.TEST_KPI_DELAY},
                       m09.EPISODE_STEPS, m09.FILTER_ALPHA, M09_CELL.told_capacity_mbps)
+# M09h: the same cell, with the applied split after the history, as the runner builds it; v7 and v8 read their prefix.
+M10_SETTING = Setting({**M09_SETTING.env, "applied_split": True}, m09.EPISODE_STEPS, m09.FILTER_ALPHA,
+                      M09_CELL.told_capacity_mbps)
 
 
 def m09_case_set(split: str) -> CaseSet:
@@ -167,7 +173,7 @@ def m09_case_set(split: str) -> CaseSet:
                  for i in range(M09_SCENARIOS)}
     objectives = {f"{split} objective {i}": sample_objective(np.random.default_rng(base + 100 + i), M09_CELL)
                   for i in range(M09_OBJECTIVES)}
-    return CaseSet(split, scenarios, objectives, range(base + 200, base + (250 if split == "m09_validation" else 300)))
+    return CaseSet(split, scenarios, objectives, range(base + 200, base + (250 if split.endswith("_validation") else 300)))
 
 
 def case_set(split: str) -> CaseSet:
@@ -181,6 +187,8 @@ def case_set(split: str) -> CaseSet:
 
 
 def setting_of(split: str) -> Setting:
+    if split in M10_SPLITS:
+        return M10_SETTING
     return M09_SETTING if split in M09_SEEDS else Setting()
 
 
@@ -348,10 +356,12 @@ def check(models: list[Path], min_share: float | None = None) -> None:
                   f"T1b {m['t1b_captured']:.2f}  -> {'PASS' if m['t1a_pass'] and m['t1b_pass'] else 'fail'}")
 
 
-FINAL_SPLITS = ("test", "m09_test")  # held out: run once, with --final, on the confirmation seeds
+FINAL_SPLITS = ("test", "m09_test", "m10_test")  # held out: run once, with --final, on the confirmation seeds
 
 
 def result_dir_of(split: str, min_share: float | None) -> Path:
+    if split in M10_SPLITS:
+        return M10_RESULT_DIR
     if split in M09_SEEDS:
         return M09_RESULT_DIR
     return RESULT_DIR if min_share is None else FLOOR_RESULT_DIR
@@ -427,7 +437,8 @@ def main() -> None:
     parser.add_argument("--min-share", type=float, default=None, help="per-slice PRB floor (M04a: 0.05)")
     args = parser.parse_args()
     default = {"validation": "models/m02b/dev/*_best.zip", "test": "models/m02b/confirm/*_best.zip",
-               "m09_validation": "models/m09c/dev/*_best.zip", "m09_test": "models/m09c/confirm/*_best.zip"}
+               "m09_validation": "models/m09c/dev/*_best.zip", "m09_test": "models/m09c/confirm/*_best.zip",
+               "m10_validation": "models/m09h/dev/*_best.zip", "m10_test": "models/m09h/confirm/*_best.zip"}
     pattern = args.models or default.get(args.split or "", "models/m02/*_seed*.zip")
     models = sorted(Path().glob(pattern))
     if args.check:

@@ -42,7 +42,12 @@ class SlicePolicy:
 
     @classmethod
     def load(cls, path: str | Path, alpha: float = SMOOTHING_ALPHA) -> "SlicePolicy":
-        """The file name says which algorithm saved it: ddpg_seed0.zip or td3_seed0.zip."""
+        """The file name says which algorithm saved it: ddpg_seed0.zip or td3_seed0.zip; and whether the actor is a
+        residual on the formula (M09h, rl/residual.py): then a ResidualPolicy, so every caller serves it unchanged."""
+        if cls is SlicePolicy and "_residual" in Path(path).stem:  # rl.residual.RESIDUAL_MARK
+            from rl.residual import ResidualPolicy  # here: rl.residual imports this module
+
+            return ResidualPolicy.load(path, alpha)
         algo = TD3 if Path(path).name.startswith("td3") else DDPG
         return cls(algo.load(str(path), device="cpu"), alpha)
 

@@ -42,6 +42,10 @@ HISTORY_FEATURES = len(SLICES)
 HISTORY_S = 30.0
 OBS_SIZE_WITH_HISTORY = OBS_SIZE + HISTORY_FEATURES
 HistoryMode = Literal["off", "on"]
+# M09h: the split applied at the last step, undelayed, appended after the history. The KPIs' own prb_share is as late
+# as the rest of the KPIs (2 ticks on the testbed), though the controller knows what it applied. 25 -> 28 values.
+APPLIED_FEATURES = len(SLICES)
+OBS_SIZE_WITH_APPLIED = OBS_SIZE_WITH_HISTORY + APPLIED_FEATURES
 
 
 class LoadHistory:
@@ -67,6 +71,11 @@ class LoadHistory:
         if not self.loads:
             return np.zeros(HISTORY_FEATURES, dtype=np.float32)
         return np.clip(np.max(np.array(self.loads), axis=0) / capacity_mbps, 0.0, OBS_CLIP).astype(np.float32)
+
+
+def applied_features(shares) -> np.ndarray:
+    """The split applied at the last step as policy input (M09h): the same function in SlicingEnv and the runner."""
+    return np.clip(np.asarray(shares, dtype=np.float64), 0.0, 1.0).astype(np.float32)
 
 
 def objective_vectors(
@@ -181,6 +190,8 @@ class SlicingEnv(gym.Env):
         expiry_share: float = 0.0,
         toggle_prob: float = 0.0,
         noise_std: float | None = None,
+        applied_split: bool = False,
+        switch_cost: float = 0.0,
     ) -> None:
         """Training options (all off by default, so evaluation episodes and scripted
         scenarios are unchanged):
@@ -206,7 +217,13 @@ class SlicingEnv(gym.Env):
         - expiry_share: at an objective switch, the chance of returning to DEFAULT_OBJECTIVE (an
           intent expiring) instead of drawing a new objective;
         - toggle_prob, noise_std: passed to sample_traffic (on/off loads, load noise).
+        M09h options (off by default):
+        - applied_split: append the split applied at the last step, undelayed, after the history (needs history "on",
+          so every feature keeps its place: v7 reads 22 values, v8 25, v9 28);
+        - switch_cost: the reward's switching cost (sim/reward.py), on the applied split.
         """
+        if applied_split and history != "on":
+            raise ValueError("applied_split goes after the load history: it needs history='on'")
         self.base_cfg = cfg or CellConfig()
         self.cfg = self.base_cfg  # this episode's cell: its capacity is redrawn per episode with capacity_range
         self.obs_cfg = CellConfig(capacity_mbps=self.base_cfg.told_capacity_mbps)  # what the policy is told
@@ -218,6 +235,8 @@ class SlicingEnv(gym.Env):
         self.expiry_share = expiry_share
         self.toggle_prob = toggle_prob
         self.noise_std = noise_std
+        self.applied_split = applied_split
+        self.switch_cost = switch_cost
         self._seen: deque[dict[str, dict[str, float]]] = deque(maxlen=(kpi_delay_range or (0, 0))[1] + 1)
         self.episode_steps = episode_steps
         self.load_scale = load_scale
@@ -227,7 +246,7 @@ class SlicingEnv(gym.Env):
         self.reward_version = reward_version
         self.min_share = min_share
         self.action_space = gym.spaces.Box(0.0, 1.0, shape=(len(SLICES),), dtype=np.float32)
-        size = OBS_SIZE if history == "off" else OBS_SIZE_WITH_HISTORY
+        size = OBS_SIZE if history == "off" else (OBS_SIZE_WITH_APPLIED if applied_split else OBS_SIZE_WITH_HISTORY)
         self.observation_space = gym.spaces.Box(0.0, OBS_CLIP, shape=(size,), dtype=np.float32)
         # Filled by reset():
         self.objective: RLObjective
@@ -235,6 +254,7 @@ class SlicingEnv(gym.Env):
         self.time_s = 0.0
         self.step_count = 0
         self.shares = np.full(len(SLICES), 1.0 / len(SLICES))  # the split applied (after the floor)
+        self.previous_shares = self.shares  # the one applied the step before (switching cost, M09h)
         self._filtered: np.ndarray | None = None  # the filter's memory (before the floor), as in SlicePolicy
         self.loads: dict[str, float] = {}
         self.last: dict[str, SliceStep] = {}
@@ -260,6 +280,7 @@ class SlicingEnv(gym.Env):
         self.time_s = 0.0
         self.step_count = 0
         self.shares = np.full(len(SLICES), 1.0 / len(SLICES))
+        self.previous_shares = self.shares
         self._filtered = None
         # Before the first step nothing has been sent: zero throughput, empty queues.
         self.loads = {s: self.traffic[s].mean_load_at(0.0) for s in SLICES}
@@ -282,6 +303,7 @@ class SlicingEnv(gym.Env):
             previous = None if self.step_count == 0 else self._filtered
             split = smooth_split(previous, target, self.action_filter_alpha)
         self._filtered = split
+        self.previous_shares = self.shares
         self.shares = split if self.min_share is None else apply_min_share(split, self.min_share)
         self.loads = {s: self.traffic[s].load_at(self.time_s, self.np_random) for s in SLICES}
         self.last = {
@@ -295,7 +317,8 @@ class SlicingEnv(gym.Env):
             for i, s in enumerate(SLICES)
         }
         reward = compute_reward(self.objective, self.last, self.loads, self.obs_cfg, self.reward_version,
-                                shares=self.shares, urllc_base_ms=self.cfg.told_urllc_base_latency_ms)
+                                shares=self.shares, urllc_base_ms=self.cfg.told_urllc_base_latency_ms,
+                                switch_cost=self.switch_cost, previous_shares=self.previous_shares)
         # Only touch the random generator when the option is on, so that with the default the
         # random stream (hence every evaluation episode) is exactly what it was before.
         if self.objective_switch_prob > 0 and self.np_random.random() < self.objective_switch_prob:
@@ -330,17 +353,21 @@ class SlicingEnv(gym.Env):
 
     def _observation(self) -> np.ndarray:
         """5 KPI features per slice, then the 7 objective features (see build_observation),
-        then the load history if the env has it."""
+        then the load history if the env has it, then the split applied at the last step (M09h)."""
         obs = build_observation(**self._view(), objective=self.objective, cfg=self.obs_cfg)
         if self.history == "off":
             return obs
-        return np.concatenate([obs, self.load_history.features(self.obs_cfg.capacity_mbps)]).astype(np.float32)
+        parts = [obs, self.load_history.features(self.obs_cfg.capacity_mbps)]
+        if self.applied_split:
+            parts.append(applied_features(self.shares))
+        return np.concatenate(parts).astype(np.float32)
 
     def _info(self) -> dict[str, Any]:
         """Raw values in real units, for logs, the demo and the KPI store later."""
         return {
             "time_s": self.time_s,
             "shares": dict(zip(SLICES, map(float, self.shares))),
+            "previous_shares": dict(zip(SLICES, map(float, self.previous_shares))),
             "load_mbps": dict(self.loads),
             "throughput_mbps": {s: self.last[s].throughput_mbps for s in SLICES},
             "latency_ms": {s: self.last[s].latency_ms for s in SLICES},

@@ -37,28 +37,34 @@ M09c option:
   alpha, switches and expiries, on/off loads, 120-step episodes) with one of its recipes (rl.m09.RECIPES),
   which sets the cell, the reward and the load history. --episode-steps, --reward and --filter-in-loop are
   then set by the recipe; the checkpoint is scored on the goal test's m09_validation split.
+  A v9 recipe (M09h, rl/m09.py) also sets the switching cost, the applied split in the observation, OU noise,
+  gamma and the residual wrapper; its checkpoint is scored on m10_validation and must also pass T1a.
 """
 
 import argparse
 import json
 from pathlib import Path
 
+import gymnasium as gym
 import numpy as np
 import torch
 from stable_baselines3 import DDPG, TD3
 from stable_baselines3.common.callbacks import BaseCallback, CallbackList
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.noise import NormalActionNoise
+from stable_baselines3.common.noise import NormalActionNoise, OrnsteinUhlenbeckActionNoise
 
 from mlops import tracking
 from rl import m09
 from rl.policy import SMOOTHING_ALPHA, SlicePolicy
 from rl.relabel import RelabelReplayBuffer
+from rl.residual import RESIDUAL_MARK, ResidualEnv, ResidualPolicy
 from sim.env import SlicingEnv
 
 DEFAULT_GROUP = "m02"  # models/<group>/ and runs/<group>/
 VALIDATION_START = 50_000  # first validation check (the policy is still warming up before)
 TRACK_EVERY = 25_000  # how often the training reward goes to MLflow
+COLLAPSE_SPREAD = 0.01  # M09h: an actor whose action barely varies over recent states is reported as collapsed
+COLLAPSE_SAMPLE = 1_000
 
 HYPERPARAMETERS = {
     "gamma": 0.95,  # ~20-step horizon: an allocation's effect shows within seconds
@@ -85,10 +91,15 @@ def make_model(
     algo: str = "ddpg",
     relabel: float = 0.0,
     reward_version: str = "v2",
+    noise: str = "normal",
+    gamma: float | None = None,
+    switch_cost: float = 0.0,
 ) -> DDPG | TD3:
     """Build a DDPG or TD3 model with our hyperparameters (TD3 keeps SB3's defaults for its
     three extra settings: policy_delay=2, target_policy_noise=0.2, target_noise_clip=0.5).
-    relabel > 0 swaps in the objective-relabeling replay buffer. Also used by the tests."""
+    relabel > 0 swaps in the objective-relabeling replay buffer. Also used by the tests.
+    M09h: noise "ou" (rl.m09's OU parameters), a gamma other than HYPERPARAMETERS', and the env's switching
+    cost, which the relabeling buffer must charge too."""
     hp = HYPERPARAMETERS
     buffer: dict = {}
     if relabel > 0:
@@ -97,13 +108,17 @@ def make_model(
                                         "urllc_base_ms": cell.told_urllc_base_latency_ms}
         buffer = {"replay_buffer_class": RelabelReplayBuffer,
                   "replay_buffer_kwargs": {"relabel_fraction": relabel, "reward_version": reward_version,
-                                           "seed": seed, **told}}
+                                           "seed": seed, "switch_cost": switch_cost, **told}}
     n_actions = env.action_space.shape[0]
-    noise = NormalActionNoise(mean=np.zeros(n_actions), sigma=hp["noise_sigma"] * np.ones(n_actions))
+    if noise == "ou":  # SB3's own defaults (theta 0.15, dt 0.01) are close to a random walk over an episode
+        action_noise = OrnsteinUhlenbeckActionNoise(mean=np.zeros(n_actions), sigma=m09.OU_SIGMA * np.ones(n_actions),
+                                                    theta=m09.OU_THETA, dt=m09.OU_DT)
+    else:
+        action_noise = NormalActionNoise(mean=np.zeros(n_actions), sigma=hp["noise_sigma"] * np.ones(n_actions))
     return ALGORITHMS[algo](
         "MlpPolicy",
         env,
-        gamma=hp["gamma"],
+        gamma=hp["gamma"] if gamma is None else gamma,
         learning_rate=hp["learning_rate"],
         buffer_size=hp["buffer_size"],
         batch_size=hp["batch_size"],
@@ -111,7 +126,7 @@ def make_model(
         learning_starts=hp["learning_starts"],
         train_freq=hp["train_freq"],
         gradient_steps=hp["gradient_steps"],
-        action_noise=noise,
+        action_noise=action_noise,
         policy_kwargs={"net_arch": hp["net_arch"]},
         tensorboard_log=tensorboard_log,
         seed=seed,
@@ -128,6 +143,10 @@ class ValidationCheckpoint(BaseCallback):
     validation split of rl/goal_test.py, never on the held-out test. Rule, fixed before
     the M02b runs: among checkpoints whose validation reward beats the equal split, keep
     the highest T1b (captured share of the oracle's advantage), then the highest reward.
+    M09h (a v9 recipe): scored on m10_validation, and a checkpoint must also pass T1a (M09c's rule ignored it, and
+    all four confirm seeds then failed on T1a). Each entry also records the actor's action spread over recent
+    replay states; below COLLAPSE_SPREAD the seed is reported as collapsed (seed 40 in M09c). Reported only: a
+    collapsed seed is not restarted, which would be selection by another name.
     """
 
     def __init__(self, every: int, path: Path, start: int = VALIDATION_START, min_share: float | None = None,
@@ -139,27 +158,45 @@ class ValidationCheckpoint(BaseCallback):
         self.path = path
         self.start = start
         # Scored with the same floor as in training; M09c on its own validation split, in its own cell.
-        self.test = (GoalTest("validation", min_share) if m09_recipe is None
-                     else GoalTest("m09_validation", min_share))
+        self.v9 = m09_recipe in m09.V9_RECIPES
+        self.residual = m09_recipe is not None and m09.option(m09_recipe, "residual")
+        split = "validation" if m09_recipe is None else ("m10_validation" if self.v9 else "m09_validation")
+        self.test = GoalTest(split, min_share)
         self.best_key: tuple[float, float] | None = None
         self.history: list[dict] = []
 
     def _on_step(self) -> bool:
         if self.num_timesteps < self.start or self.num_timesteps % self.every:
             return True
-        m = self.test.evaluate(SlicePolicy(self.model, self.test.alpha))
+        policy = (ResidualPolicy if self.residual else SlicePolicy)(self.model, self.test.alpha)
+        m = self.test.evaluate(policy)
         m["step"] = self.num_timesteps
+        if self.v9:
+            m["t1a_required"] = True
+            m["action_spread"] = self.action_spread()
+            m["collapsed"] = m["action_spread"] < COLLAPSE_SPREAD
         self.history.append(m)
         for key in ("t1a_share_positive", "t1b_captured", "reward"):
             self.logger.record(f"validation/{key}", m[key])
         tracking.log_metrics({f"validation/{k}": float(m[k]) for k in ("t1a_share_positive", "t1b_captured",
                                                                         "reward")}, step=self.num_timesteps)
         key = (m["t1b_captured"], m["reward"])
-        if m["t2_pass"] and (self.best_key is None or key > self.best_key):
+        eligible = m["t2_pass"] and (m["t1a_pass"] or not self.v9)
+        if eligible and (self.best_key is None or key > self.best_key):
             self.best_key = key
             self.model.save(self.path.with_name(f"{self.path.stem}_best.zip"))
         self.path.with_name(f"{self.path.stem}_validation.json").write_text(json.dumps(self.history, indent=2))
         return True
+
+    def action_spread(self) -> float:
+        """Std of the actor's raw action over the last COLLAPSE_SAMPLE stored states, averaged over the 3 outputs."""
+        buffer = self.model.replay_buffer
+        end = buffer.buffer_size if buffer.full else buffer.pos
+        obs = buffer.observations[max(0, end - COLLAPSE_SAMPLE):end, 0, :]
+        if not len(obs):
+            return float("nan")
+        actions, _ = self.model.predict(obs, deterministic=True)
+        return float(np.asarray(actions).std(axis=0).mean())
 
 
 class TrackingCallback(BaseCallback):
@@ -213,24 +250,29 @@ def train(
 
     options: dict = {"episode_steps": episode_steps, "objective_switch_prob": objective_switch_prob,
                      "action_filter_alpha": SMOOTHING_ALPHA if filter_in_loop else None}
+    v9: dict = {}  # M09h's options of the recipe (their v8 values for a v8 recipe)
     if m09_recipe is not None:  # M09c: the recipe sets the cell, the reward and the history (rl/m09.py)
         recipe = m09.RECIPES[m09_recipe]
+        v9 = {key: m09.option(m09_recipe, key) for key in m09.V9_DEFAULTS}
         reward_version, episode_steps, filter_in_loop = recipe["reward"], m09.EPISODE_STEPS, True
         options = {"episode_steps": episode_steps, "action_filter_alpha": m09.FILTER_ALPHA,
-                   **m09.training_options(recipe["profile"], recipe["history"])}
+                   **m09.training_options(recipe["profile"], recipe["history"], v9["applied"], v9["switch_cost"])}
         objective_switch_prob = options["objective_switch_prob"]
-    env = Monitor(
-        SlicingEnv(
-            load_scale=load_scale,
-            surge_range=(1.5, surge_max),
-            reward_version=reward_version,  # type: ignore[arg-type]
-            min_share=min_share,
-            **options,
-        ),
-        filename=str(run_dir / name / "monitor.csv"),
+    cell_env: gym.Env = SlicingEnv(
+        load_scale=load_scale,
+        surge_range=(1.5, surge_max),
+        reward_version=reward_version,  # type: ignore[arg-type]
+        min_share=min_share,
+        **options,
     )
-    model = make_model(env, seed, tensorboard_log=str(run_dir / "tb"), algo=algo,
-                       relabel=relabel, reward_version=reward_version)
+    if v9.get("residual"):
+        if RESIDUAL_MARK not in name:  # the runner, harness and goal test recognise a residual model by its name
+            raise ValueError(f"a residual recipe's model name must contain {RESIDUAL_MARK!r} (use --tag _{m09_recipe})")
+        cell_env = ResidualEnv(cell_env)  # A7: the action corrects the formula's split (rl/residual.py)
+    env = Monitor(cell_env, filename=str(run_dir / name / "monitor.csv"))
+    model = make_model(env, seed, tensorboard_log=str(run_dir / "tb"), algo=algo, relabel=relabel,
+                       reward_version=reward_version, noise=v9.get("noise", "normal"), gamma=v9.get("gamma"),
+                       switch_cost=v9.get("switch_cost", 0.0))
     settings = {"algo": algo, "seed": seed, "timesteps": timesteps, "threads": threads,
                 "load_scale": load_scale, "objective_switch_prob": objective_switch_prob,
                 "relabel": relabel, "filter_in_loop": filter_in_loop, "surge_max": surge_max,
@@ -239,7 +281,9 @@ def train(
                 **({} if m09_recipe is None else {**m09.RECIPES[m09_recipe], "filter_alpha": m09.FILTER_ALPHA,
                                                   "kpi_delay_range": list(m09.KPI_DELAY_RANGE),
                                                   "expiry_share": m09.EXPIRY_SHARE, "toggle_prob": m09.TOGGLE_PROB}),
-                **HYPERPARAMETERS}
+                **HYPERPARAMETERS,
+                **({} if m09_recipe not in m09.V9_RECIPES else
+                   {**v9, "ou": [m09.OU_THETA, m09.OU_DT, m09.OU_SIGMA] if v9["noise"] == "ou" else None})}
     callbacks: list[BaseCallback] = [TrackingCallback()]
     if val_every:
         callbacks.append(ValidationCheckpoint(val_every, model_path, min_share=min_share, m09_recipe=m09_recipe))

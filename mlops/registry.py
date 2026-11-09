@@ -26,11 +26,12 @@ M09c adds, for a version trained in the M09c setting (tag profile from its setti
   5. the dev benchmark recorded that LLM + RL with it beats the champion (eval.benchmark --compare:
      higher mean intent met, no family lower by more than 0.02; rule in DECISIONS).
      A version not trained in that setting can't be promoted once the observation has the load history.
+M09h: a v9 version's held-out goal test is m10_test (fresh seeds, the 28-value observation); check 4 accepts it.
 Otherwise it refuses and prints why. The evidence is read from the MLflow evaluation runs, not
 typed in.
 
 Each version stores the SB3 model file as an MLflow "pyfunc" model with a *signature*: input
-22 float32 values (the observation; 25 with M09c's load history), output 3 PRB shares. The signature documents the
+22 float32 values (the observation; 25 with M09c's load history, 28 with M09h's applied split), output 3 PRB shares. The signature documents the
 observation contract every backend must respect. Its predict() is the raw actor (stateless);
 the deployed smoothing filter keeps state, so the runner builds SlicePolicy from the file.
 """
@@ -59,10 +60,12 @@ BOOTSTRAP_MODEL = Path("models/m02/td3_seed2.zip")
 BOOTSTRAP_BASIS = "M02 fallback rule (option A, rl/select.py); goal-conditioning criterion FAIL"
 BENCHMARK_EXPERIMENT = "benchmark"  # eval.benchmark --compare records there (M09c)
 M09_PROFILE = "m09"
+CALIBRATED_TEST_SPLITS = ("m09_test", "m10_test")  # check 4: M09c's held-out split, and M09h's
 
 
 class SlicePolicyModel(mlflow.pyfunc.PythonModel):
-    """MLflow pyfunc wrapper: observations (n, 22) -> raw PRB shares (n, 3)."""
+    """MLflow pyfunc wrapper: observations (n, inputs) -> PRB shares (n, 3), each from a fresh policy (no filter, no
+    memory): the actor's split, or for a residual policy (M09h) the formula's plus the actor's correction."""
 
     def load_context(self, context: Any) -> None:
         from rl.policy import SlicePolicy
@@ -73,11 +76,15 @@ class SlicePolicyModel(mlflow.pyfunc.PythonModel):
         from sim.cell import shares_from_action
 
         obs = np.asarray(model_input, dtype=np.float32).reshape(-1, self.policy.n_inputs)
-        return np.array([shares_from_action(self.policy.raw_action(o)) for o in obs])
+        out = []
+        for o in obs:
+            self.policy.reset()
+            out.append(shares_from_action(self.policy.shares(o)))
+        return np.array(out)
 
 
 def n_inputs(model_path: Path) -> int:
-    """The observation size the model was trained on: 22, or 25 with the load history (M09c)."""
+    """The observation size the model was trained on: 22, 25 with the load history (M09c), 28 with the applied split (M09h)."""
     from rl.policy import SlicePolicy
 
     return int(SlicePolicy.load(model_path).n_inputs or 22)
@@ -100,7 +107,8 @@ def best_validation(model_path: Path) -> dict[str, float]:
     history_path = model_path.with_name(f"{stem}_validation.json")
     if not history_path.exists():
         return {}
-    eligible = [m for m in json.loads(history_path.read_text()) if m["t2_pass"]]
+    eligible = [m for m in json.loads(history_path.read_text())
+                if m["t2_pass"] and (m["t1a_pass"] or not m.get("t1a_required"))]  # M09h: T1a too
     if not eligible:
         return {}
     best = max(eligible, key=lambda m: (m["t1b_captured"], m["reward"]))  # the ValidationCheckpoint rule
@@ -201,8 +209,8 @@ def gate(candidates: list[Any]) -> tuple[Any | None, list[str]]:
             reasons.append(f"v{v.version} {name}: no validation numbers")
         elif v.tags.get("profile") != M09_PROFILE:
             reasons.append(f"v{v.version} {name}: not trained in the M09c setting (profile {v.tags.get('profile', 'None')})")
-        elif record.data.tags.get("split") != "m09_test":
-            reasons.append(f"v{v.version} {name}: its held-out goal test is not the calibrated cell's (m09_test)")
+        elif record.data.tags.get("split") not in CALIBRATED_TEST_SPLITS:
+            reasons.append(f"v{v.version} {name}: its held-out goal test is not the calibrated cell's (m09_test, m10_test)")
         elif not beats_champion(name):
             reasons.append(f"v{v.version} {name}: the dev benchmark did not record LLM + RL beating the champion with it")
         else:

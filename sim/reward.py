@@ -31,6 +31,13 @@ target (F4a). It needs the split and the URLLC base latency the verifier sizes w
 The work is done by compute_reward_batch (numpy, many objectives at once), which the
 objective relabeling in rl/relabel.py and the oracle in rl/oracle.py need. compute_reward is
 the same calculation for one step, so there is a single implementation.
+
+Switching cost (M09h, any version; 0 by default, so every earlier reward is unchanged):
+
+    - switch_cost * moved,   moved = 1/2 * sum_s |split_s(t) - split_s(t-1)|
+
+the share of the cell that changed hands this step, on the split actually applied. v7 moves 2.65 % of the
+cell per second behind its filter, the formula 0.16 % (M09g): nothing in rewards v1-v3 charges for that.
 """
 
 from collections.abc import Mapping
@@ -59,12 +66,15 @@ def compute_reward_batch(
     version: RewardVersion = DEFAULT_REWARD_VERSION,
     shares: np.ndarray | None = None,
     urllc_base_ms: float | None = None,
+    switch_cost: float = 0.0,
+    previous_shares: np.ndarray | None = None,
 ) -> np.ndarray:
     """Reward of n steps (or of one step under n objectives), vectorised.
 
     Shapes: weights, targets_mbps, throughput_mbps, loads_mbps (n, 3) in SLICES order;
     bound_ms and urllc_latency_ms (n,). A bound of NaN means "no latency bound".
     Version "v3" also needs shares (n, 3), the PRB split applied, and urllc_base_ms.
+    switch_cost > 0 (M09h) needs shares and previous_shares (n, 3), the split applied the step before.
     """
     utility = (weights * throughput_mbps).sum(axis=1) / capacity_mbps
     # Only the part of a target that the slice actually asks for can be missed:
@@ -84,7 +94,16 @@ def compute_reward_batch(
             raise ValueError("reward v3 needs the split (shares) and the URLLC base latency")
         reward = reward - OVERSERVE_PENALTY * overserving(targets_mbps, bound_ms, throughput_mbps, loads_mbps,
                                                           shares, capacity_mbps, urllc_base_ms)
+    if switch_cost > 0:
+        if shares is None or previous_shares is None:
+            raise ValueError("a switching cost needs the split (shares) and the previous split")
+        reward = reward - switch_cost * moved(shares, previous_shares)
     return reward
+
+
+def moved(shares: np.ndarray, previous_shares: np.ndarray) -> np.ndarray:
+    """Share of the cell that changed hands per row: one PRB leaving a slice arrives in another, hence 1/2."""
+    return 0.5 * np.abs(np.asarray(shares) - np.asarray(previous_shares)).sum(axis=1)
 
 
 def overserving(targets_mbps: np.ndarray, bound_ms: np.ndarray, throughput_mbps: np.ndarray,
@@ -108,6 +127,8 @@ def compute_reward(
     version: RewardVersion = DEFAULT_REWARD_VERSION,
     shares: np.ndarray | None = None,
     urllc_base_ms: float | None = None,
+    switch_cost: float = 0.0,
+    previous_shares: np.ndarray | None = None,
 ) -> float:
     """Reward of one step. Pure function: same inputs, same output."""
     bound = np.nan if objective.max_latency_ms is None else objective.max_latency_ms
@@ -122,5 +143,7 @@ def compute_reward(
         version=version,
         shares=None if shares is None else np.asarray(shares, dtype=np.float64)[None, :],
         urllc_base_ms=urllc_base_ms,
+        switch_cost=switch_cost,
+        previous_shares=None if previous_shares is None else np.asarray(previous_shares, dtype=np.float64)[None, :],
     )
     return float(reward[0])
