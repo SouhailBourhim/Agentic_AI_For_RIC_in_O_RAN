@@ -164,7 +164,7 @@ def plot_what_if(rows: list[dict]) -> Figure:
     """S3 for LLM + RL, as run (URLLC base latency 2 ms in the verifier) and with the verifier told 0.6 ms."""
     fig = Figure(figsize=(12, 3.8), facecolor=SURFACE, layout="constrained")
     met, shares = fig.subplots(1, 2, width_ratios=(1, 1.6))
-    for x, (study, intent, label) in enumerate([("testbed", 1, "first\nas run"), ("what_if", 1, "first\nwhat-if"),
+    for x, (study, intent, _label) in enumerate([("testbed", 1, "first\nas run"), ("what_if", 1, "first\nwhat-if"),
                                                  ("testbed", 2, "second\nas run"), ("what_if", 2, "second\nwhat-if")]):
         dots(met, x, rows, "intent_met", ACCENT if study == "testbed" else NEUTRAL, 100.0, study=study, scenario="s3", intent=intent, controller="proposed")
     met.set_xticks(range(4), ["first goal\nas run", "first goal\nwhat-if", "second goal\nas run", "second goal\nwhat-if"], fontsize=8.5)

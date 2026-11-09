@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
+from mlflow.exceptions import MlflowException
 from stable_baselines3.common.callbacks import CallbackList
 
 from mlops import backfill, registry, tracking
@@ -101,7 +102,7 @@ def test_registered_model_enforces_the_observation_signature(tmp_path: Path) -> 
     model = mlflow.pyfunc.load_model(f"models:/{registry.MODEL_NAME}/{version}")
     shares = model.predict(np.zeros((2, 22), dtype=np.float32))
     assert shares.shape == (2, 3) and np.allclose(shares.sum(axis=1), 1.0)
-    with pytest.raises(Exception):
+    with pytest.raises(MlflowException, match="enforce schema"):
         model.predict(np.zeros((1, 21), dtype=np.float32))
 
 

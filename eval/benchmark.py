@@ -28,8 +28,6 @@ from eval.sim_profiles import KPI_DELAY_TICKS, noise_std, testbed_cell
 from eval.testbed_control import commit, guard_final
 from eval.validate_sim import CLOCK_OFFSET_S, served_policy
 from rl.runner import SERVED_SMOOTHING_ALPHA
-from store.events import read_events
-from verifier.objective import SLICES
 
 RESULTS = Path("eval/results/m09b")
 PARSE = Path("docs/learn/data/M09b-parse.csv")
@@ -218,6 +216,11 @@ def summarise(rows: list[dict]) -> list[dict]:
                     continue
                 low, high = bootstrap_ci(paired, stat=stat)
                 row |= {f"{name}_diff": round(float(stat(paired)), 3), f"{name}_diff_low": round(low, 3), f"{name}_diff_high": round(high, 3)}
+            # What intent met can't see: URLLC's seconds over the bound in the 60 s after a bounded intent's window
+            # (M08d's swing at expiry). Only intents with a bound whose window ends before the run does.
+            after = np.array([float(r["over_bound_after_s"]) for r in mine
+                              if r["controller"] == controller and r["over_bound_after_s"] != ""])
+            row |= {"n_after": len(after), "mean_over_bound_after_s": round(float(after.mean()), 2) if len(after) else ""}
             out.append(row)
     with SUMMARY.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(out[0]))

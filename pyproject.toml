@@ -26,6 +26,7 @@ dev = [
     "marimo>=0.25.2",
     "pytest>=8",
     "pyyaml>=6.0.3",
+    "ruff>=0.17.4",
     "tensorboard>=2.21.0",
 ]
 
@@ -49,3 +50,14 @@ explicit = true
 
 [tool.uv.sources]
 torch = [{ index = "pytorch-cpu" }]
+
+# Lint for bugs, not style (DECISIONS 2026-11-09): pyflakes (F), pycodestyle's error classes (E4, E7, E9)
+# and bugbear (B). Ruff's wider default set is mostly import order and formatting, which we don't enforce.
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "B"]
+# B905 zip(strict=): 66 existing calls, some rely on truncation; E731: one-line lambdas are used on purpose;
+# B008: FastAPI's Depends(...) in argument defaults is that framework's idiom.
+ignore = ["B905", "E731", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"notebooks/*.py" = ["B018"]  # marimo displays a cell's last expression on purpose

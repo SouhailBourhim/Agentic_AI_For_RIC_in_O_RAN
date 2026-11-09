@@ -172,7 +172,7 @@ def plot_parity() -> Figure:
     fig = Figure(figsize=(6.5, 6), facecolor=SURFACE, layout="constrained")
     ax = fig.subplots()
     rel_errors = []
-    for label, marker, text, skip in PARITY_RUNS:
+    for label, marker, _text, skip in PARITY_RUNS:
         for s in SLICES:
             start, t_iperf, mbps = iperf_series(RESULTS / f"{label}_{s}.json")
             k = kpm[s]

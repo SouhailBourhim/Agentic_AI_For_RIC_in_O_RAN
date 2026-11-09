@@ -137,7 +137,7 @@ def plot_asked_vs_got() -> Figure:
     fig = Figure(figsize=(10, 4.2), facecolor=SURFACE, layout="constrained")
     ax = fig.subplots()
     width = 0.8
-    for g, (title, label) in enumerate(runs):
+    for g, (_title, label) in enumerate(runs):
         total = 0.0
         for k, name in enumerate(SLICES):
             x = g * 4 + k
@@ -208,7 +208,7 @@ def attach_phases() -> dict[str, dict]:
     for events in by_ue.values():
         start = next(i for i, e in enumerate(events) if e["procedure_code"] == "15")  # InitialUEMessage
         events = events[start:]
-        t = lambda pred: next(float(e["t_s"]) for e in events if pred(e))  # noqa: E731
+        t = lambda pred: next(float(e["t_s"]) for e in events if pred(e))  # noqa: B023 (used within this iteration)
         pdu = next(e for e in events if e["procedure_code"] == "29" and e["sst"])
         slice_name = SLICE_OF_SNSSAI[(int(pdu["sst"]), int(pdu["sd"], 16))]
         phases[slice_name] = {

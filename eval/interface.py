@@ -36,6 +36,7 @@ from agent.prompts import PARSE_EXAMPLES, PARSE_SYSTEM, PARSE_VERSION
 from eval import interface_metrics as M
 from eval.extraction import evaluate, load_intents
 from eval.realtime_check import start
+from eval.spent import mark_spent, refuse_if_spent
 from gateway.client import FINAL_STATES, gateway_server
 from gateway.hermes.turns import COMPOSE, run_turn
 from store import a1_policy, db, intents, kpi
@@ -84,6 +85,7 @@ def guard(results: Path, split: str, path: str, final: bool, revision: str, prom
         raise SystemExit("the held-out split is scored once, in M08b: add --final")
     if (path_dir(results, split, path) / "done.json").exists():
         raise SystemExit(f"the held-out {path} path has already been scored; its results stand")
+    refuse_if_spent(f"m08b/heldout/{path}")  # the committed register: holds even if eval/results is gone
     if revision.endswith("+uncommitted"):
         raise SystemExit("commit the code and the protocol first: the held-out run must come after them in the history")
     if prompt_hash != FROZEN_PARSE_PROMPT:
@@ -309,6 +311,8 @@ def main() -> None:
     print(f"{args.path} on {args.split}: {commit()}, prompt {PARSE_VERSION} {parse_prompt_hash()}", flush=True)
     {"extraction": run_extraction, "gateway": run_gateway, "hermes": run_hermes}[args.path](args.split, where)
     (where / "done.json").write_text(json.dumps({"finished": time.time()}))
+    if args.split == "heldout":
+        mark_spent(f"m08b/heldout/{args.path}", where / "done.json", note=f"prompt {PARSE_VERSION}")
 
 
 if __name__ == "__main__":

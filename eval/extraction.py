@@ -25,6 +25,7 @@ from agent.llm import OllamaClient
 from agent.parser import parse_facts
 from agent.prompts import PARSE_VERSION
 from agent.schema import ParsedIntent
+from eval.spent import refuse_if_spent
 
 INTENTS = Path("eval/intents/annotated.jsonl")
 RESULT_DIR = Path("runs/m04b")
@@ -121,6 +122,8 @@ def main() -> None:
         raise SystemExit("the held-out split is scored once, in M08b: add --final")
     if args.split == "heldout" and HELD_OUT_SCORED.exists():
         raise SystemExit("the held-out split has already been scored (eval/results/m08b); its results stand")
+    if args.split == "heldout":
+        refuse_if_spent("m08b/heldout/extraction")
     result = evaluate(args.parser, args.split)
     print_report(result)
     RESULT_DIR.mkdir(parents=True, exist_ok=True)

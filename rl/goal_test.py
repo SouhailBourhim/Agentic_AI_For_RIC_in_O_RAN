@@ -53,6 +53,7 @@ from pathlib import Path
 
 import numpy as np
 
+from eval.spent import mark_spent, refuse_if_spent
 from mlops import tracking
 from rl.baselines import equal_split, proportional_to_load
 from rl.evaluate import OBJECTIVES, SPIKE_STEPS, episode_metrics
@@ -230,7 +231,7 @@ def oracle_rollouts(cases: CaseSet, min_share: float | None = None,
     for sc, traffic in cases.scenarios.items():
         for told, obj in cases.objectives.items():
             oracle = GreedyOracle(obj, alpha=setting.alpha, min_share=min_share)
-            out[(sc, told)] = rollout(lambda env, _obs: oracle.act(env), traffic, obj, oracle.reset, min_share, setting)
+            out[(sc, told)] = rollout(lambda env, _obs: oracle.act(env), traffic, obj, oracle.reset, min_share, setting)  # noqa: B023 (called within this iteration)
     return out
 
 
@@ -364,6 +365,7 @@ def run_split(split: str, models: list[Path], final: bool, min_share: float | No
             raise SystemExit("the held-out test runs once, on the confirmation seeds: add --final")
         if final_result.exists():
             raise SystemExit(f"{final_result} exists: the held-out test has already been run")
+        refuse_if_spent(f"goal_test/{split}")  # the committed register: holds even if runs/ is gone
         if split == "test" and min_share is not None:
             print("NOTE: second use of the held-out test set (first: M02b, runs/m02b/test_result.json)")
     test = GoalTest(split, min_share)
@@ -406,6 +408,8 @@ def run_split(split: str, models: list[Path], final: bool, min_share: float | No
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(out, indent=2))
     print(f"wrote {path}")
+    if split in FINAL_SPLITS:
+        mark_spent(f"goal_test/{split}", path, note=f"{len(models)} models, min_share {min_share}")
     # One MLflow evaluation run per model; the registry gate reads the final ones (mlops/registry.py).
     for name, m in results.items():
         tags = {"split": split, "final": str(split in FINAL_SPLITS).lower(),

@@ -100,7 +100,7 @@ def main() -> None:
     for name, alpha, tick_s, delay in VARIANTS:
         for with_intent in (False, True):
             runs = [run(policy_file, alpha, tick_s, delay, with_intent, seed, tmp) for seed in SEEDS]
-            mean = lambda f: float(np.mean([f(r) for r in runs]))  # noqa: E731
+            mean = lambda f: float(np.mean([f(r) for r in runs]))  # noqa: B023 (used within this iteration)
             row = {"variant": name, "alpha": alpha, "tick_s": tick_s, "delay_decisions": delay, "intent": with_intent,
                    "moved_per_s": mean(lambda r: r["embb"]["moved_per_s"]) / tick_s,
                    "embb_p5": mean(lambda r: r["embb"]["share_p5"]), "embb_p95": mean(lambda r: r["embb"]["share_p95"]),

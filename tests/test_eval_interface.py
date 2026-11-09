@@ -125,7 +125,9 @@ def test_items_are_cut_by_their_markers_in_file_order() -> None:
 # ---------------------------------------------------------------- the rule that protects the held-out score
 
 
-def test_the_held_out_split_needs_final_and_is_scored_once(tmp_path) -> None:
+def test_the_held_out_split_needs_final_and_is_scored_once(tmp_path, monkeypatch) -> None:
+    from eval import spent
+    monkeypatch.setattr(spent, "SPENT_FILE", tmp_path / "no_register.json")  # the file guard alone (test_spent: the register)
     clean = ("abc1234", I.FROZEN_PARSE_PROMPT)
     I.guard(tmp_path, "tune", "gateway", False, "abc1234+uncommitted", "other")  # the tune split is free to use
     with pytest.raises(SystemExit, match="--final"):

@@ -185,7 +185,7 @@ def test_oracle_beats_every_fixed_split_on_its_objective(objective_name: str) ->
     oracle = GreedyOracle(objective)
     best = score(rollout(lambda env, _o: oracle.act(env), traffic, objective, oracle.reset), objective)
     for split in ([1 / 3] * 3, [0.5, 0.2, 0.3], [0.3, 0.5, 0.2], [0.6, 0.1, 0.3]):
-        fixed = score(rollout(lambda _e, _o: np.array(split), traffic, objective), objective)
+        fixed = score(rollout(lambda _e, _o: np.array(split), traffic, objective), objective)  # noqa: B023 (called within this iteration)
         assert best > fixed
 
 

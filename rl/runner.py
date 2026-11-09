@@ -75,7 +75,7 @@ def load_policy(policy_file: Path | None = None, alpha: float = SERVED_SMOOTHING
         served.write_text(json.dumps({"label": label, "file": cached.name}))
     except Exception as err:  # MLflow missing, broken or empty: fall back to the cache
         if not served.exists():
-            raise SystemExit(f"no policy: MLflow failed ({err}) and {served} does not exist; use --policy-file")
+            raise SystemExit(f"no policy: MLflow failed ({err}) and {served} does not exist; use --policy-file") from err
         cache = json.loads(served.read_text())
         label, cached = cache["label"] + " [cached]", POLICY_CACHE / cache["file"]
     return SlicePolicy.load(cached, alpha), label

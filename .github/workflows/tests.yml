@@ -19,5 +19,7 @@ jobs:
       - uses: astral-sh/setup-uv@v10.3.3
       - name: Install dependencies (exact versions from uv.lock)
         run: uv sync --frozen
+      - name: Lint (bugs, not style; rules in pyproject.toml)
+        run: uv run ruff check
       - name: Run tests
         run: uv run pytest -q

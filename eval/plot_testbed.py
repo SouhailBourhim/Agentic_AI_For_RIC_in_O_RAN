@@ -193,7 +193,7 @@ def plot_sim_vs_testbed(rows: list[dict], sim: list[dict]) -> Figure:
         ax.set_ylim(-4, 104)
         titled(ax, title)
     axes[0].set_ylabel("seconds of the window met, %", color=TEXT_MUTED)
-    for shift, colour, label in sources:
+    for _shift, colour, label in sources:
         axes[1].scatter([], [], s=18, color=colour, label=label)
     handles, labels = axes[1].get_legend_handles_labels()
     unique = dict(zip(labels, handles))

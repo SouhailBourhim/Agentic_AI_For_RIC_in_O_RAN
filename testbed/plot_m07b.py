@@ -87,7 +87,7 @@ def plot_isolation() -> Figure:
     fig = Figure(figsize=(10, 4.2), facecolor=SURFACE, layout="constrained")
     ax_thr, ax_rtt = fig.subplots(1, 2, width_ratios=[1.6, 1])
     width = 0.36
-    for k, (run, label) in enumerate(runs):
+    for k, (run, _label) in enumerate(runs):
         vals = [load_run(RESULTS / f"{run}_{s}.json")["steady_mbps"] for s in ("urllc", "be")]
         pos = np.arange(2) + (k - 0.5) * width
         bars = ax_thr.bar(pos, vals, width * 0.92, color=[SLICE_COLOURS["urllc"], SLICE_COLOURS["be"]],
@@ -114,7 +114,7 @@ def load_kpi(run: str) -> dict[str, dict[str, np.ndarray]]:
     out = {}
     for s in SLICES:
         mine = [r for r in rows if r["slice"] == s]
-        num = lambda k: np.array([float(r[k]) if r[k] not in ("", None) else np.nan for r in mine])  # noqa: E731
+        num = lambda k: np.array([float(r[k]) if r[k] not in ("", None) else np.nan for r in mine])  # noqa: B023 (used within this iteration)
         out[s] = {"t": num("ts") - t0, "thr": num("dl_thr_mbps"), "alloc": num("prb_share_alloc"),
                   "used": num("prb_used"), "lat": num("latency_ms"), "load": num("offered_load_mbps")}
     return out
@@ -124,7 +124,7 @@ def segment_times(run: str, t0: float) -> list[tuple[float, dict, float]]:
     """(start, rates, end of traffic) per segment, in s from t0. A segment's traffic lasts its
     planned seconds; the next one starts only when every iperf3 run has closed, which waits for
     the slices' queues to drain (testbed/scenario_m07b.py), so there is a gap with no new traffic."""
-    events = [json.loads(l) for l in (RESULTS / f"{run}_events.jsonl").read_text().splitlines()]
+    events = [json.loads(line) for line in (RESULTS / f"{run}_events.jsonl").read_text().splitlines()]
     return [(e["data"]["wall"] - t0, e["data"]["rates_mbps"], e["data"]["wall"] - t0 + e["data"]["seconds"])
             for e in events if e["event"] == "segment_start"]
 
@@ -172,7 +172,7 @@ def plot_loop() -> Figure:
 def plot_intent(run: str = "loop_intent2") -> Figure:
     kpi = load_kpi(run)
     t0 = min(float(r["ts"]) for r in csv.DictReader((RESULTS / f"{run}_kpi.csv").open()))
-    events = [json.loads(l) for l in (RESULTS / f"{run}_events.jsonl").read_text().splitlines()]
+    events = [json.loads(line) for line in (RESULTS / f"{run}_events.jsonl").read_text().splitlines()]
     switches = [(e["ts_wall"] - t0, e["data"]["to"]) for e in events if e["event"] == "policy_switch"]
     segs = segment_times(run, t0)
     fig = Figure(figsize=(11, 7.4), facecolor=SURFACE, layout="constrained")

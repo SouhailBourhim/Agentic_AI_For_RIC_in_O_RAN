@@ -100,10 +100,10 @@ def run_series(mode: str, splits: list[tuple[str, str]], rates: dict[str, str], 
     since = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(start - 1))
     kpm = subprocess.run(["docker", "logs", "--since", since, "xapp-kpm-slices"], capture_output=True, text=True)
     (RESULTS / f"{mode}_kpm.jsonl").write_text(
-        "".join(l + "\n" for l in kpm.stdout.splitlines() if l.startswith("{")))
+        "".join(line + "\n" for line in kpm.stdout.splitlines() if line.startswith("{")))
     gnb = subprocess.run(["docker", "logs", "--since", since, "rfsim5g-oai-gnb"], capture_output=True, text=True)
     (RESULTS / f"{mode}_gnb.txt").write_text(
-        "".join(l + "\n" for l in (gnb.stdout + gnb.stderr).splitlines() if "SLICE CONTROL" in l))
+        "".join(line + "\n" for line in (gnb.stdout + gnb.stderr).splitlines() if "SLICE CONTROL" in line))
 
 
 def main() -> None:
