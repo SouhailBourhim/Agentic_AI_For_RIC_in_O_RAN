@@ -269,13 +269,15 @@ general, with the testbed confirming rather than producing the main result:
 | # | Delivers | Who runs the long part |
 |---|---|---|
 | M09a ✅ | Simulator profile calibrated to the testbed (flat RLC delay until saturation, real buffer, 79 Mb/s with its spread, KPIs 2 ticks late), verifier parameters to match; validated against M08c and M08d by a rule written first | Souhail (replay, ~1 h) |
-| M09b | Seeded scenario generator in 5 families (F1 load, F2 new goal, F3 fast dynamics, F4 conflicts, F5 easy), the broad benchmark on dev seeds with v7; references: oracle ceiling, LLM + formula (no RL), a fairer LLM only | Souhail |
+| M09b ✅ | Seeded scenario generator in 5 families (F1 load, F2 new goal, F3 fast dynamics, F4 conflicts, F5 easy), the broad benchmark on dev seeds with v7; references: oracle ceiling, LLM + formula (no RL), a fairer LLM only | Souhail |
 | M09c | Policy v8: calibrated profile, random 1-3 tick observation delay, penalty on share above need, objective changes and expiries mid-episode; fresh goal-test seeds | Souhail (training) |
 | M09d | Pre-registered simulator result on test seeds, scored once: P1-P6 as paired differences with bootstrap intervals; written predictions for the testbed sample | Souhail |
 | M09e | Testbed confirmation: 8 instances drawn from the test generator x 4 controllers x 2 repeats, one night | Souhail |
 | M09f | Safety under dangerous in-scope intents (~30), LLM + RL and LLM only, unsafe changes applied must be 0 | me |
 
 **M09a done 2026-11-08:** attempt 1 FAIL (6/8, 25/32), attempt 2 PASS (8/8, 27/32) after the agent's clock was fixed; LLM only can't be reproduced by any simulator (its choices turn on irrelevant input details), so its claims go to the testbed (M09e). Note: `docs/learn/M09a-sim-calibration.md`.
+
+**M09b done 2026-11-09 (dev results, not a claim):** 200 instances x 7 controllers. Two references were fixed before analysis: the oracle (60 s horizon; still beaten on 25 % of F4 intents, so a reference there, a ceiling elsewhere) and LLM + formula (revision 4 of 5: peak sizing, slack drain). LLM + RL wins F1 (+0.54 on static, +0.15 on LLM only v2) and beats RL only everywhere. v7 loses F4a's two-target intent (0.27 against static's 1.00: over-serves URLLC), F2 by about 1 Mb/s, and F3 to the formula (0.60 against 0.92: no load history in its input). LLM + RL repeats within 0.006 across plays; LLM only swings by up to 0.99. Inputs to M09c: a share-above-need penalty, a load-history feature, the F2 shortfall. Open for M09d: how P6 labels feasibility where the oracle is only a reference. Note: `docs/learn/M09b-benchmark.md`.
 
 Then a "claims and evidence" synthesis in the README. Full plan: each checkpoint still starts with its own plan for approval.
 

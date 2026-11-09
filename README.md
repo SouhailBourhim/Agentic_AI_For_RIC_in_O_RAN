@@ -271,6 +271,7 @@ internal Docker network whose only exits are two relays, to the gateway and to O
 | M08c | The four-controller comparison on the testbed: 3 scenarios, 3 repeats, 36 runs | Done |
 | M08d | The same comparison rerun: measured capacity (79 Mb/s), traffic on a clock, plus an S3 what-if; protocol frozen | Done |
 | M09a | Simulator calibrated to the testbed (flat RLC delay, real buffer, measured capacity) and validated by a rule written first: failed once, passed on the one allowed retry | Done |
+| M09b | Scenario generator in 5 families and a dev benchmark of 7 controllers (with an oracle, LLM + formula and a fairer LLM only): shows where policy v7 fails, not a claim | Done |
 
 The full plan, with interfaces, risks and how each hypothesis gets tested, is in
 [docs/PLAN.md](docs/PLAN.md). The original design document (in French) is
