@@ -1,8 +1,19 @@
 \documentclass[11pt,a4paper]{article}
 
-\usepackage{fontspec}
-\usepackage{polyglossia}
-\setmainlanguage{french}
+% XeLaTeX/LuaLaTeX : fontspec + polyglossia ; repli pdflatex avec les mêmes polices.
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{lmodern}
+  \usepackage[french]{babel}
+  \frenchsetup{StandardLists=true, AutoSpacePunctuation=false, og=«, fg=»}
+  \addto\captionsfrench{\renewcommand{\figurename}{Fig.}\renewcommand{\tablename}{Tab.}}
+\else
+  \usepackage{fontspec}
+  \usepackage{polyglossia}
+  \setmainlanguage{french}
+\fi
 \usepackage[a4paper,margin=2.5cm]{geometry}
 \usepackage{microtype}
 \usepackage{amssymb}
@@ -585,17 +596,6 @@ pas de la version précédente et restent à valider avec l'encadrant ou par des
         estimation à ajuster. Les mesures d'interface se font d'abord sur le simulateur, puis
         sur la plateforme si elle est prête.
 \end{description}
-
-%----------------------------------------------------------------- 11
-\section{Points à discuter avec l'encadrant}
-
-\begin{itemize}
-  \item Disposons-nous d'un serveur ou d'un GPU au laboratoire, ou faut-il prévoir un PC personnel ?
-  \item Un budget API est-il envisageable pour la comparaison avec un modèle distant ?
-  \item Le périmètre de l'évaluation (quatre contrôleurs, trois scénarios, plus l'évaluation de l'interface) vous paraît-il adapté ?
-  \item Hermes Agent est-il acceptable comme composant d'interface dans le périmètre du projet, ou préférez-vous un client plus simple ?
-  \item Quelles sont les échéances à respecter (point d'avancement, rapport, soutenance) ?
-\end{itemize}
 
 %----------------------------------------------------------------- refs
 \section*{Références}
