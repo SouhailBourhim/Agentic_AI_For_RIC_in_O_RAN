@@ -53,8 +53,9 @@ def study_of(controller: str, study: str = STUDY) -> str:
     return OWN_STUDY.get(controller, study) if study == STUDY else study
 
 
-def work_of(instance: Instance, controller: str, study: str = STUDY) -> Path:
-    return RESULTS / RunSpec(study_of(controller, study), instance.name, controller, instance.seed).run_id
+def work_of(instance: Instance, controller: str, study: str = STUDY, root: Path = RESULTS) -> Path:
+    """Where a run lives. `root` lets M09d keep the test runs apart (eval/results/m09d)."""
+    return root / RunSpec(study_of(controller, study), instance.name, controller, instance.seed).run_id
 
 
 # ---------------------------------------------------------------- the parse check (H7)
@@ -89,8 +90,8 @@ def dropped() -> set[str]:
 # ---------------------------------------------------------------- the runs
 
 
-def play(instance: Instance, controller: str, policy: Path, llm, study: str = STUDY) -> Path:
-    work = work_of(instance, controller, study)
+def play(instance: Instance, controller: str, policy: Path, llm, study: str = STUDY, root: Path = RESULTS) -> Path:
+    work = work_of(instance, controller, study, root)
     cell = profile_cell(instance)
     traffic = instance.traffic(noise_std())
     if (work / "run.json").exists():
@@ -156,18 +157,19 @@ def jointly_feasible(oracle_kpis: dict, intents) -> bool | None:
     return bool(together[keep].mean() >= FEASIBLE)
 
 
-def write_table() -> list[dict]:
+def table_rows(instances: list[Instance], controllers=CONTROLLERS, study: str = STUDY, root: Path = RESULTS) -> list[dict]:
+    """One row per finished run and intent, with the oracle's numbers next to it (M09b; M09d reuses it)."""
     rows = []
-    for inst in dev_instances():
-        oracle_work = work_of(inst, "oracle")
+    for inst in instances:
+        oracle_work = work_of(inst, "oracle", study, root)
         if not (oracle_work / "run.json").exists():
             continue
         oracle_kpis = load_run(oracle_work)[0]
         oracle_met = [measure_run(oracle_work, inst.scenario())["intents"][k]["intent_met"] for k in range(len(inst.intents))]
         joint = jointly_feasible(oracle_kpis, inst.intents) if len(inst.intents) > 1 else None
         cell = profile_cell(inst)
-        for controller in CONTROLLERS:
-            work = work_of(inst, controller)
+        for controller in controllers:
+            work = work_of(inst, controller, study, root)
             if not (work / "run.json").exists():
                 continue
             measured = measure_run(work, inst.scenario())
@@ -182,6 +184,11 @@ def write_table() -> list[dict]:
                              "over_serving": "" if serve is None else serve, "over_bound_after_s": "" if after is None else after,
                              "outcome": outcome_of(events, intent.text), "true_capacity_mbps": round(cell.capacity_mbps, 2),
                              **measured["run"]})
+    return rows
+
+
+def write_table() -> list[dict]:
+    rows = table_rows(dev_instances())
     if rows:
         RUNS.parent.mkdir(parents=True, exist_ok=True)
         fields = list(dict.fromkeys(k for r in rows for k in r))

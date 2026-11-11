@@ -273,7 +273,7 @@ general, with the testbed confirming rather than producing the main result:
 | M09c ✅ | Policy v8: calibrated profile, random 1-3 tick observation delay, penalty on share above need, objective changes and expiries mid-episode; fresh goal-test seeds | Souhail (training) |
 | M09g | Diagnostics on dev, no training: the formula behind the RL's filter (alpha 0.10), whether the reward aims at the edge of a target, the actor-saturation mechanism. With the integrity groundwork (spent-set register, evidence manifest, ruff) | me |
 | M09h ✅ | Policy v9, pre-registered: switching cost in the reward (M09g D1; served at alpha 0.10 like every policy), correlated exploration noise, undelayed applied split in the input, gamma 0.98 (reward margin and action regulariser out after M09g D2/D3), and a residual-on-formula arm; 5 seeds per arm, median-seed choice, fresh goal-test seeds | Souhail (training) |
-| M09d | Pre-registered simulator result on test seeds, scored once, **after M09h**, with the champion of that time: P1-P6 as paired differences with bootstrap intervals; written predictions for the testbed sample | Souhail |
+| M09d | Pre-registered simulator result on test seeds, scored once, **after M09h**, with the champion of that time (v7): P1-P6 as paired differences with cluster-bootstrap intervals; written predictions for the testbed sample. Rules frozen in DECISIONS 2026-11-11 (`eval/m09d.py`) | Souhail |
 | M09e | Testbed confirmation: 8 instances drawn from the test generator x 4 controllers (**static, LLM only v2, LLM + formula, LLM + RL**) x 2 repeats, one night | Souhail |
 | M09f | Safety under dangerous in-scope intents (~30), LLM + RL and LLM only, unsafe changes applied must be 0 | me |
 

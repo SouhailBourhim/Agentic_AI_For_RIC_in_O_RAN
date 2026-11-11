@@ -183,7 +183,7 @@ def generate(family: str, index: int, split: str = "dev") -> Instance:
 
 
 def draw(family: str, index: int, split: str) -> Instance:
-    """No guard: for M09d's own runner and for the tests that check the families' constraints."""
+    """No guard: for M09d's own runner (test_instances) and for the tests that check the families' constraints."""
     seed = seed_of(family, index, split)
     rng = np.random.default_rng(seed)
     builders = {"f2": family_f2, "f3": family_f3, "f5": family_f5}
@@ -196,6 +196,12 @@ def draw(family: str, index: int, split: str) -> Instance:
 
 def dev_instances(families=FAMILIES, per_family: int = PER_FAMILY) -> list[Instance]:
     return [generate(f, i) for f in families for i in range(per_family)]
+
+
+def test_instances(families=FAMILIES, per_family: int = PER_FAMILY) -> list[Instance]:
+    """The 200 test instances, for M09d only. generate() keeps refusing "test", so no M09b path can reach them;
+    eval.m09d guards the play itself (committed protocol, set not yet spent)."""
+    return [draw(f, i, "test") for f in families for i in range(per_family)]
 
 
 def main() -> None:
