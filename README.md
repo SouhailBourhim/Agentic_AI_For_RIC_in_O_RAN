@@ -224,7 +224,7 @@ core, gNB, nrUE), **FlexRIC**, C xApps, **Docker**, on WSL2 with an RTX 5070 lap
 | M09a / M09b | Calibrated and validated simulator; generated scenarios and a 7-controller benchmark | Done |
 | M09c | Policy v8 in the calibrated setting | Done: not confirmed, v7 stays champion |
 | M09g | Diagnostics behind the RL-versus-formula gap | Done |
-| M09h | Policy v9, pre-registered | Frozen, training pending |
+| M09h | Policy v9, pre-registered | Done: not confirmed, v7 stays champion |
 | M09d / M09e / M09f | Test-seed result scored once; testbed confirmation; dangerous intents | Planned |
 
 </details>

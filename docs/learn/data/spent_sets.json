@@ -1,10 +1,41 @@
 {
  "about": "Held-out sets already scored. eval/spent.py refuses to score any of them again, even on a clean clone where the git-ignored result files are missing. A final run appends its own entry, which then has to be committed.",
  "sets": {
-  "goal_test/test": {"date": "2026-11-01", "commit": "e3e9329", "result_file": "runs/m02b/test_result.json", "note": "M02b, first use; second use in the M04a floor round (02d01df, runs/m04a_floor/test_result.json)"},
-  "goal_test/m09_test": {"date": "2026-11-09", "commit": "1dc1854", "result_file": "runs/m09c/test_result.json", "note": "M09c round 2, v8_nooverserve FAIL"},
-  "m08b/heldout/extraction": {"date": "2026-11-07", "commit": "bc0d170", "result_file": "eval/results/m08b/heldout/extraction/done.json", "note": "scored at 25f25a7"},
-  "m08b/heldout/gateway": {"date": "2026-11-07", "commit": "bc0d170", "result_file": "eval/results/m08b/heldout/gateway/done.json", "note": "scored at 25f25a7"},
-  "m08b/heldout/hermes": {"date": "2026-11-07", "commit": "bc0d170", "result_file": "eval/results/m08b/heldout/hermes/done.json", "note": "scored at 25f25a7"}
+  "goal_test/test": {
+   "date": "2026-11-01",
+   "commit": "e3e9329",
+   "result_file": "runs/m02b/test_result.json",
+   "note": "M02b, first use; second use in the M04a floor round (02d01df, runs/m04a_floor/test_result.json)"
+  },
+  "goal_test/m09_test": {
+   "date": "2026-11-09",
+   "commit": "1dc1854",
+   "result_file": "runs/m09c/test_result.json",
+   "note": "M09c round 2, v8_nooverserve FAIL"
+  },
+  "m08b/heldout/extraction": {
+   "date": "2026-11-07",
+   "commit": "bc0d170",
+   "result_file": "eval/results/m08b/heldout/extraction/done.json",
+   "note": "scored at 25f25a7"
+  },
+  "m08b/heldout/gateway": {
+   "date": "2026-11-07",
+   "commit": "bc0d170",
+   "result_file": "eval/results/m08b/heldout/gateway/done.json",
+   "note": "scored at 25f25a7"
+  },
+  "m08b/heldout/hermes": {
+   "date": "2026-11-07",
+   "commit": "bc0d170",
+   "result_file": "eval/results/m08b/heldout/hermes/done.json",
+   "note": "scored at 25f25a7"
+  },
+  "goal_test/m10_test": {
+   "date": "2026-11-11",
+   "commit": "e5b529e",
+   "result_file": "runs/m09h/test_result.json",
+   "note": "M09h confirm, v9_noswitch FAIL (seed 60 T1a 0.857); 5 models, min_share 0.05"
+  }
  }
 }

@@ -91,6 +91,12 @@ comparison to a simulator calibrated against the testbed, with generated scenari
   4-recipe ablation showed the load history is what fixes F3. On the held-out goal test, scored
   once, **the recipe failed**: one seed in five never learned, and the others missed one threshold
   by up to 0.04. By the rule set beforehand, **v7 stays the champion**.
+- **Policy v9: five changes, not confirmed** ([M09h](learn/M09h-policy-v9.md)). A switching cost,
+  correlated exploration noise, the applied split as an input, a longer horizon, and a residual arm on
+  the formula, each tested by an arm without it and judged by its median seed. The chosen arm met 0.90
+  of dev intents against v7's 0.79, tying the formula behind the same filter and 0.03 below the
+  unfiltered formula. On the held-out goal test, scored once, **one seed in five fell short on T1a
+  (0.857)**, so the recipe failed and **v7 stays the champion**.
 
 Next: the pre-registered result on fresh test seeds (M09d), a testbed confirmation of its written
 predictions (M09e), and dangerous in-scope intents (M09f). The plan is in
