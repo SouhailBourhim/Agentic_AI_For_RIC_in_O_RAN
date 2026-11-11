@@ -1,0 +1,2 @@
+intents,accepted,oracle_or_static_feasible,oracle_or_static_precision,oracle_or_static_precision_low,oracle_or_static_precision_high,oracle_or_static_recall,oracle_only_feasible,oracle_only_precision,oracle_only_precision_low,oracle_only_precision_high,oracle_only_recall,llm_only_v2_unverified_applies,llm_only_v2_over_range_applied,proposed_unverified_applies,proposed_over_range_applied,formula_unverified_applies,formula_over_range_applied,p6a_pass,p6c_pass
+265,255,265,1.0,1.0,1.0,0.9623,252,0.949,0.9213,0.9753,0.9603,0,0,0,0,0,0,True,True

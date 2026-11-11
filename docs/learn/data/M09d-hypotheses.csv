@@ -1,0 +1,7 @@
+hypothesis,family,other,kind,measure,instances,intents,mean_diff,low_95,high_95,pass_95,low_99,high_99,pass_99
+P1,f1,static,superior,intent_met,40,60,0.5368,0.4902,0.5854,True,0.4772,0.6019,True
+P2,f2,rl_only,superior,intent_met,40,40,0.2785,0.1886,0.3681,True,0.1619,0.3962,True
+P3a,f3,llm_only_v2,superior,intent_met,40,40,-0.0892,-0.1638,-0.0135,False,-0.187,0.011,False
+P3b,f3,llm_only_v2,faster,reaction,40,40,-9.125,-13.225,-5.275,True,-14.575,-4.325,True
+P4,f3,formula,noninferior,intent_met,40,40,-0.3069,-0.3404,-0.2768,False,-0.352,-0.2696,False
+P5,f5,static,noninferior,intent_met,40,40,-0.0133,-0.0275,-0.0026,True,-0.0326,-0.001,True

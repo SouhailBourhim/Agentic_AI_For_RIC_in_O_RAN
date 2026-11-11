@@ -36,6 +36,12 @@
    "commit": "e5b529e",
    "result_file": "runs/m09h/test_result.json",
    "note": "M09h confirm, v9_noswitch FAIL (seed 60 T1a 0.857); 5 models, min_share 0.05"
+  },
+  "m09d/test": {
+   "date": "2026-11-11",
+   "commit": "cbdc1ae",
+   "result_file": "eval/results/m09d/result.json",
+   "note": "M09d, v7: P1 True, P2 True, P3 False, P4 False, P5 True, P6a True, P6c True"
   }
  }
 }

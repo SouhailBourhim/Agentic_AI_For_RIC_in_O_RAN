@@ -98,8 +98,20 @@ comparison to a simulator calibrated against the testbed, with generated scenari
   unfiltered formula. On the held-out goal test, scored once, **one seed in five fell short on T1a
   (0.857)**, so the recipe failed and **v7 stays the champion**.
 
-Next: the pre-registered result on fresh test seeds (M09d), a testbed confirmation of its written
-predictions (M09e), and dangerous in-scope intents (M09f). The plan is in
+- **The pre-registered test result, scored once** ([M09d](learn/M09d-test-result.md)). 200 fresh
+  test instances x 6 controllers on the calibrated simulator, policy v7, rules frozen in DECISIONS
+  before the first run (cbdc1ae). LLM + RL minus the other controller, mean paired difference with a
+  95 % cluster-bootstrap interval: **P1** F1 vs static +0.537 [+0.490, +0.585] pass; **P2** F2 vs RL
+  only +0.279 [+0.189, +0.368] pass; **P3** F3 vs LLM only v2 -0.089 [-0.164, -0.014] on goal met
+  (fail) though 9.1 s faster to reach the target; **P4** F3 vs LLM + formula -0.307 [-0.340, -0.277],
+  fail; **P5** F5 vs static -0.013 [-0.028, -0.003], pass (margin 0.05); **P6** the verifier: 255 of
+  255 accepted goals feasible, 0.962 of feasible goals accepted (the rest are over-range requests),
+  0 unverified applies. Over all 265 goals: LLM + formula 0.929, LLM only v2 0.819, LLM + RL 0.780,
+  static 0.664. Every verdict matches the expectation written from dev. The simulator's predictions
+  for the 8 testbed instances of M09e are in `learn/data/M09d-predictions.csv`.
+
+Next: a testbed confirmation of M09d's written predictions (M09e), and dangerous in-scope
+intents (M09f). The plan is in
 [PLAN.md](PLAN.md) §9.
 
 ## Limits to keep in mind

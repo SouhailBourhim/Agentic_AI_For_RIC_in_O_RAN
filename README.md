@@ -102,16 +102,21 @@ benchmark with seven controllers and a simulator calibrated against 72 testbed r
 
 ### Honest status
 
-- **The open question.** On the larger benchmark, the same agent and verifier with a
-  hand-written formula in place of RL score as well or better (0.93 against 0.79 mean goal met,
-  development seeds). The likely reason is that the simulated cell is simple enough for
-  arithmetic to be optimal. Settling whether RL is needed on a harder, more realistic cell is the
-  next step ([review and roadmap](docs/REVIEW-2026-11-11.md)).
+- **The pre-registered test result** ([M09d](docs/learn/M09d-test-result.md)): 200 fresh simulated
+  scenarios, rules committed before the first run, scored once. Turning the operator's goal into an
+  RL objective beats a fixed split under load (+0.54 goal met) and an RL policy that never hears the
+  goal (+0.28); the verifier accepted only feasible goals (255 of 255) and nothing reached the cell
+  unverified. **But RL is not what makes it work:** the same agent and verifier with a hand-written
+  formula score 0.93 against LLM + RL's 0.78 (over all 265 goals), and an LLM setting the split itself
+  holds fast-changing goals better (0.70 against 0.61).
+- **The open question.** The simulated cell is likely simple enough for arithmetic to be optimal.
+  Settling whether RL is needed on a harder, more realistic cell is the next step
+  ([review and roadmap](docs/REVIEW-2026-11-11.md)).
 - **Limits.** One cell, simulated radio channel, one phone per slice, delay measured at the radio
   link layer (not end to end). On the real cell, the controller is told each slice's offered
   traffic rate by the traffic script, because the base station doesn't report it.
-- **Still to run:** the pre-registered result on untouched test seeds, its confirmation on the
-  real cell, a set of dangerous-but-valid requests, and a local-versus-cloud LLM comparison.
+- **Still to run:** the test result's confirmation on the real cell (its predictions are written),
+  a set of dangerous-but-valid requests, and a local-versus-cloud LLM comparison.
 
 ## What this project demonstrates
 
@@ -225,7 +230,8 @@ core, gNB, nrUE), **FlexRIC**, C xApps, **Docker**, on WSL2 with an RTX 5070 lap
 | M09c | Policy v8 in the calibrated setting | Done: not confirmed, v7 stays champion |
 | M09g | Diagnostics behind the RL-versus-formula gap | Done |
 | M09h | Policy v9, pre-registered | Done: not confirmed, v7 stays champion |
-| M09d / M09e / M09f | Test-seed result scored once; testbed confirmation; dangerous intents | Planned |
+| M09d | Pre-registered test-seed result, scored once | Done: P1, P2, P5, P6 pass; P3, P4 fail (the formula beats RL) |
+| M09e / M09f | Testbed confirmation; dangerous intents | Planned |
 
 </details>
 
