@@ -45,6 +45,11 @@ UE IPs come from the SMF at attach time.
 - Docker with Compose ≥ 2.36 (Docker Desktop with WSL integration works).
 - The SCTP kernel module, needed by N2 (gNB ↔ AMF) and E2 (gNB ↔ RIC). It is lost after a WSL
   restart: `sudo modprobe sctp`. `up.sh` checks it and stops if it is missing.
+- Windows "Energy saver" off (laptop plugged in). The RF simulator has no clock of its own: on a
+  throttled host it runs slower than real time and the cell carries less per second (0.47x real time
+  and 37 instead of 76 Mb/s per unit share on 2026-11-11). Check it with
+  `uv run python -c "import time; from eval import m09e as E; print(E.measure_rfsim_speed(time.time() - 15))"`
+  (about 1.0 at real time).
 
 ## Start, use, stop
 

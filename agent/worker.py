@@ -9,6 +9,7 @@ one waits too.
   uv run python -m agent.worker
 Environment: RIC_MODE=demo|eval, RIC_CONTROLLER=proposed|llm_only, RIC_AGENT=llm|rules,
 RIC_LLM_MODEL (Ollama tag), RIC_OBSERVE_S (20), RIC_CONFIRM_TIMEOUT_S (120), RIC_DB, RIC_EVENTS.
+M09e, the fairer LLM only on the testbed: RIC_LLM_ONLY_PROMPT=v1|v2 and RIC_LLM_ONLY_JOINS=1 (as eval.harness sets them).
 """
 
 import os
@@ -28,6 +29,8 @@ def settings_from_env() -> Settings:
         controller=os.environ.get("RIC_CONTROLLER", "proposed"),
         confirm_timeout_s=float(os.environ.get("RIC_CONFIRM_TIMEOUT_S", "120")),
         observe_s=float(os.environ.get("RIC_OBSERVE_S", "20")),
+        llm_only_prompt=os.environ.get("RIC_LLM_ONLY_PROMPT", "v1"),
+        llm_only_joins=os.environ.get("RIC_LLM_ONLY_JOINS", "0") == "1",
     )
 
 

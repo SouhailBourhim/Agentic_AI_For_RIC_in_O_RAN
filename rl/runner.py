@@ -21,6 +21,7 @@ On the testbed (M07b), inside the RL xApp container (xapps/rl/), with var/ric-te
 """
 
 import argparse
+import dataclasses
 import json
 import os
 import shutil
@@ -33,7 +34,7 @@ import numpy as np
 from backends.base import Backend, KpiRecord
 from backends.flexric import FlexRICBackend
 from backends.sim import SimBackend, scenario_traffic
-from rl.baselines import EqualSplitPolicy
+from rl.baselines import EqualSplitPolicy, FormulaPolicy
 from rl.policy import SMOOTHING_ALPHA, SlicePolicy
 from sim.cell import CellConfig, apply_min_share
 from sim.env import LoadHistory, applied_features, build_observation
@@ -222,8 +223,12 @@ def main() -> None:
     parser.add_argument("--model-label", default=None, help="version label of --policy-file (the RL xApp image's)")
     parser.add_argument("--smoothing-alpha", type=float, default=SERVED_SMOOTHING_ALPHA,
                         help=f"filter on the split; {SMOOTHING_ALPHA} is what training used")
-    parser.add_argument("--baseline", choices=["equal"], default=None,
-                        help="no RL: an equal split unless a direct_share segment is in force (M08 baselines)")
+    parser.add_argument("--baseline", choices=["equal", "formula"], default=None,
+                        help="no RL: 'equal', an equal split unless a direct_share segment is in force (M08 baselines); "
+                             "'formula', LLM + formula's executor (rl.baselines.FormulaPolicy, M09b; on the testbed in M09e)")
+    parser.add_argument("--urllc-base-latency-ms", type=float, default=None,
+                        help="flexric: the URLLC base latency told to the verifier and the formula, instead of "
+                             "cell_info's (M09e tells the M09a calibrated value, as the M09 simulator profile does)")
     parser.add_argument("--ticks", type=int, default=None, help="stop after N ticks (default: run forever)")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--policy-file", type=Path, default=None, help="serve this SB3 file instead of the champion")
@@ -231,20 +236,25 @@ def main() -> None:
     args = parser.parse_args()
 
     alpha = args.smoothing_alpha
-    if args.baseline == "equal":
-        policy, model_version = EqualSplitPolicy(), "baseline: equal split, no RL"
-    else:
-        policy, model_version = load_policy(args.policy_file, alpha)
-    if args.model_label is not None and args.baseline is None:  # a baseline serves no model
-        model_version = args.model_label
     cfg = CellConfig()
     if args.backend == "flexric":
         if "RIC_DB" not in os.environ:  # never the simulator's var/ric.db: the clocks differ
             os.environ["RIC_DB"] = str(DEFAULT_TESTBED_DB)
-        backend = FlexRICBackend(db.connect(timeout_s=0.0), cell_info())
+        info = cell_info()
+        if args.urllc_base_latency_ms is not None:
+            info = dataclasses.replace(info, urllc_base_latency_ms=args.urllc_base_latency_ms)
+        backend = FlexRICBackend(db.connect(timeout_s=0.0), info)
         args.scenario, args.speed = "testbed", 1.0
     else:
         backend = SimBackend(cfg, scenario_traffic(args.scenario, cfg), seed=args.seed, speed=args.speed)
+    if args.baseline == "equal":
+        policy, model_version = EqualSplitPolicy(), "baseline: equal split, no RL"
+    elif args.baseline == "formula":  # the same base latency the verifier is told, as eval.harness does
+        policy, model_version = FormulaPolicy(backend.info().urllc_base_latency_ms), "baseline: LLM + formula, no RL"
+    else:
+        policy, model_version = load_policy(args.policy_file, alpha)
+    if args.model_label is not None and args.baseline is None:  # a baseline serves no model
+        model_version = args.model_label
     setup = db.connect()  # startup may wait for other processes; the loop below never does
     if not args.keep_db:
         clear_run_state(setup)

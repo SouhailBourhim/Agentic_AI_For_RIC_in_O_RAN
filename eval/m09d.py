@@ -72,9 +72,10 @@ HYPOTHESES = (
 # ---------------------------------------------------------------- the guard
 
 
-def guard(register: Path | None = None) -> str:
-    """Refuse unless the set is unspent and the code and the protocol are committed. Returns the commit."""
-    refuse_if_spent(SPENT_NAME, register)
+def guard(register: Path | None = None, name: str = SPENT_NAME) -> str:
+    """Refuse unless the set is unspent and the code and the protocol are committed. Returns the commit.
+    M09e reuses it with its own set name."""
+    refuse_if_spent(name, register)
     revision = commit()
     guard_final(revision)  # code directories (eval/testbed_control.CODE_DIRS)
     if subprocess.run(["git", "status", "--porcelain", "--", "docs/DECISIONS.md"], capture_output=True, text=True,
