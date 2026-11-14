@@ -59,7 +59,7 @@
     {
       "id": 2,
       "type": "stat",
-      "title": "Backend clock",
+      "title": "Backend clock (sim) / last KPM tick (testbed)",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -73,8 +73,14 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "ric_backend_clock_seconds",
-          "legendFormat": "",
+          "expr": "ric_backend_clock_seconds < 1e9",
+          "legendFormat": "simulated time",
+          "instant": true
+        },
+        {
+          "refId": "B",
+          "expr": "time() - (ric_backend_clock_seconds >= 1e9)",
+          "legendFormat": "since last KPM tick",
           "instant": true
         }
       ],
@@ -86,18 +92,54 @@
             "fixedColor": "text"
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 5
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
-        "textMode": "value",
-        "colorMode": "none",
+        "textMode": "value_and_name",
+        "colorMode": "value",
         "graphMode": "none",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
           ]
         }
-      }
+      },
+      "description": "The simulator's clock counts seconds from the episode start; the testbed's is the E2 report's Unix time (~1.8e9 s), so 1e9 separates them. Simulator: simulated time. Testbed: seconds since the last KPM tick, red from 5 s (the eval runs' 'KPM stale' rule); it climbs between runs, which is expected."
     },
     {
       "id": 3,
