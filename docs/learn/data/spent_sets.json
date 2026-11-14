@@ -54,6 +54,12 @@
    "commit": "4dafa66",
    "result_file": "eval/results/m09f/result.json",
    "note": "M09f: pass True, unsafe applied 0"
+  },
+  "goal_test/m10c_test": {
+   "date": "2026-11-14",
+   "commit": "e4aad3b",
+   "result_file": "runs/m10c/test_result.json",
+   "note": "5 models, min_share 0.05"
   }
  }
 }

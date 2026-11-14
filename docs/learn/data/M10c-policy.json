@@ -1,0 +1,12 @@
+{
+ "median_seed": "td3_m10c_seed72",
+ "file": "models/m10c/td3_m10c_seed72.zip",
+ "fallback_to_final_model": true,
+ "validation_reward": {
+  "td3_m10c_seed70": null,
+  "td3_m10c_seed71": null,
+  "td3_m10c_seed72": null,
+  "td3_m10c_seed73": null,
+  "td3_m10c_seed74": 0.03244707425754603
+ }
+}

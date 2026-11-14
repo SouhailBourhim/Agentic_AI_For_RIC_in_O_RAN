@@ -1,0 +1,96 @@
+{
+  "split": "m10c_test",
+  "material_threshold": 0.02,
+  "t1a_min": 0.9,
+  "t1b_min": 0.5,
+  "min_share": 0.05,
+  "models": {
+    "td3_m10c_seed70": {
+      "material_cases": 174,
+      "t1a_share_positive": 0.8218390804597702,
+      "t1b_captured": 0.46005560644481225,
+      "t1a_pass": false,
+      "t1b_pass": false,
+      "reward": 0.10788999866236473,
+      "equal_split_reward": -0.057690581551455115,
+      "t2_pass": true,
+      "pass": false,
+      "original_gap": NaN
+    },
+    "td3_m10c_seed71": {
+      "material_cases": 174,
+      "t1a_share_positive": 0.8505747126436781,
+      "t1b_captured": 0.451242782472718,
+      "t1a_pass": false,
+      "t1b_pass": false,
+      "reward": 0.11255436116338417,
+      "equal_split_reward": -0.057690581551455115,
+      "t2_pass": true,
+      "pass": false,
+      "original_gap": NaN
+    },
+    "td3_m10c_seed72": {
+      "material_cases": 174,
+      "t1a_share_positive": 0.8563218390804598,
+      "t1b_captured": 0.5408289938812109,
+      "t1a_pass": false,
+      "t1b_pass": true,
+      "reward": 0.08543791322210277,
+      "equal_split_reward": -0.057690581551455115,
+      "t2_pass": true,
+      "pass": false,
+      "original_gap": NaN
+    },
+    "td3_m10c_seed73": {
+      "material_cases": 174,
+      "t1a_share_positive": 0.8275862068965517,
+      "t1b_captured": 0.458276008758144,
+      "t1a_pass": false,
+      "t1b_pass": false,
+      "reward": 0.1149979930486838,
+      "equal_split_reward": -0.057690581551455115,
+      "t2_pass": true,
+      "pass": false,
+      "original_gap": NaN
+    },
+    "td3_m10c_seed74_best": {
+      "material_cases": 174,
+      "t1a_share_positive": 0.7931034482758621,
+      "t1b_captured": 0.42334470085055664,
+      "t1a_pass": false,
+      "t1b_pass": false,
+      "reward": 0.09441403191862674,
+      "equal_split_reward": -0.057690581551455115,
+      "t2_pass": true,
+      "pass": false,
+      "original_gap": NaN
+    },
+    "td3_m10c_seed70_best": {
+      "pass": false,
+      "no_checkpoint": true,
+      "t1b_captured": NaN
+    },
+    "td3_m10c_seed71_best": {
+      "pass": false,
+      "no_checkpoint": true,
+      "t1b_captured": NaN
+    },
+    "td3_m10c_seed72_best": {
+      "pass": false,
+      "no_checkpoint": true,
+      "t1b_captured": NaN
+    },
+    "td3_m10c_seed73_best": {
+      "pass": false,
+      "no_checkpoint": true,
+      "t1b_captured": NaN
+    }
+  },
+  "recipes": {
+    "td3_m10c": {
+      "all_pass": false,
+      "mean_t1b": 0.4667496184814883,
+      "seeds": 9
+    }
+  }
+}
