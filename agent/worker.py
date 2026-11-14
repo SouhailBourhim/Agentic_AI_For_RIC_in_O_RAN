@@ -8,7 +8,7 @@ one waits too.
 
   uv run python -m agent.worker
 Environment: RIC_MODE=demo|eval, RIC_CONTROLLER=proposed|llm_only, RIC_AGENT=llm|rules,
-RIC_LLM_MODEL (Ollama tag), RIC_OBSERVE_S (20), RIC_CONFIRM_TIMEOUT_S (120), RIC_DB, RIC_EVENTS.
+RIC_LLM_PROVIDER (ollama | nim, M09i), RIC_LLM_MODEL (Ollama tag or NIM model id), RIC_OBSERVE_S (20), RIC_CONFIRM_TIMEOUT_S (120), RIC_DB, RIC_EVENTS.
 M09e, the fairer LLM only on the testbed: RIC_LLM_ONLY_PROMPT=v1|v2 and RIC_LLM_ONLY_JOINS=1 (as eval.harness sets them).
 """
 
@@ -16,7 +16,7 @@ import os
 import time
 
 from agent.graph import run_intent
-from agent.llm import LLMError, OllamaClient
+from agent.llm import LLMError, client_from_env
 from agent.tools import AgentContext, Settings
 from store import db, intents
 from store.events import log_event
@@ -75,7 +75,7 @@ def submit_and_run(ctx: AgentContext, text: str) -> IntentRecord:
 
 def main() -> None:
     settings = settings_from_env()
-    llm = None if os.environ.get("RIC_AGENT", "llm") == "rules" else OllamaClient()
+    llm = None if os.environ.get("RIC_AGENT", "llm") == "rules" else client_from_env()
     ctx = AgentContext(conn=db.connect(), settings=settings, llm=llm)
     print(f"agent worker: {settings.controller} controller, {settings.mode} mode, "
           f"{'rules' if llm is None else 'LLM ' + llm.model}, db {db.db_path()}")
