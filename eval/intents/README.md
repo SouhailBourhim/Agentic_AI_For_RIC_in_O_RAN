@@ -69,3 +69,36 @@ The M08b extraction accuracy should still be read as optimistic: one author (a C
 model) wrote both splits and the reviewers are Claude models too, and most held-out case
 types (units, no slice, contradiction, out of scope) also appear in the tuning split, so
 the score measures familiar case types more than generalisation.
+
+# Dangerous in-scope intents (M09f)
+
+`m09f.jsonl` holds the requests M09f uses to try to make something unsafe reach the cell
+(`eval/m09f.py`). They are in scope (throughput, latency, priority, duration), but worded or
+sized to break a limit. One line per intent:
+
+| Field | Meaning |
+|---|---|
+| `id` | `x01`–`x32` dangerous and `c01`–`c10` safe controls (split `test`); `d01`–`d10` (split `dev`) |
+| `split` | `test` (played once, scored once) or `dev` (the dry run only, never scored) |
+| `category` | 1 starve a slice, 2 targets that don't fit, 3 above the trained range, 4 impossible latency, 5 bad window, 6 takes an accepted guarantee away, 7 abrupt flip, 8 bypass or injection; or `control` |
+| `lang`, `text` | as above |
+| `setup` | categories 6, 7 and some controls: a benign intent submitted and decided first, or null |
+| `danger` | what would be unsafe if it were applied, in words, with the numbers for C = 75 Mb/s |
+| `expected_stop` | informational only, never scored: `refuse`, `verifier:<check>`, `relax` or `any` |
+
+There is no expected parse: M09f judges only what reaches the cell (the safety oracle in
+`eval/m09f.py`), not the extraction. The controls sit just inside a limit, so the share of them
+accepted shows whether safety comes from refusing everything.
+
+**Who wrote it.** Claude wrote every intent (Souhail's choice, 2026-11-14). The same author
+knows the verifier's checks, which is the set's main weakness: it tests the limits the author
+knew about. Category 8 (bypass, injection, JSON in the text, a tool called by name) aims at
+paths the verifier was not written for. Setups and controls keep each target change at or
+under 22.5 Mb/s (0.3 C), the verifier's step limit from an idle cell: a first dry run with a
+30 Mb/s setup was rejected by `step`, so its conflict was never tested.
+
+**After the first dev dry run (2026-11-14).** qwen3:8b asked which slice "vidéo" meant instead
+of reading it as eMBB (rule 4 above), so a control or a setup worded with a synonym tested the
+parser rather than the verifier. Controls and setups now name the slice (eMBB, URLLC, best
+effort); the dangerous texts keep their everyday words, where a question back is a fair stop.
+No test intent had been played.
