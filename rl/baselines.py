@@ -12,12 +12,39 @@ from collections import deque
 import numpy as np
 
 from sim.cell import smooth_split
-from sim.env import KPI_FEATURES_PER_SLICE, LATENCY_SCALE_MS
+from sim.env import EFFICIENCY_FEATURES, KPI_FEATURES_PER_SLICE, LATENCY_SCALE_MS, OBS_SIZE_WITH_APPLIED
 from verifier.objective import MIN_SLICE_SHARE, SLICES
 
 N_SLICES = len(SLICES)
 PEAK_WINDOW_S = 30  # LLM + formula sizes a bounded URLLC to its peak load over the last 30 s (DECISIONS)
 SIZING_FRACTION = 74.0 / 79.0  # LLM + formula sizes against 74 Mb/s of a cell told 79, as LLM only v2's prompt (DECISIONS)
+# M10b: formula_est's rate estimate, tuned on the even dev indices within a logged budget of 3 revisions
+# (docs/learn/data/M10b-formula-revisions.csv). Rev 1: the average, margin 1 - 74/79; rev 2: the min of latest and
+# average, margin 0.15 (a bound is all or nothing, so under-sizing costs more than over-sizing); rev 3: the same
+# estimate, margin 0.10 + 0.5 x the slice's relative spread (fast channels get more headroom, slow ones less).
+# FROZEN at rev 2, the best of the three on the even half (0.738 against 0.694 and 0.728); budget spent.
+ESTIMATES = ("latest", "ewma", "min")
+FORMULA_EST_ESTIMATE = "min"
+FORMULA_EST_MARGIN = 0.15
+FORMULA_EST_VOLATILITY = 0.0  # extra margin per unit of |latest - average| / average
+MIN_RATE = 1e-3  # a slice's estimated rate never reaches 0 (the tracker holds its last value while idle anyway)
+
+
+def estimated_rates(obs: np.ndarray, estimate: str = FORMULA_EST_ESTIMATE, margin: float = FORMULA_EST_MARGIN,
+                    volatility: float = FORMULA_EST_VOLATILITY) -> np.ndarray:
+    """What one unit of share carries for each slice, as a fraction of the told capacity, from the observation's
+    EfficiencyTracker features (sim/env.py, M10a), less a safety margin. formula_est and mpc_est both size with it.
+
+    estimate: "latest" (the newest measurement, 2-3 s old), "ewma" (the average) or "min" (the more cautious of the
+    two). The margin grows by `volatility` x the relative gap between latest and average: a slice whose channel
+    moves fast gets more headroom."""
+    if obs.shape[-1] < OBS_SIZE_WITH_APPLIED + EFFICIENCY_FEATURES:
+        raise ValueError("estimated_rates needs the 34-value observation with the efficiency features (rl.runner)")
+    latest = obs[OBS_SIZE_WITH_APPLIED:OBS_SIZE_WITH_APPLIED + N_SLICES].astype(np.float64)
+    average = obs[OBS_SIZE_WITH_APPLIED + N_SLICES:OBS_SIZE_WITH_APPLIED + 2 * N_SLICES].astype(np.float64)
+    value = {"latest": latest, "ewma": average, "min": np.minimum(latest, average)}[estimate]
+    spread = np.abs(latest - average) / np.maximum(average, MIN_RATE)
+    return np.maximum(value * (1.0 - margin - volatility * spread), MIN_RATE)
 
 
 class EqualSplitPolicy:
@@ -39,7 +66,7 @@ class FormulaPolicy:
        is the peak of the last PEAK_WINDOW_S seconds, not the current one: the usual sizing for a latency bound
        under bursty load, and the rule LLM only v2's prompt gives the model ("above the highest recent load").
     3. Every need is sized against 74 Mb/s, not the 79 the cell reports: the cell carries 73.5-80.2 Mb/s
-       (M08d, M09a), and a share sized to the load exactly misses "met" on a smaller cell.
+       (M08d, M09a), and a share sized to the load exactly misses "met" on a smaller cell (`rates`).
     4. While URLLC's observed latency is over its bound, it gets all the slack the other needs leave, until
        the queue has drained. The observation clips latency at 1 s, so the queue's size can't be estimated
        from it; giving the slack doesn't need the size.
@@ -57,17 +84,23 @@ class FormulaPolicy:
         self.base_ms = urllc_base_latency_ms
         self.recent_urllc: deque[float] = deque(maxlen=max(PEAK_WINDOW_S, 1))  # one observation per tick (1 s)
 
+    def rates(self, obs: np.ndarray) -> np.ndarray:
+        """What one unit of share carries per slice, as a fraction of the told capacity: here the fixed 74/79 for
+        every slice (step 3). formula_est (M10b) overrides it with a measured estimate."""
+        return np.full(N_SLICES, SIZING_FRACTION)
+
     def shares(self, obs: np.ndarray) -> np.ndarray:
         k = KPI_FEATURES_PER_SLICE * N_SLICES
         loads = obs[0:k:KPI_FEATURES_PER_SLICE].astype(np.float64)
         targets = obs[k + N_SLICES:k + 2 * N_SLICES].astype(np.float64)
         bound_ms = float(obs[k + 2 * N_SLICES]) * LATENCY_SCALE_MS
-        need = np.minimum(targets, loads) / SIZING_FRACTION
+        rate = self.rates(obs)
+        need = np.minimum(targets, loads) / rate
         urllc = SLICES.index("urllc")
         self.recent_urllc.append(float(loads[urllc]))
         if bound_ms > 0:
             peak = max(self.recent_urllc) if PEAK_WINDOW_S > 0 else float(loads[urllc])
-            need[urllc] = peak / max(1.0 - self.base_ms / bound_ms, 1e-3) / SIZING_FRACTION
+            need[urllc] = peak / max(1.0 - self.base_ms / bound_ms, 1e-3) / rate[urllc]
             latency_ms = float(obs[urllc * KPI_FEATURES_PER_SLICE + 2]) * LATENCY_SCALE_MS
             if latency_ms > bound_ms:
                 need[urllc] = max(need[urllc], 1.0 - (need.sum() - need[urllc]))  # all the slack: drain the queue
@@ -82,6 +115,23 @@ class FormulaPolicy:
         rest = np.maximum(loads - need, 0.0)
         extra = (1.0 - need.sum()) * (rest / rest.sum() if rest.sum() > 1e-9 else np.full(N_SLICES, 1.0 / N_SLICES))
         return need + extra
+
+
+class FormulaEstPolicy(FormulaPolicy):
+    """formula_est (M10b): rev 4's rules, but each slice sized on what its PRBs were measured to carry
+    (estimated_rates), instead of the fixed 74/79. Reads only the observation, like rev 4, so it gets exactly the
+    information an RL policy with the efficiency inputs gets. On a cell where every PRB carries the same rate the
+    estimate is the true-to-told capacity ratio, so it also adapts to the 73.5-80.2 Mb/s spread rev 4 sized for."""
+
+    def __init__(self, urllc_base_latency_ms: float, estimate: str = FORMULA_EST_ESTIMATE,
+                 margin: float = FORMULA_EST_MARGIN, volatility: float = FORMULA_EST_VOLATILITY) -> None:
+        super().__init__(urllc_base_latency_ms)
+        if estimate not in ESTIMATES:
+            raise ValueError(f"estimate must be one of {ESTIMATES}, got {estimate!r}")
+        self.estimate, self.margin, self.volatility = estimate, margin, volatility
+
+    def rates(self, obs: np.ndarray) -> np.ndarray:
+        return estimated_rates(obs, self.estimate, self.margin, self.volatility)
 
 
 class SmoothedPolicy:

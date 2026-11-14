@@ -1,0 +1,4 @@
+revision,note,estimate,margin,volatility,met_all,met_f1,met_f2,met_f3,met_f4,met_f5,rev4_all,oracle_all
+1,"EWMA estimate, rev 4's margin (1 - 74/79)",ewma,0.0633,0.0,0.6944,0.7282,0.7788,0.7196,0.5479,0.7539,0.6855,0.8576
+2,"min(latest, EWMA), margin 0.15: a bound is all or nothing, under-sizing costs more",min,0.15,0.0,0.7375,0.7797,0.751,0.7999,0.6028,0.8003,0.6855,0.8576
+3,"min(latest, EWMA), margin 0.10 + 0.5 x |latest-EWMA|/EWMA: headroom where the channel moves",min,0.1,0.5,0.7282,0.7694,0.7286,0.8023,0.5923,0.7958,0.6855,0.8576

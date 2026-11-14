@@ -31,8 +31,8 @@ from agent.tools import AgentContext, Settings
 from agent.worker import process_one
 from backends.sim import DelayedBackend, SimBackend, scenario_traffic
 from eval.scenarios import Scenario, ScenarioIntent
-from eval.oracle import OraclePolicy
-from rl.baselines import EqualSplitPolicy, FormulaPolicy, SmoothedPolicy
+from eval.oracle import FormulaToldPolicy, MpcEstPolicy, OraclePolicy
+from rl.baselines import EqualSplitPolicy, FormulaEstPolicy, FormulaPolicy, SmoothedPolicy
 from rl.policy import SMOOTHING_ALPHA, SlicePolicy
 from rl.runner import Runner
 from sim.cell import CellConfig
@@ -43,6 +43,10 @@ from verifier.objective import SLICES
 
 CONTROLLERS = ("static", "rl_only", "llm_only", "proposed")
 USES_RL = ("rl_only", "proposed", "scripted")  # scripted: the over-serving side study, no LLM
+# M10b: "scripted" with an executor is the LLM-free executor mode. The generator's stated facts go through the real
+# verifier and apply step with the default weights (apply_scripted), and the executor turns the objective into a
+# split. Only "v7" among them needs a policy file; "oracle" reads the cell itself, with no KPI delay (its caller's job).
+EXECUTORS = ("static", "v7", "rev4", "formula_est", "mpc_est", "formula_told", "oracle")
 # M09b's references: "formula" is LLM + formula (the proposed agent, rl.baselines.FormulaPolicy instead of RL);
 # "llm_only_v2" is the fairer LLM only (its revised prompt); "oracle" is the ceiling (eval/oracle.py), no agent.
 # M09g's diagnostic: "formula_a10" is LLM + formula behind the served RL policy's filter (spec.alpha).
@@ -84,18 +88,22 @@ class RunSpec:
     alpha: float = SMOOTHING_ALPHA
     delay_ticks: int = 0
     importance: float | None = None  # scripted runs only: the favoured slice's importance
+    executor: str | None = None  # scripted runs only (M10b): who turns the objective into a split; None = the RL policy
 
     @property
     def run_id(self) -> str:
         variant = f"_a{self.alpha:g}_d{self.delay_ticks}" if self.study == "bridge" else ""
         variant += f"_i{self.importance:g}" if self.importance is not None else ""
+        variant += f"_{self.executor}" if self.executor is not None else ""
         return f"{self.study}/{self.scenario}/{self.controller}{variant}/seed{self.seed}"
 
 
-def apply_scripted(conn: sqlite3.Connection, intent: ScenarioIntent, high: float, now_wall: float) -> None:
+def apply_scripted(conn: sqlite3.Connection, intent: ScenarioIntent, high: float | None, now_wall: float) -> None:
     """The over-serving side study: the objective a plan step with this importance would propose,
-    with no LLM. Verified and applied by the same functions as the agent's."""
-    importance = {s: high if s in intent.targets else OTHER_IMPORTANCE for s in SLICES}
+    with no LLM. Verified and applied by the same functions as the agent's.
+    With high=None (M10b's executor mode) no importance at all: the default weights, as the agent keeps them for a
+    first objective with no stated priority (agent/graph.py keep_default_weights)."""
+    importance = {} if high is None else {s: high if s in intent.targets else OTHER_IMPORTANCE for s in SLICES}
     record = intents.create(conn, intent.text, now_wall, backend_now(conn), state="interpreted")
     log_event("agent", "received", record.intent_id, backend_now(conn), {"text": intent.text})
     ctx = AgentContext(conn=conn, settings=Settings(mode="eval"), llm=None)
@@ -128,6 +136,32 @@ def rebase_event_file(path: Path, clock_offset_s: float) -> None:
                                        ensure_ascii=False) + "\n" for e in events))
 
 
+def needs_policy_file(spec: RunSpec) -> bool:
+    return spec.controller in USES_RL and spec.executor in (None, "v7")
+
+
+def make_policy(spec: RunSpec, backend, scenario: Scenario, cfg: CellConfig, policy_file: Path | None):
+    """What stands where the RL policy stands in the Runner, for this run. The Runner applies its splits."""
+    controller = spec.executor if spec.executor is not None else spec.controller
+    if controller == "v7" or (spec.executor is None and spec.controller in USES_RL):
+        return SlicePolicy.load(policy_file, spec.alpha)
+    if controller in ("formula", "rev4"):
+        return FormulaPolicy(cfg.told_urllc_base_latency_ms)
+    if controller == "formula_a10":
+        return SmoothedPolicy(FormulaPolicy(cfg.told_urllc_base_latency_ms), spec.alpha)
+    if controller == "formula_est":
+        return FormulaEstPolicy(cfg.told_urllc_base_latency_ms)
+    if controller == "mpc_est":  # what a designer knows of the cell: told capacity and URLLC base, measured model
+        return MpcEstPolicy(CellConfig(n_prb=cfg.n_prb, capacity_mbps=cfg.told_capacity_mbps, dt_s=cfg.dt_s,
+                                       base_latency_ms={s: cfg.told_urllc_base_latency_ms for s in SLICES},
+                                       max_backlog_mb=cfg.max_backlog_mb, delay_model=cfg.delay_model))
+    if controller == "formula_told":  # evaluation only, like the oracle: reads the simulated cell
+        return FormulaToldPolicy(backend, cfg)
+    if controller == "oracle":  # evaluation only: reads the simulated cell itself (eval/oracle.py)
+        return OraclePolicy(backend, scenario, cfg)
+    return EqualSplitPolicy()
+
+
 def run_once(spec: RunSpec, scenario: Scenario, work: Path, policy_file: Path | None, llm=None,
              cfg: CellConfig | None = None, traffic: dict | None = None, clock_offset_s: float = 0.0,
              channel: ChannelTrace | None = None) -> Path:
@@ -136,8 +170,10 @@ def run_once(spec: RunSpec, scenario: Scenario, work: Path, policy_file: Path | 
     scenario's own traffic; M09a passes the testbed profile and the testbed's segments instead, and a clock offset
     so the agent reads epoch-like times as on the testbed (the outputs are on the scenario's clock either way).
     `channel` gives each slice's UE a radio channel (M10a, eval.sim_profiles.channel_of); None = as before M10."""
-    if spec.controller in USES_RL and policy_file is None:
+    if needs_policy_file(spec) and policy_file is None:
         raise ValueError(f"{spec.controller} needs a policy file")
+    if spec.executor is not None and (spec.controller != "scripted" or spec.executor not in EXECUTORS):
+        raise ValueError(f"an executor runs under the scripted controller, one of {EXECUTORS}; got {spec}")
     if spec.controller in USES_AGENT and llm is None:
         raise ValueError(f"{spec.controller} needs an LLM")
     work.mkdir(parents=True, exist_ok=True)
@@ -153,16 +189,7 @@ def run_once(spec: RunSpec, scenario: Scenario, work: Path, policy_file: Path | 
         backend = (DelayedBackend(cfg, traffic, spec.seed, spec.delay_ticks, clock_offset_s, channel) if spec.delay_ticks
                    else SimBackend(cfg, traffic, seed=spec.seed, speed=0.0, clock_offset_s=clock_offset_s, channel=channel))
         elapsed = lambda: backend.now() - clock_offset_s  # noqa: E731  the scenario's clock
-        if spec.controller in USES_RL:
-            policy = SlicePolicy.load(policy_file, spec.alpha)
-        elif spec.controller == "formula":
-            policy = FormulaPolicy(cfg.told_urllc_base_latency_ms)
-        elif spec.controller == "formula_a10":
-            policy = SmoothedPolicy(FormulaPolicy(cfg.told_urllc_base_latency_ms), spec.alpha)
-        elif spec.controller == "oracle":  # evaluation only: reads the simulated cell itself (eval/oracle.py)
-            policy = OraclePolicy(backend, scenario, cfg)
-        else:
-            policy = EqualSplitPolicy()
+        policy = make_policy(spec, backend, scenario, cfg, policy_file)
         kpi.write_backend_info(conn, backend.info(), spec.run_id)
         runner = Runner(backend, policy, db.connect(work / "ric.db", timeout_s=0.0), cfg.dt_s)
         waiting = list(scenario.intents)
