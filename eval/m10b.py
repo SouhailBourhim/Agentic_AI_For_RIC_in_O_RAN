@@ -1,7 +1,7 @@
 """M10b: the non-learned executors on the m10 cell, and the two checks that decide whether M10 goes on to train RL.
 
   uv run python -m eval.m10b --tune --revision N --note "what changed"   formula_est on the even dev instances
-  uv run python -m eval.m10b --check [--cell-revision 1]                  all 7 executors on the odd ones, once
+  uv run python -m eval.m10b --check [--cell-revision N]                  all 7 executors on the odd ones, once per cell revision
 
 No LLM and no GPU. Every run is the harness's "scripted" controller with an executor (eval.harness.EXECUTORS): each
 intent's stated facts go through the real verifier and apply step with the default weights, so the objective is the
@@ -12,7 +12,7 @@ same for every executor and only the step from objective to split differs.
   difficulty: the oracle meets >= 0.90 of the window on >= 80 % of the accepted intents;
   headroom: mean over accepted intents of the best any executor got, minus the best non-learned candidate's mean,
   >= 0.05; comparator for M10c: the best candidate, the simpler one within 0.01.
-Raw runs: eval/results/m10b/ (git-ignored). Tables: docs/learn/data/M10b-*.csv.
+Raw runs: eval/results/m10b/ (git-ignored). Tables: docs/learn/data/M10b-*-r<cell revision>.csv and .json.
 """
 
 import argparse
@@ -36,7 +36,7 @@ from rl.runner import SERVED_SMOOTHING_ALPHA
 PROFILE = "m10"
 RESULTS = Path("eval/results/m10b")
 DATA = Path("docs/learn/data")
-REVISIONS_CSV, RUNS_CSV, CHECKS_CSV = (DATA / f"M10b-{n}.csv" for n in ("formula-revisions", "runs", "checks"))
+REVISIONS_CSV = DATA / "M10b-formula-revisions.csv"
 MAX_REVISIONS = 3
 WORKERS = 8  # processes: run_once sets RIC_DB / RIC_EVENTS in its environment, so no threads
 CANDIDATES = ("rev4", "formula_est", "mpc_est")  # simplest first: the tie rule prefers the earlier one
@@ -182,9 +182,10 @@ def check(cell_revision: int) -> None:
     verdicts["estimation"] = paired_interval(rows, "formula_told", "formula_est")
     verdicts["families"] = {e: family_means(rows, e) for e in EXECUTORS}
     verdicts["commit"] = revision
-    write_rows(RUNS_CSV, rows)
-    write_rows(CHECKS_CSV, [{"executor": e, **{k: round(v, 4) for k, v in m.items()}} for e, m in verdicts["families"].items()])
+    write_rows(DATA / f"M10b-runs-r{cell_revision}.csv", rows)  # one pair of tables per cell revision
+    write_rows(DATA / f"M10b-checks-r{cell_revision}.csv", [{"executor": e, **{k: round(v, 4) for k, v in m.items()}} for e, m in verdicts["families"].items()])
     result.write_text(json.dumps(verdicts, indent=1))
+    (DATA / f"M10b-result-r{cell_revision}.json").write_text(json.dumps(verdicts, indent=1))  # committed copy
     print(json.dumps({k: v for k, v in verdicts.items() if k != "families"}, indent=1))
 
 

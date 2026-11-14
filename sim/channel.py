@@ -28,7 +28,9 @@ import numpy as np
 
 from verifier.objective import SLICES
 
-MEAN_SINR_DB = (8.0, 18.0)  # each UE's mean, uniform: cell edge to well inside the cell
+MEAN_SINR_DB = (10.0, 20.0)  # each UE's mean, uniform: cell edge to well inside the cell
+# Cell revision 2 (M10b, DECISIONS 2026-11-14): 8-18 dB at revision 1; the difficulty check failed there (the oracle
+# met >= 0.90 of the window on 57.8 % of intents, rule 80 %), so the pre-registered revision raised the range 2 dB.
 SHADOWING_SIGMA_DB = 6.0  # TR 38.901 Table 7.5-6, UMa NLOS
 DECORRELATION_M = 50.0  # TR 38.901 Table 7.5-6, UMa NLOS
 SPEEDS_KMH = (3.0, 30.0)  # pedestrian or vehicle, one each with probability 1/2
@@ -38,7 +40,7 @@ SINR_MIN_DB = -10.0
 MAX_EFFICIENCY_BPS_HZ = 4.4
 # Mean of spectral_efficiency over MEAN_SINR_DB x N(0, SHADOWING_SIGMA_DB^2), by quadrature (tests/test_m10a.py
 # recomputes it). Change it whenever one of the four values above changes.
-MEAN_EFFICIENCY_BPS_HZ = 2.6427
+MEAN_EFFICIENCY_BPS_HZ = 2.9622  # 2.6427 at cell revision 1 (8-18 dB)
 
 
 def spectral_efficiency(sinr_db: np.ndarray) -> np.ndarray:
