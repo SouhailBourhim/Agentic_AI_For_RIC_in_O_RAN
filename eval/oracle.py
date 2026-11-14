@@ -2,7 +2,8 @@
 
 Evaluation only, never deployed. Every second it:
 1. knows the active intents' stated facts from the moment they're submitted (no parsing, no verifier, no agent);
-2. knows the next 60 seconds' loads exactly (it replays the backend's random generator) and every queue;
+2. knows the next 60 seconds' loads exactly (it replays the backend's random generator) and every queue, and on a
+   cell with a radio channel (M10a) each slice's channel factor over those seconds (the backend's trace);
 3. tries every PRB split on a 0.025 grid (rl.oracle.split_grid), each with the per-slice floor applied as the
    Runner applies it, holds it for those 60 seconds and predicts them with the cell model
    (sim.cell.step_slices_batch);
@@ -49,14 +50,17 @@ def intents_met(intents: list[ScenarioIntent], loads: np.ndarray, out: dict[str,
 
 
 def choose(candidates: np.ndarray, intents: list[ScenarioIntent], loads: np.ndarray, backlog: np.ndarray,
-           base: np.ndarray, cfg: CellConfig, previous: np.ndarray, t: float = 0.0) -> np.ndarray:
-    """The split to apply at time t. loads: (seconds ahead, 3), the exact loads of the horizon, from t on.
+           base: np.ndarray, cfg: CellConfig, previous: np.ndarray, t: float = 0.0,
+           efficiency: np.ndarray | None = None) -> np.ndarray:
+    """The split to apply at time t. loads: (seconds ahead, 3), the exact loads of the horizon, from t on;
+    efficiency: the channel factors over the same seconds (M10a), None = 1.0 everywhere.
     Each candidate is held over the horizon; an intent counts only until its window ends."""
     n = len(candidates)
     met, unmet = np.zeros(n), np.zeros(n)
     queue = np.broadcast_to(backlog, (n, len(SLICES))).copy()
     for k, step_loads in enumerate(loads):
-        out = step_slices_batch(candidates, step_loads, queue, base, cfg)
+        factors = 1.0 if efficiency is None else efficiency[k]
+        out = step_slices_batch(candidates, step_loads, queue, base, cfg, factors)
         live = [i for i in intents if t + k * cfg.dt_s < i.window[1]]
         met += intents_met(live, step_loads, out)
         unmet += np.maximum(step_loads - out["throughput_mbps"], 0.0).sum(axis=1)
@@ -85,5 +89,8 @@ class OraclePolicy:
                           for k in range(round(HORIZON_S / dt))])
         backlog = np.array([self.backend._last[s].backlog_mb for s in SLICES])
         active = [i for i in self.scenario.intents if i.window[0] <= t < i.window[1]]
-        self.previous = choose(self.candidates, active, loads, backlog, self.base, self.cfg, self.previous, t)
+        channel = self.backend.channel
+        efficiency = None if channel is None else np.array([channel.at(t + k * dt) for k in range(len(loads))])
+        self.previous = choose(self.candidates, active, loads, backlog, self.base, self.cfg, self.previous, t,
+                               efficiency)
         return self.previous

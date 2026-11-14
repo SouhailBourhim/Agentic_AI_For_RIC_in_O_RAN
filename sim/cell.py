@@ -1,8 +1,9 @@
 """Cell model: how a PRB share turns into throughput, PRB use and latency for one slice.
 
 Each slice is a "fluid queue": traffic is treated like water poured into a bucket
-(the backlog) and drained at the rate the slice's PRBs allow. No packets, no radio
-channel. Every formula is explained in docs/learn/M01-simulator.md.
+(the backlog) and drained at the rate the slice's PRBs allow. No packets. The radio channel
+is one factor per slice on that rate (M10a, sim/channel.py), 1.0 unless a profile draws one.
+Every formula is explained in docs/learn/M01-simulator.md.
 """
 
 from dataclasses import dataclass, field
@@ -49,7 +50,7 @@ class CellConfig:
 
     @property
     def mbps_per_prb(self) -> float:
-        """Every PRB carries the same rate (simplification: no MCS difference per slice)."""
+        """Every PRB carries the same rate (M01's simplification; M10a's sim/channel.py lifts it per slice)."""
         return self.capacity_mbps / self.n_prb
 
 
@@ -128,17 +129,19 @@ def step_slice(
     backlog_mb: float,
     base_latency_ms: float,
     cfg: CellConfig,
+    efficiency: float = 1.0,
 ) -> SliceStep:
     """Advance one slice by one step (dt seconds).
 
-    1. capacity of the slice = its share of the cell capacity
+    1. capacity of the slice = its share of the cell capacity, times its UE's channel factor (M10a,
+       sim/channel.py; 1.0 everywhere before M10, and x 1.0 is exact, so every earlier run is unchanged)
     2. arrivals during the step = load x dt
     3. served = what is waiting, up to what the PRBs can carry
     4. new backlog = what is left, capped by the buffer (the rest is dropped)
     5. PRB use = served / what the PRBs could have carried
     6. latency = M/M/1 time in system (or the flat base delay) + time to drain the leftover backlog
     """
-    cap_mbps = share * cfg.capacity_mbps
+    cap_mbps = share * cfg.capacity_mbps * efficiency
     arrivals_mb = load_mbps * cfg.dt_s
     waiting_mb = backlog_mb + arrivals_mb
     servable_mb = cap_mbps * cfg.dt_s
@@ -195,14 +198,16 @@ def step_slices_batch(
     backlog_mb: np.ndarray,
     base_latency_ms: np.ndarray,
     cfg: CellConfig,
+    efficiency: np.ndarray | float = 1.0,
 ) -> dict[str, np.ndarray]:
     """step_slice for many candidate splits at once (numpy), used by the oracle (rl/oracle.py).
 
     Inputs broadcast together, e.g. shares (n, 3) against loads (3,). Same six steps and the
     same formulas as step_slice and slice_latency_ms above; a test checks they agree.
+    `efficiency` is each slice's channel factor (3,), as in step_slice.
     Returns arrays "throughput_mbps", "backlog_mb", "latency_ms".
     """
-    cap_mbps = shares * cfg.capacity_mbps
+    cap_mbps = shares * cfg.capacity_mbps * efficiency
     waiting_mb = backlog_mb + loads_mbps * cfg.dt_s
     served_mb = np.minimum(waiting_mb, cap_mbps * cfg.dt_s)
     new_backlog_mb = np.minimum(waiting_mb - served_mb, cfg.max_backlog_mb)

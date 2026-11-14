@@ -6,6 +6,9 @@ What changes against the M01 cell (sim/cell.py's defaults, kept so M01-M08a repr
 - capacity: drawn per seed in the range measured for the study, since the testbed's rate varies with the split;
 - load noise: iperf3's constant rate, almost none.
 The KPIs reach the policy 2 ticks late: that is the backend (backends.sim.DelayedBackend), not the cell.
+
+M10a adds the profile "m10": the same calibrated cell (same capacity per seed, so a seed's run pairs with its m09
+run), plus a radio channel per slice (sim/channel.py), drawn per seed on its own random stream.
 """
 
 import csv
@@ -14,16 +17,20 @@ from pathlib import Path
 import numpy as np
 
 from sim.cell import CellConfig
+from sim.channel import ChannelTrace, sample_channel
 from verifier.objective import SLICES
 
 CALIBRATION = Path("docs/learn/data/M09a-calibration.csv")
 KPI_DELAY_TICKS = 2  # M07b
 # True capacity, uniform per seed: M08c's backlogged seconds (10-90 %), M08d's measurement by split.
-TRUE_CAPACITY_MBPS = {"m08c": (78.2, 84.7), "m08d": (73.5, 80.2), "m09": (73.5, 80.2)}
+TRUE_CAPACITY_MBPS = {"m08c": (78.2, 84.7), "m08d": (73.5, 80.2), "m09": (73.5, 80.2), "m10": (73.5, 80.2)}
 # What each study told the verifier and the policy: capacity, and the URLLC base latency the verifier sized with.
 # M09b on: 79 Mb/s and the calibrated base latency (None = the cell's own), as decided after M09a.
-TOLD = {"m08c": (69.0, 2.0), "m08d": (79.0, 2.0), "m09": (79.0, None)}
+TOLD = {"m08c": (69.0, 2.0), "m08d": (79.0, 2.0), "m09": (79.0, None), "m10": (79.0, None)}
 CAPACITY_STREAM = 9  # a separate random stream, so drawing the capacity doesn't shift the traffic's noise
+CHANNEL_STREAM = 10  # M10a: the channel's own stream, for the same reason, and so the oracle's look-ahead still holds
+CHANNEL_PROFILES = ("m10",)
+CHANNEL_SECONDS = 420  # a 360 s run plus the oracle's 60 s horizon (eval/oracle.py)
 
 
 def calibration(path: Path = CALIBRATION) -> dict[str, float]:
@@ -44,6 +51,13 @@ def testbed_cell(study: str, seed: int, path: Path = CALIBRATION) -> CellConfig:
         reported_capacity_mbps=told_capacity,
         reported_urllc_base_latency_ms=told_urllc_ms,
     )
+
+
+def channel_of(study: str, seed: int, seconds: int = CHANNEL_SECONDS) -> ChannelTrace | None:
+    """This seed's radio channel on a profile that has one (m10), else None (every PRB carries the same rate)."""
+    if study not in CHANNEL_PROFILES:
+        return None
+    return sample_channel(np.random.default_rng([seed, CHANNEL_STREAM]), seconds)
 
 
 def noise_std(path: Path = CALIBRATION) -> float:

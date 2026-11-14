@@ -14,6 +14,7 @@ from collections import deque
 import numpy as np
 
 from sim.cell import CellConfig, SliceStep, step_slice
+from sim.channel import ChannelTrace
 from sim.scenarios import demo_traffic, s1_spike_traffic, s2_steady_traffic, urllc_spike
 from sim.traffic import TrafficPattern, default_traffic
 from store.kpi import CellInfo, KpiRecord
@@ -49,8 +50,12 @@ class SimBackend:
         speed: float = 0.0,
         cell_id: str = "sim-cell-1",
         clock_offset_s: float = 0.0,
+        channel: ChannelTrace | None = None,
     ) -> None:
         self.cfg = cfg or CellConfig()
+        # M10a: each slice's channel factor per second (sim/channel.py), drawn before the run on its own random
+        # stream; None = every PRB carries the same rate, as before M10.
+        self.channel = channel
         self.traffic = traffic or default_traffic(self.cfg.capacity_mbps)
         self.rng = np.random.default_rng(seed)  # same generator type and seeding as gymnasium
         self.speed = speed
@@ -123,6 +128,7 @@ class SimBackend:
     def _tick(self) -> None:
         """One dt of the cell: same steps, same order of random draws as SlicingEnv.step."""
         self._loads = {s: self.traffic[s].load_at(self._time_s, self.rng) for s in SLICES}
+        factors = self.channel.at(self._time_s) if self.channel is not None else None
         self._last = {
             s: step_slice(
                 share=float(self._shares[i]),
@@ -130,6 +136,7 @@ class SimBackend:
                 backlog_mb=self._last[s].backlog_mb,
                 base_latency_ms=self.cfg.base_latency_ms[s],
                 cfg=self.cfg,
+                efficiency=1.0 if factors is None else float(factors[i]),
             )
             for i, s in enumerate(SLICES)
         }
@@ -142,8 +149,8 @@ class DelayedBackend(SimBackend):
     the runner calls apply_prb_split, invariant 4)."""
 
     def __init__(self, cfg: CellConfig, traffic: dict[str, TrafficPattern], seed: int, delay: int,
-                 clock_offset_s: float = 0.0) -> None:
-        super().__init__(cfg, traffic, seed=seed, speed=0.0, clock_offset_s=clock_offset_s)
+                 clock_offset_s: float = 0.0, channel: ChannelTrace | None = None) -> None:
+        super().__init__(cfg, traffic, seed=seed, speed=0.0, clock_offset_s=clock_offset_s, channel=channel)
         self.delay = delay
         self.history: deque = deque(maxlen=delay + 1)
 

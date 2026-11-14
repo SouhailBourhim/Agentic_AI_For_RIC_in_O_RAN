@@ -36,6 +36,7 @@ from rl.baselines import EqualSplitPolicy, FormulaPolicy, SmoothedPolicy
 from rl.policy import SMOOTHING_ALPHA, SlicePolicy
 from rl.runner import Runner
 from sim.cell import CellConfig
+from sim.channel import ChannelTrace
 from store import db, intents, kpi
 from store.events import log_event
 from verifier.objective import SLICES
@@ -128,11 +129,13 @@ def rebase_event_file(path: Path, clock_offset_s: float) -> None:
 
 
 def run_once(spec: RunSpec, scenario: Scenario, work: Path, policy_file: Path | None, llm=None,
-             cfg: CellConfig | None = None, traffic: dict | None = None, clock_offset_s: float = 0.0) -> Path:
+             cfg: CellConfig | None = None, traffic: dict | None = None, clock_offset_s: float = 0.0,
+             channel: ChannelTrace | None = None) -> Path:
     """Play the scenario. Writes kpi.csv, events.jsonl and, last of all, run.json: a run directory
     without run.json did not finish and is played again. `cfg` and `traffic` default to the M01 cell and the
     scenario's own traffic; M09a passes the testbed profile and the testbed's segments instead, and a clock offset
-    so the agent reads epoch-like times as on the testbed (the outputs are on the scenario's clock either way)."""
+    so the agent reads epoch-like times as on the testbed (the outputs are on the scenario's clock either way).
+    `channel` gives each slice's UE a radio channel (M10a, eval.sim_profiles.channel_of); None = as before M10."""
     if spec.controller in USES_RL and policy_file is None:
         raise ValueError(f"{spec.controller} needs a policy file")
     if spec.controller in USES_AGENT and llm is None:
@@ -147,8 +150,8 @@ def run_once(spec: RunSpec, scenario: Scenario, work: Path, policy_file: Path | 
         conn = db.connect(work / "ric.db")
         cfg = cfg or CellConfig()
         traffic = traffic or scenario_traffic(scenario.name, cfg)
-        backend = (DelayedBackend(cfg, traffic, spec.seed, spec.delay_ticks, clock_offset_s) if spec.delay_ticks
-                   else SimBackend(cfg, traffic, seed=spec.seed, speed=0.0, clock_offset_s=clock_offset_s))
+        backend = (DelayedBackend(cfg, traffic, spec.seed, spec.delay_ticks, clock_offset_s, channel) if spec.delay_ticks
+                   else SimBackend(cfg, traffic, seed=spec.seed, speed=0.0, clock_offset_s=clock_offset_s, channel=channel))
         elapsed = lambda: backend.now() - clock_offset_s  # noqa: E731  the scenario's clock
         if spec.controller in USES_RL:
             policy = SlicePolicy.load(policy_file, spec.alpha)

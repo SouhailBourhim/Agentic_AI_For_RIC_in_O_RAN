@@ -18,6 +18,7 @@ import gymnasium as gym
 import numpy as np
 
 from sim.cell import CellConfig, SliceStep, apply_min_share, shares_from_action, smooth_split, step_slice
+from sim.channel import ChannelTrace, sample_channel
 from sim.reward import DEFAULT_REWARD_VERSION, RewardVersion, compute_reward
 from sim.traffic import DEFAULT_SURGE_RANGE, TrafficPattern, sample_traffic
 from verifier.objective import (
@@ -46,6 +47,47 @@ HistoryMode = Literal["off", "on"]
 # as the rest of the KPIs (2 ticks on the testbed), though the controller knows what it applied. 25 -> 28 values.
 APPLIED_FEATURES = len(SLICES)
 OBS_SIZE_WITH_APPLIED = OBS_SIZE_WITH_HISTORY + APPLIED_FEATURES
+# M10a: each slice's measured Mb/s per PRB, relative to what the cell reports, as [latest x 3, average x 3], appended
+# after the applied split (EfficiencyTracker). 28 -> 34 values; a policy trained on fewer reads its prefix.
+EFFICIENCY_FEATURES = 2 * len(SLICES)
+OBS_SIZE_WITH_EFFICIENCY = OBS_SIZE_WITH_APPLIED + EFFICIENCY_FEATURES
+EFFICIENCY_EWMA = 0.2  # weight of the newest measurement in the average: about 5 ticks of memory (frozen with M10a)
+MIN_MEASURED_MBPS = 0.5  # below this a slice sends too little to tell its rate per PRB: keep the last estimate
+
+
+class EfficiencyTracker:
+    """What each slice's PRBs carry, as measured: throughput / (share x PRB use x C), C being what the cell reports.
+
+    1.0 means the slice's PRBs carry what the told capacity says; 0.7 means its UE's channel gives 30 % less
+    (sim/channel.py, M10a). On the calibrated cell it is the true-to-told capacity ratio, the same for all slices.
+    Features, per slice: the latest measurement and an exponential average of them (weight EFFICIENCY_EWMA); the
+    gap between the two shows how fast a slice's channel moves. A slice sending under MIN_MEASURED_MBPS keeps its
+    last values (an idle slice says nothing about its channel). Both start at 1.0: the told capacity.
+
+    Same pattern as LoadHistory: one instance in SlicingEnv, one in the RL runner, both fed the late KPIs the policy
+    reads, so training and deployment compute the same numbers. The non-learned executors of M10b read the same
+    features from the observation, so every controller gets the same information.
+    """
+
+    def __init__(self, ewma: float = EFFICIENCY_EWMA) -> None:
+        self.ewma = ewma
+        self.latest = np.ones(len(SLICES))
+        self.average = np.ones(len(SLICES))
+
+    def reset(self) -> None:
+        self.latest = np.ones(len(SLICES))
+        self.average = np.ones(len(SLICES))
+
+    def update(self, throughput_mbps: Mapping[str, float], shares: Mapping[str, float],
+               prb_used: Mapping[str, float], capacity_mbps: float) -> None:
+        for i, s in enumerate(SLICES):
+            told_mbps = shares[s] * prb_used[s] * capacity_mbps  # what those PRBs carry at the told capacity
+            if throughput_mbps[s] >= MIN_MEASURED_MBPS and told_mbps > 1e-9:
+                self.latest[i] = throughput_mbps[s] / told_mbps
+                self.average[i] = self.ewma * self.latest[i] + (1.0 - self.ewma) * self.average[i]
+
+    def features(self) -> np.ndarray:
+        return np.clip(np.concatenate([self.latest, self.average]), 0.0, OBS_CLIP).astype(np.float32)
 
 
 class LoadHistory:
@@ -192,6 +234,8 @@ class SlicingEnv(gym.Env):
         noise_std: float | None = None,
         applied_split: bool = False,
         switch_cost: float = 0.0,
+        channel: bool = False,
+        efficiency_features: bool = False,
     ) -> None:
         """Training options (all off by default, so evaluation episodes and scripted
         scenarios are unchanged):
@@ -221,9 +265,16 @@ class SlicingEnv(gym.Env):
         - applied_split: append the split applied at the last step, undelayed, after the history (needs history "on",
           so every feature keeps its place: v7 reads 22 values, v8 25, v9 28);
         - switch_cost: the reward's switching cost (sim/reward.py), on the applied split.
+        M10a options (off by default):
+        - channel: each slice's UE gets a radio channel (sim/channel.py), drawn per episode from a generator spawned
+          off the episode's one, so the existing draws (loads, objectives) are the same with or without it.
+          reset(options={"channel": trace}) gives one explicitly, whatever this option says;
+        - efficiency_features: append EfficiencyTracker's 6 features after the applied split (needs applied_split).
         """
         if applied_split and history != "on":
             raise ValueError("applied_split goes after the load history: it needs history='on'")
+        if efficiency_features and not applied_split:
+            raise ValueError("efficiency_features go after the applied split: they need applied_split=True")
         self.base_cfg = cfg or CellConfig()
         self.cfg = self.base_cfg  # this episode's cell: its capacity is redrawn per episode with capacity_range
         self.obs_cfg = CellConfig(capacity_mbps=self.base_cfg.told_capacity_mbps)  # what the policy is told
@@ -237,6 +288,10 @@ class SlicingEnv(gym.Env):
         self.noise_std = noise_std
         self.applied_split = applied_split
         self.switch_cost = switch_cost
+        self.channel = channel
+        self.channel_trace: ChannelTrace | None = None  # this episode's, if any (reset)
+        self.efficiency_features = efficiency_features
+        self.efficiency = EfficiencyTracker()
         self._seen: deque[dict[str, dict[str, float]]] = deque(maxlen=(kpi_delay_range or (0, 0))[1] + 1)
         self.episode_steps = episode_steps
         self.load_scale = load_scale
@@ -247,6 +302,7 @@ class SlicingEnv(gym.Env):
         self.min_share = min_share
         self.action_space = gym.spaces.Box(0.0, 1.0, shape=(len(SLICES),), dtype=np.float32)
         size = OBS_SIZE if history == "off" else (OBS_SIZE_WITH_APPLIED if applied_split else OBS_SIZE_WITH_HISTORY)
+        size = OBS_SIZE_WITH_EFFICIENCY if efficiency_features else size
         self.observation_space = gym.spaces.Box(0.0, OBS_CLIP, shape=(size,), dtype=np.float32)
         # Filled by reset():
         self.objective: RLObjective
@@ -277,6 +333,12 @@ class SlicingEnv(gym.Env):
         )
         if self.kpi_delay_range is not None:
             self.kpi_delay = int(self.np_random.integers(self.kpi_delay_range[0], self.kpi_delay_range[1] + 1))
+        if "channel" in options:
+            self.channel_trace = options["channel"]
+        elif self.channel:  # spawn() draws nothing from the episode's generator: the loads stay the same
+            self.channel_trace = sample_channel(self.np_random.spawn(1)[0], self.episode_steps, self.cfg.dt_s)
+        else:
+            self.channel_trace = None
         self.time_s = 0.0
         self.step_count = 0
         self.shares = np.full(len(SLICES), 1.0 / len(SLICES))
@@ -289,6 +351,7 @@ class SlicingEnv(gym.Env):
         }
         self._seen.clear()
         self.load_history.reset()
+        self.efficiency.reset()
         self._advance_view()
         return self._observation(), self._info()
 
@@ -306,6 +369,7 @@ class SlicingEnv(gym.Env):
         self.previous_shares = self.shares
         self.shares = split if self.min_share is None else apply_min_share(split, self.min_share)
         self.loads = {s: self.traffic[s].load_at(self.time_s, self.np_random) for s in SLICES}
+        factors = self.channel_trace.at(self.time_s) if self.channel_trace is not None else None
         self.last = {
             s: step_slice(
                 share=float(self.shares[i]),
@@ -313,6 +377,7 @@ class SlicingEnv(gym.Env):
                 backlog_mb=self.last[s].backlog_mb,
                 base_latency_ms=self.cfg.base_latency_ms[s],
                 cfg=self.cfg,
+                efficiency=1.0 if factors is None else float(factors[i]),
             )
             for i, s in enumerate(SLICES)
         }
@@ -345,7 +410,9 @@ class SlicingEnv(gym.Env):
             "shares": dict(zip(SLICES, map(float, self.shares))),
             "prb_used": {s: self.last[s].prb_used for s in SLICES},
         })
-        self.load_history.update(self._view()["loads_mbps"])
+        view = self._view()
+        self.load_history.update(view["loads_mbps"])
+        self.efficiency.update(view["throughput_mbps"], view["shares"], view["prb_used"], self.obs_cfg.capacity_mbps)
 
     def _view(self) -> dict[str, dict[str, float]]:
         """The KPIs the policy sees: kpi_delay ticks ago, or the oldest kept at an episode's start."""
@@ -353,13 +420,16 @@ class SlicingEnv(gym.Env):
 
     def _observation(self) -> np.ndarray:
         """5 KPI features per slice, then the 7 objective features (see build_observation),
-        then the load history if the env has it, then the split applied at the last step (M09h)."""
+        then the load history if the env has it, then the split applied at the last step (M09h),
+        then the measured efficiency per slice (M10a)."""
         obs = build_observation(**self._view(), objective=self.objective, cfg=self.obs_cfg)
         if self.history == "off":
             return obs
         parts = [obs, self.load_history.features(self.obs_cfg.capacity_mbps)]
         if self.applied_split:
             parts.append(applied_features(self.shares))
+        if self.efficiency_features:
+            parts.append(self.efficiency.features())
         return np.concatenate(parts).astype(np.float32)
 
     def _info(self) -> dict[str, Any]:

@@ -68,8 +68,14 @@ def option(recipe: str, key: str) -> Any:
     return RECIPES[recipe].get(key, V9_DEFAULTS[key])
 
 
+PROFILES = ("m01", "m09")
+
+
 def cell(profile: str) -> CellConfig:
-    """m09: the calibrated cell, told 79 Mb/s (its true capacity is redrawn per episode); m01: the M01 cell."""
+    """m09: the calibrated cell, told 79 Mb/s (its true capacity is redrawn per episode); m01: the M01 cell.
+    Any other name is an error: it used to fall back to the M01 cell silently (found while planning M10)."""
+    if profile not in PROFILES:
+        raise ValueError(f"unknown profile {profile!r}; known: {PROFILES}")
     return testbed_cell("m09", 0) if profile == "m09" else CellConfig()
 
 
@@ -78,8 +84,9 @@ def env_options(profile: str, history: str) -> dict[str, Any]:
     The goal test always uses ("m09", "on"): every recipe is scored on the cell it will be deployed on, and a
     policy trained without the history reads only its first 22 inputs (rl.policy.SlicePolicy)."""
     calibrated = profile == "m09"
+    cfg = cell(profile)  # refuses an unknown profile before anything else is built
     return {
-        "cfg": cell(profile),
+        "cfg": cfg,
         "capacity_range": TRUE_CAPACITY_MBPS["m09"] if calibrated else None,
         "noise_std": noise_std() if calibrated else None,
         "history": history,

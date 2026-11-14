@@ -298,6 +298,19 @@ general, with the testbed confirming rather than producing the main result:
 
 Then a "claims and evidence" synthesis in the README. Full plan: each checkpoint still starts with its own plan for approval.
 
+## 10. M10: a harder cell, to decide whether RL is needed (decided 2026-11-14)
+
+M09d and M09e agree that LLM + formula beats LLM + RL (0.929 against 0.780). The review (`REVIEW-2026-11-11.md` §3.1) traced it to the cell: linear in PRBs with a known load, so the split is arithmetic. M10 asks the question on a cell where each slice's Mb/s per PRB is unknown and moves. Either answer is a result. Choices left to Claude by Souhail; the reasons are in DECISIONS 2026-11-14.
+
+| # | Delivers | Who runs the long part |
+|---|---|---|
+| M10a ✅ | Profile `m10`: the M09a cell plus a radio channel per slice's UE (3GPP shadowing, TR 36.942 mapping, mean = the told 79 Mb/s); the measured efficiency as 6 new policy inputs; every earlier run replays byte-identical | me |
+| M10b | Fair non-learned executors (`formula_est` sized on the measured efficiency, `mpc_est` a causal look-ahead) in an LLM-free mode; difficulty and headroom checks on dev (tune on even indices, check on odd); one logged revision of the cell, then go or stop; the M10c comparator fixed | me, or Souhail if over 15 min |
+| M10c | One RL arm trained on `m10` (v9_noswitch options + efficiency inputs, alpha 0.25), 5 seeds, median seed; goal test reported, not blocking; pre-registered test on fresh seeds: LLM + RL against LLM + comparator, scored once | Souhail (training ~1.5 h, dev ~2 h, test ~2.5 h) |
+| M10d | Testbed: demand from `DRB.PdcpSduVolumeDL` instead of the iperf3 target; S1 rerun on both sources | Souhail (image rebuild, testbed) |
+
+**M10a done 2026-11-14.** On the even F1a dev instances, formula rev 4 (sized on the told 79 Mb/s) drops from 0.964 to 0.618 intent met when the same instances get a channel. That shows the cell is no longer solved by arithmetic, not that RL can do better: M10b asks that. Note: [learn/M10a-varying-channel.md](learn/M10a-varying-channel.md).
+
 ## 8. Open questions
 
 - ~~**Hard minimum PRB share per slice in the RL runner (discuss in M04a).**~~ **Decided and done (M04a): 5 % per slice, `sim.cell.apply_min_share`, retrained; see docs/learn/M04a-plumbing.md §5 and DECISIONS.md.** The M03 verifier

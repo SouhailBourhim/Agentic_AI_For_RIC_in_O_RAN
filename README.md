@@ -248,6 +248,8 @@ core, gNB, nrUE), **FlexRIC**, C xApps, **Docker**, on WSL2 with an RTX 5070 lap
 | M09e | Testbed confirmation of M09d's predictions, scored once | Done: pass (best 8/8, pairs 23/24); the formula still beats RL on F3 |
 | M09f | Dangerous in-scope intents, scored once | Done: pass, 0 unsafe changes applied in 294 plays; 76/76 dangerous LLM proposals blocked |
 | M09i | Local (qwen3:8b) vs remote (Nemotron 3 Ultra) LLM | Done: same choices, remote parses as well; worse in the loop on free-tier rate limits |
+| M10a | Harder simulated cell: a radio channel per slice, so Mb/s per PRB is unknown and moves | Done: earlier runs replay identically; a formula sized on the told capacity drops 0.96 → 0.62 on F1a (dev) |
+| M10b–d | Fair estimating baselines, RL trained on the new cell and a pre-registered test; testbed demand from PDCP volume | Planned |
 
 </details>
 

@@ -24,7 +24,7 @@ from eval.extraction import score_one
 from eval.generator import FAMILIES, PER_FAMILY, Instance, dev_instances
 from eval.harness import USES_AGENT, RunSpec, run_once
 from eval.metrics import in_window, load_run, measure_run, met_mask, over_bound_after
-from eval.sim_profiles import KPI_DELAY_TICKS, noise_std, testbed_cell
+from eval.sim_profiles import KPI_DELAY_TICKS, channel_of, noise_std, testbed_cell
 from eval.testbed_control import commit, guard_final
 from eval.validate_sim import CLOCK_OFFSET_S, served_policy
 from rl.runner import SERVED_SMOOTHING_ALPHA
@@ -45,8 +45,11 @@ CEILING_MARGIN, CEILING_SHARE = 0.05, 0.05  # beaten by > 0.05 on > 5 % of inten
 BOOTSTRAP = 2000
 
 
-def profile_cell(instance: Instance):
-    return testbed_cell("m09", instance.seed)
+PROFILE = "m09"  # M09b-M09d's cell; M10 plays the same instances on "m10" (a radio channel per slice)
+
+
+def profile_cell(instance: Instance, profile: str = PROFILE):
+    return testbed_cell(profile, instance.seed)
 
 
 def study_of(controller: str, study: str = STUDY) -> str:
@@ -90,9 +93,13 @@ def dropped() -> set[str]:
 # ---------------------------------------------------------------- the runs
 
 
-def play(instance: Instance, controller: str, policy: Path, llm, study: str = STUDY, root: Path = RESULTS) -> Path:
+def play(instance: Instance, controller: str, policy: Path, llm, study: str = STUDY, root: Path = RESULTS,
+         profile: str = PROFILE) -> Path:
+    """One run. A profile other than m09 needs its own `root`: a run's folder doesn't name its profile."""
+    if profile != PROFILE and root == RESULTS:
+        raise ValueError(f"profile {profile!r} must play into its own results root, not {RESULTS}")
     work = work_of(instance, controller, study, root)
-    cell = profile_cell(instance)
+    cell = profile_cell(instance, profile)
     traffic = instance.traffic(noise_std())
     if (work / "run.json").exists():
         return work
@@ -100,7 +107,7 @@ def play(instance: Instance, controller: str, policy: Path, llm, study: str = ST
     spec = RunSpec(study_of(controller, study), instance.name, controller, instance.seed, alpha=SERVED_SMOOTHING_ALPHA,
                    delay_ticks=delay)
     return run_once(spec, instance.scenario(), work, policy, llm if controller in USES_AGENT else None,
-                    cfg=cell, traffic=traffic, clock_offset_s=CLOCK_OFFSET_S)
+                    cfg=cell, traffic=traffic, clock_offset_s=CLOCK_OFFSET_S, channel=channel_of(profile, instance.seed))
 
 
 def play_matrix(families, controllers, limit: int | None, policy_file: Path | None = None, study: str = STUDY) -> None:
