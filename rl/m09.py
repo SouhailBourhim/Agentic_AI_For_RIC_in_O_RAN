@@ -20,6 +20,10 @@ M09h (v9) keeps v8_nooverserve's setting (reward v1) and adds, after the M09g di
 - A6 gamma 0.98 (a ~50-step horizon, past the filter's ~10 s, the 2-tick delay and 5-15 s drains);
 and as its own arm A7, the residual on the formula (rl/residual.py). The dev round is the full v9, one arm per change
 removed, and the residual arm; every key below has a default, so the v8 recipes are unchanged.
+
+M10c' (one recipe, "m10c"): v9_noswitch's options on the m10 cell (a radio channel per slice, M10a, cell revision 2),
+with the measured efficiency in the observation (28 -> 34 values), the filter at alpha 0.25 in training and when served
+(the 0.10 filter lags ~10 s, slower than a 30 km/h UE's ~6 s channel), and its own validation split (m10c_validation).
 """
 
 from typing import Any
@@ -48,7 +52,9 @@ RECIPES: dict[str, dict[str, Any]] = {
 SWITCH_COST = 1.0  # at v7's 2.65 % moved per second, ~11 % of a typical step's reward (~0.24)
 OU_THETA, OU_DT, OU_SIGMA = 0.1, 1.0, 0.1  # x' = 0.9 x + 0.1 N: ~10-step correlation, stationary std 0.23 ([-1, 1] scale)
 V9_GAMMA = 0.98
-V9_DEFAULTS: dict[str, Any] = {"applied": False, "switch_cost": 0.0, "noise": "normal", "gamma": 0.95, "residual": False}
+V9_DEFAULTS: dict[str, Any] = {"applied": False, "switch_cost": 0.0, "noise": "normal", "gamma": 0.95, "residual": False,
+                               "efficiency": False, "alpha": FILTER_ALPHA, "validation": None}  # the last 3: M10c'
+M10C_ALPHA = 0.25
 V9: dict[str, Any] = {"profile": "m09", "reward": "v1", "history": "on",
                       "applied": True, "switch_cost": SWITCH_COST, "noise": "ou", "gamma": V9_GAMMA, "residual": False}
 RECIPES |= {
@@ -59,8 +65,12 @@ RECIPES |= {
     "v9_gamma95": {**V9, "gamma": 0.95},  # A6 off
     "v9_residual": {**V9, "residual": True},  # A7: the residual arm, on top of the full v9
 }
+# M10c': the one recipe trained on the m10 cell.
+RECIPES["m10c"] = {**RECIPES["v9_noswitch"], "profile": "m10", "efficiency": True, "alpha": M10C_ALPHA,
+                   "validation": "m10c_validation"}
 V8_RECIPES = ("v8", "v8_mm1", "v8_nooverserve", "v8_nohistory")
 V9_RECIPES = tuple(r for r in RECIPES if r.startswith("v9"))
+M10_RECIPES = ("m10c",)
 
 
 def option(recipe: str, key: str) -> Any:
@@ -68,33 +78,48 @@ def option(recipe: str, key: str) -> Any:
     return RECIPES[recipe].get(key, V9_DEFAULTS[key])
 
 
-PROFILES = ("m01", "m09")
+PROFILES = ("m01", "m09", "m10")
+CALIBRATED = ("m09", "m10")  # the M09a cell; m10 adds a radio channel per slice (M10a)
+
+
+def strict_checkpoint(recipe: str | None) -> bool:
+    """The M09h checkpoint rule (T1a required, collapse reported) for v9's arms and M10c'."""
+    return recipe in V9_RECIPES or recipe in M10_RECIPES
+
+
+def validation_split(recipe: str) -> str:
+    """The goal-test split a recipe's checkpoints are scored on: its own, else M09h's or M09c's."""
+    return option(recipe, "validation") or ("m10_validation" if recipe in V9_RECIPES else "m09_validation")
 
 
 def cell(profile: str) -> CellConfig:
-    """m09: the calibrated cell, told 79 Mb/s (its true capacity is redrawn per episode); m01: the M01 cell.
+    """m09: the calibrated cell, told 79 Mb/s (its true capacity is redrawn per episode); m10: the same cell (its
+    channel is drawn per episode by SlicingEnv, see env_options); m01: the M01 cell.
     Any other name is an error: it used to fall back to the M01 cell silently (found while planning M10)."""
     if profile not in PROFILES:
         raise ValueError(f"unknown profile {profile!r}; known: {PROFILES}")
-    return testbed_cell("m09", 0) if profile == "m09" else CellConfig()
+    return testbed_cell(profile, 0) if profile in CALIBRATED else CellConfig()
 
 
 def env_options(profile: str, history: str) -> dict[str, Any]:
     """SlicingEnv keyword arguments shared by training and the goal test (not the training-only ones).
     The goal test always uses ("m09", "on"): every recipe is scored on the cell it will be deployed on, and a
     policy trained without the history reads only its first 22 inputs (rl.policy.SlicePolicy)."""
-    calibrated = profile == "m09"
+    calibrated = profile in CALIBRATED
     cfg = cell(profile)  # refuses an unknown profile before anything else is built
     return {
         "cfg": cfg,
-        "capacity_range": TRUE_CAPACITY_MBPS["m09"] if calibrated else None,
+        "capacity_range": TRUE_CAPACITY_MBPS[profile] if calibrated else None,
         "noise_std": noise_std() if calibrated else None,
         "history": history,
+        **({"channel": True} if profile == "m10" else {}),  # a new channel per episode, on a spawned generator
     }
 
 
-def training_options(profile: str, history: str, applied: bool = False, switch_cost: float = 0.0) -> dict[str, Any]:
-    """Everything SlicingEnv gets in M09c/M09h training, on top of rl.train's usual options."""
+def training_options(profile: str, history: str, applied: bool = False, switch_cost: float = 0.0,
+                     efficiency: bool = False) -> dict[str, Any]:
+    """Everything SlicingEnv gets in M09c/M09h/M10c' training, on top of rl.train's usual options."""
     return {**env_options(profile, history), "kpi_delay_range": KPI_DELAY_RANGE, "objective_switch_prob": SWITCH_PROB,
             "expiry_share": EXPIRY_SHARE, "toggle_prob": TOGGLE_PROB,
-            **({"applied_split": True} if applied else {}), **({"switch_cost": switch_cost} if switch_cost else {})}
+            **({"applied_split": True} if applied else {}), **({"switch_cost": switch_cost} if switch_cost else {}),
+            **({"efficiency_features": True} if efficiency else {})}

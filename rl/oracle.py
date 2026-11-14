@@ -79,7 +79,8 @@ class GreedyOracle:
         loads = np.array([env.traffic[s].load_at(env.time_s, rng) for s in SLICES])
         backlog = np.array([env.last[s].backlog_mb for s in SLICES])
         base = np.array([cfg.base_latency_ms[s] for s in SLICES])
-        pred = step_slices_batch(applied, loads, backlog, base, cfg)
+        factors = 1.0 if env.channel_trace is None else env.channel_trace.at(env.time_s)  # M10c': the true channel
+        pred = step_slices_batch(applied, loads, backlog, base, cfg, factors)
         n = len(applied)
         rewards = compute_reward_batch(
             np.repeat(self.weights, n, axis=0), np.repeat(self.targets, n, axis=0),

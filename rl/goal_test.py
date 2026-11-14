@@ -40,6 +40,11 @@ alpha 0.10, 120-step episodes with random and on/off loads). The old sets are sp
 seeds (7000s, 8000s) and the same criteria, scored with reward v2 at the told capacity. m09_test runs
 once, with --final, on the confirmation seeds.
 
+M10c' adds m10c_validation and m10c_test on the m10 cell (M10a's radio channel per slice, cell revision 2), in the
+34-value observation with the measured efficiency, at the recipe's alpha 0.25. Each scenario gets its own channel,
+drawn on its own stream and passed to every rollout of that scenario (rollout resets with seed 0, which would
+otherwise give every case the same channel); the oracle reads it. m10c_test runs once, reported, not blocking.
+
 With min_share (M04a), every rollout (policy, oracle, equal split, reward episodes) runs in an env
 that applies the per-slice PRB floor, as the deployed runner does. Everything else (scenarios,
 objectives, seeds, thresholds) is unchanged. The M04a round is the SECOND use of the test set.
@@ -53,6 +58,7 @@ from pathlib import Path
 
 import numpy as np
 
+from eval.sim_profiles import CHANNEL_STREAM
 from eval.spent import mark_spent, refuse_if_spent
 from mlops import tracking
 from rl.baselines import equal_split, proportional_to_load
@@ -61,6 +67,7 @@ from rl import m09
 from rl.oracle import GreedyOracle
 from rl.policy import SMOOTHING_ALPHA, SlicePolicy
 from sim.cell import CellConfig
+from sim.channel import ChannelTrace, sample_channel
 from sim.env import OBJECTIVE_SLICE, SlicingEnv, objective_arrays, objective_to_vector, sample_objective
 from sim.reward import compute_reward_batch
 from sim.scenarios import urllc_spike
@@ -81,6 +88,9 @@ M09_SEEDS = {"m09_validation": 7000, "m09_test": 8000,  # scenarios +i, objectiv
              "m10_validation": 11000, "m10_test": 12000}  # M09h's fresh seeds: same cases, in v9's 28-value observation
 M10_SPLITS = ("m10_validation", "m10_test")
 M10_RESULT_DIR = Path("runs/m09h")
+M09_SEEDS |= {"m10c_validation": 13000, "m10c_test": 14000}  # M10c': fresh seeds, on the m10 cell
+M10C_SPLITS = ("m10c_validation", "m10c_test")
+M10C_RESULT_DIR = Path("runs/m10c")
 
 CFG = CellConfig()
 C = CFG.capacity_mbps
@@ -145,6 +155,7 @@ class CaseSet:
     scenarios: dict[str, dict[str, TrafficPattern]]
     objectives: dict[str, RLObjective]
     reward_seeds: range
+    channels: dict[str, ChannelTrace] = field(default_factory=dict)  # M10c': per scenario; none = no channel
 
 
 @dataclass(frozen=True)
@@ -163,6 +174,10 @@ M09_SETTING = Setting({**m09.env_options("m09", "on"), "kpi_delay_range": m09.TE
 # M09h: the same cell, with the applied split after the history, as the runner builds it; v7 and v8 read their prefix.
 M10_SETTING = Setting({**M09_SETTING.env, "applied_split": True}, m09.EPISODE_STEPS, m09.FILTER_ALPHA,
                       M09_CELL.told_capacity_mbps)
+# M10c': the m10 cell (a channel per episode), the efficiency after the applied split, scored at the recipe's alpha.
+M10C_SETTING = Setting({**m09.env_options("m10", "on"), "kpi_delay_range": m09.TEST_KPI_DELAY, "applied_split": True,
+                        "efficiency_features": True}, m09.EPISODE_STEPS, m09.option("m10c", "alpha"),
+                       M09_CELL.told_capacity_mbps)
 
 
 def m09_case_set(split: str) -> CaseSet:
@@ -173,7 +188,10 @@ def m09_case_set(split: str) -> CaseSet:
                  for i in range(M09_SCENARIOS)}
     objectives = {f"{split} objective {i}": sample_objective(np.random.default_rng(base + 100 + i), M09_CELL)
                   for i in range(M09_OBJECTIVES)}
-    return CaseSet(split, scenarios, objectives, range(base + 200, base + (250 if split.endswith("_validation") else 300)))
+    channels = ({name: sample_channel(np.random.default_rng([base + i, CHANNEL_STREAM]), m09.EPISODE_STEPS)
+                 for i, name in enumerate(scenarios)} if split in M10C_SPLITS else {})
+    return CaseSet(split, scenarios, objectives, range(base + 200, base + (250 if split.endswith("_validation") else 300)),
+                   channels)
 
 
 def case_set(split: str) -> CaseSet:
@@ -187,6 +205,8 @@ def case_set(split: str) -> CaseSet:
 
 
 def setting_of(split: str) -> Setting:
+    if split in M10C_SPLITS:
+        return M10C_SETTING
     if split in M10_SPLITS:
         return M10_SETTING
     return M09_SETTING if split in M09_SEEDS else Setting()
@@ -197,11 +217,14 @@ def setting_of(split: str) -> Setting:
 
 def rollout(act: Callable[[SlicingEnv, np.ndarray], np.ndarray], traffic: dict[str, TrafficPattern],
             told: RLObjective, reset: Callable[[], None] | None = None,
-            min_share: float | None = None, setting: Setting | None = None) -> dict[str, np.ndarray]:
-    """Run one episode with `told` as the objective in the observation; log the KPIs."""
+            min_share: float | None = None, setting: Setting | None = None,
+            channel: ChannelTrace | None = None) -> dict[str, np.ndarray]:
+    """Run one episode with `told` as the objective in the observation; log the KPIs. `channel`: the scenario's
+    radio channel (M10c'), the same for every objective told, so the paired advantage compares like with like."""
     setting = setting or Setting()
     env = SlicingEnv(episode_steps=setting.steps, min_share=min_share, **setting.env)
-    obs, _ = env.reset(seed=0, options={"objective": told, "traffic": traffic})
+    options = {"objective": told, "traffic": traffic, **({"channel": channel} if channel is not None else {})}
+    obs, _ = env.reset(seed=0, options=options)
     if reset is not None:
         reset()
     log: dict[str, list] = {"thr": [], "load": [], "lat_urllc": [], "share_urllc": []}
@@ -227,7 +250,8 @@ def controller_rollouts(controller: Controller, cases: CaseSet, min_share: float
                         setting: Setting | None = None) -> dict[tuple[str, str], dict[str, np.ndarray]]:
     """One rollout per (scenario, objective told) for an obs -> action controller."""
     reset = getattr(controller, "reset", None)
-    return {(sc, told): rollout(lambda _env, obs: controller(obs), traffic, obj, reset, min_share, setting)
+    return {(sc, told): rollout(lambda _env, obs: controller(obs), traffic, obj, reset, min_share, setting,
+                                cases.channels.get(sc))
             for sc, traffic in cases.scenarios.items() for told, obj in cases.objectives.items()}
 
 
@@ -239,7 +263,8 @@ def oracle_rollouts(cases: CaseSet, min_share: float | None = None,
     for sc, traffic in cases.scenarios.items():
         for told, obj in cases.objectives.items():
             oracle = GreedyOracle(obj, alpha=setting.alpha, min_share=min_share)
-            out[(sc, told)] = rollout(lambda env, _obs: oracle.act(env), traffic, obj, oracle.reset, min_share, setting)  # noqa: B023 (called within this iteration)
+            out[(sc, told)] = rollout(lambda env, _obs: oracle.act(env), traffic, obj, oracle.reset, min_share, setting,  # noqa: B023 (called within this iteration)
+                                      cases.channels.get(sc))
     return out
 
 
@@ -356,10 +381,12 @@ def check(models: list[Path], min_share: float | None = None) -> None:
                   f"T1b {m['t1b_captured']:.2f}  -> {'PASS' if m['t1a_pass'] and m['t1b_pass'] else 'fail'}")
 
 
-FINAL_SPLITS = ("test", "m09_test", "m10_test")  # held out: run once, with --final, on the confirmation seeds
+FINAL_SPLITS = ("test", "m09_test", "m10_test", "m10c_test")  # held out: run once, with --final, on the confirmation seeds
 
 
 def result_dir_of(split: str, min_share: float | None) -> Path:
+    if split in M10C_SPLITS:
+        return M10C_RESULT_DIR
     if split in M10_SPLITS:
         return M10_RESULT_DIR
     if split in M09_SEEDS:
@@ -438,7 +465,8 @@ def main() -> None:
     args = parser.parse_args()
     default = {"validation": "models/m02b/dev/*_best.zip", "test": "models/m02b/confirm/*_best.zip",
                "m09_validation": "models/m09c/dev/*_best.zip", "m09_test": "models/m09c/confirm/*_best.zip",
-               "m10_validation": "models/m09h/dev/*_best.zip", "m10_test": "models/m09h/confirm/*_best.zip"}
+               "m10_validation": "models/m09h/dev/*_best.zip", "m10_test": "models/m09h/confirm/*_best.zip",
+               "m10c_validation": "models/m10c/*_best.zip", "m10c_test": "models/m10c/*_best.zip"}
     pattern = args.models or default.get(args.split or "", "models/m02/*_seed*.zip")
     models = sorted(Path().glob(pattern))
     if args.check:

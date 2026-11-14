@@ -158,9 +158,9 @@ class ValidationCheckpoint(BaseCallback):
         self.path = path
         self.start = start
         # Scored with the same floor as in training; M09c on its own validation split, in its own cell.
-        self.v9 = m09_recipe in m09.V9_RECIPES
+        self.v9 = m09.strict_checkpoint(m09_recipe)  # v9's arms and M10c': T1a required, collapse reported
         self.residual = m09_recipe is not None and m09.option(m09_recipe, "residual")
-        split = "validation" if m09_recipe is None else ("m10_validation" if self.v9 else "m09_validation")
+        split = "validation" if m09_recipe is None else m09.validation_split(m09_recipe)
         self.test = GoalTest(split, min_share)
         self.best_key: tuple[float, float] | None = None
         self.history: list[dict] = []
@@ -255,8 +255,9 @@ def train(
         recipe = m09.RECIPES[m09_recipe]
         v9 = {key: m09.option(m09_recipe, key) for key in m09.V9_DEFAULTS}
         reward_version, episode_steps, filter_in_loop = recipe["reward"], m09.EPISODE_STEPS, True
-        options = {"episode_steps": episode_steps, "action_filter_alpha": m09.FILTER_ALPHA,
-                   **m09.training_options(recipe["profile"], recipe["history"], v9["applied"], v9["switch_cost"])}
+        options = {"episode_steps": episode_steps, "action_filter_alpha": v9["alpha"],
+                   **m09.training_options(recipe["profile"], recipe["history"], v9["applied"], v9["switch_cost"],
+                                          v9["efficiency"])}
         objective_switch_prob = options["objective_switch_prob"]
     cell_env: gym.Env = SlicingEnv(
         load_scale=load_scale,
@@ -278,11 +279,11 @@ def train(
                 "relabel": relabel, "filter_in_loop": filter_in_loop, "surge_max": surge_max,
                 "episode_steps": episode_steps, "reward_version": reward_version, "val_every": val_every,
                 "min_share": min_share, "m09_recipe": m09_recipe,
-                **({} if m09_recipe is None else {**m09.RECIPES[m09_recipe], "filter_alpha": m09.FILTER_ALPHA,
+                **({} if m09_recipe is None else {**m09.RECIPES[m09_recipe], "filter_alpha": v9["alpha"],
                                                   "kpi_delay_range": list(m09.KPI_DELAY_RANGE),
                                                   "expiry_share": m09.EXPIRY_SHARE, "toggle_prob": m09.TOGGLE_PROB}),
                 **HYPERPARAMETERS,
-                **({} if m09_recipe not in m09.V9_RECIPES else
+                **({} if not m09.strict_checkpoint(m09_recipe) else
                    {**v9, "ou": [m09.OU_THETA, m09.OU_DT, m09.OU_SIGMA] if v9["noise"] == "ou" else None})}
     callbacks: list[BaseCallback] = [TrackingCallback()]
     if val_every:

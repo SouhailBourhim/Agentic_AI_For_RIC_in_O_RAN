@@ -8,6 +8,8 @@ Run with:
   uv run python -m rl.sweep m09h-dev                  M09h: 6 v9 arms x 5 seeds, 15 at a time (models/m09h/dev/)
   uv run python -m rl.sweep m09h-median               M09h: each arm's median seed, the one the dev benchmark plays
   uv run python -m rl.sweep m09h-confirm --recipe v9  M09h: 5 fresh seeds of the chosen arm (models/m09h/confirm/)
+  uv run python -m rl.sweep m10c                      M10c': the m10c recipe x 5 seeds, one wave (models/m10c/)
+  uv run python -m rl.sweep m10c-median               M10c': its median seed by validation reward, the policy tested
   add --dry-run to print the commands without running them.
 
 The development round is an ablation: the full recipe, and four versions each missing one
@@ -23,7 +25,7 @@ import time
 from pathlib import Path
 
 from rl.m09 import RECIPES as M09_RECIPES
-from rl.m09 import V8_RECIPES, V9_RECIPES
+from rl.m09 import M10_RECIPES, V8_RECIPES, V9_RECIPES
 
 TIMESTEPS = 400_000
 THREADS = 2  # 15 runs x 2 threads = 30 of the 32 hardware threads
@@ -34,6 +36,7 @@ M09C_DEV_SEEDS = (30, 31, 32)  # M09c (DECISIONS): never used before
 M09C_CONFIRM_SEEDS = (40, 41, 42, 43, 44)
 M09H_DEV_SEEDS = (50, 51, 52, 53, 54)  # M09h (DECISIONS): never used before
 M09H_CONFIRM_SEEDS = (60, 61, 62, 63, 64)
+M10C_SEEDS = (70, 71, 72, 73, 74)  # M10c' (DECISIONS): never used before
 MAX_PARALLEL = 15  # 15 runs x 2 threads = 30 of the 32 hardware threads; the rest wait for a free slot
 # What every M09c recipe keeps from v7's recipe (M04a floor round); the rest is rl/m09.py's setting and recipe.
 M09C_COMMON = {"relabel": 0.8, "surge-max": 5.0, "load-scale": 1.2, "min-share": 0.05}
@@ -107,11 +110,11 @@ def checkpoint_reward(model: Path) -> float | None:
     return max(eligible, key=lambda m: (m["t1b_captured"], m["reward"]))["reward"] if eligible else None
 
 
-def median_seeds(folder: Path = Path("models/m09h/dev")) -> dict[str, Path | None]:
-    """Per v9 arm, the checkpoint of its median seed by validation reward (DECISIONS: an arm is judged by its median
+def median_seeds(folder: Path = Path("models/m09h/dev"), recipes: tuple[str, ...] = V9_RECIPES) -> dict[str, Path | None]:
+    """Per arm, the checkpoint of its median seed by validation reward (DECISIONS: an arm is judged by its median
     seed, not its best). A seed without a checkpoint ranks last; if the median one has none, the arm has no policy."""
     out: dict[str, Path | None] = {}
-    for recipe in V9_RECIPES:
+    for recipe in recipes:
         runs = sorted(folder.glob(f"td3_{recipe}_seed*.zip"))
         runs = [r for r in runs if not r.stem.endswith("_best")]
         if not runs:
@@ -125,7 +128,7 @@ def median_seeds(folder: Path = Path("models/m09h/dev")) -> dict[str, Path | Non
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("round", choices=["dev", "confirm", "m09c-dev", "m09c-confirm", "m09h-dev", "m09h-median",
-                                          "m09h-confirm"])
+                                          "m09h-confirm", "m10c", "m10c-median"])
     parser.add_argument("--recipe", choices=sorted(RECIPES) + sorted(M09_RECIPES), help="the recipe to confirm")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
@@ -137,6 +140,11 @@ def main() -> None:
         launch([(args.recipe, s) for s in M09C_CONFIRM_SEEDS], "m09c/confirm", args.dry_run)
     elif args.round == "m09h-dev":
         launch([(r, s) for r in V9_RECIPES for s in M09H_DEV_SEEDS], "m09h/dev", args.dry_run)
+    elif args.round == "m10c":
+        launch([(r, s) for r in M10_RECIPES for s in M10C_SEEDS], "m10c", args.dry_run)
+    elif args.round == "m10c-median":
+        print(json.dumps({r: str(p) if p else None for r, p in median_seeds(Path("models/m10c"), M10_RECIPES).items()},
+                         indent=1))
     elif args.round == "m09h-median":
         for recipe, path in median_seeds().items():
             print(f"{recipe:14s} " + (f"uv run python -m eval.benchmark --dev --controllers proposed --policy {path} "
