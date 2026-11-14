@@ -110,8 +110,19 @@ comparison to a simulator calibrated against the testbed, with generated scenari
   static 0.664. Every verdict matches the expectation written from dev. The simulator's predictions
   for the 8 testbed instances of M09e are in `learn/data/M09d-predictions.csv`.
 
-Next: a testbed confirmation of M09d's written predictions (M09e), and dangerous in-scope
-intents (M09f). The plan is in
+- **The testbed confirms M09d's predictions, scored once** ([M09e](learn/M09e-testbed-check.md)).
+  M09d's 8 testbed instances (2 each from F1, F2, F3, F5) x static, LLM only v2, LLM + formula, LLM +
+  RL x 2 repeats on OAI gNB + 3 nrUE (rfsim) + FlexRIC + OAI CN5G, 64 runs of 360 s, rules frozen
+  before the night (77bb940). **Pass:** the testbed's best controller is in the predicted best set in
+  8 of 8 instances (rule: 6), and 23 of 24 predicted differences LLM + RL minus another controller
+  hold (rule: 75 %; 16 of 16 without LLM only v2, whose pairs were marked weak). The miss: f3_27 vs
+  LLM only v2, predicted tie, testbed +0.27. On F3 LLM + formula beats LLM + RL on the testbed too
+  (0.89 vs 0.66, 0.82 vs 0.65); LLM + RL's one win, f1_19 vs the formula, is +0.057. 30 of 32 cells
+  fall inside the simulator's [min, max] +/- 0.15 (the 2 outside are LLM only v2). 10 runs replayed
+  once, all for machinery (9 iperf3 results exchanges lost under URLLC overload, 1 UE crash; the
+  validity rule was extended to stopped containers after the night, before scoring).
+
+Next: dangerous in-scope intents (M09f). The plan is in
 [PLAN.md](PLAN.md) §9.
 
 ## Limits to keep in mind

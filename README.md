@@ -109,6 +109,11 @@ benchmark with seven controllers and a simulator calibrated against 72 testbed r
   unverified. **But RL is not what makes it work:** the same agent and verifier with a hand-written
   formula score 0.93 against LLM + RL's 0.78 (over all 265 goals), and an LLM setting the split itself
   holds fast-changing goals better (0.70 against 0.61).
+- **The real cell confirms it** ([M09e](docs/learn/M09e-testbed-check.md)): 8 of the test scenarios,
+  4 controllers, 2 repeats each on OAI + FlexRIC (64 runs, one night), judged against the
+  simulator's predictions written beforehand. **Pass:** the predicted best controller won all 8, and
+  23 of 24 predicted differences held. The negative result carries over too: on fast-changing load the
+  formula beats RL on the real cell as well (0.89 and 0.82 against 0.66 and 0.65).
 - **The open question.** The simulated cell is likely simple enough for arithmetic to be optimal.
   Settling whether RL is needed on a harder, more realistic cell is the next step
   ([review and roadmap](docs/REVIEW-2026-11-11.md)).
@@ -231,7 +236,8 @@ core, gNB, nrUE), **FlexRIC**, C xApps, **Docker**, on WSL2 with an RTX 5070 lap
 | M09g | Diagnostics behind the RL-versus-formula gap | Done |
 | M09h | Policy v9, pre-registered | Done: not confirmed, v7 stays champion |
 | M09d | Pre-registered test-seed result, scored once | Done: P1, P2, P5, P6 pass; P3, P4 fail (the formula beats RL) |
-| M09e / M09f | Testbed confirmation; dangerous intents | Planned |
+| M09e | Testbed confirmation of M09d's predictions, scored once | Done: pass (best 8/8, pairs 23/24); the formula still beats RL on F3 |
+| M09f | Dangerous intents | Planned |
 
 </details>
 
