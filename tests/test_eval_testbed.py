@@ -108,10 +108,25 @@ def test_a_clean_run_is_valid_whatever_it_scored() -> None:
     ([{"event": "xapp_exited"}], {"gnb": 0}, [], "xApp exited"),
     ([{"event": "kpm_stale"}], {"gnb": 0}, [], "stale"),
     ([], {"gnb": 1}, [], "gnb restarted"),
+    ([], {"gnb": T.NOT_RUNNING}, [], "gnb stopped"),
     ([], {"gnb": 0}, ["seg0_embb.json: no iperf3 result"], "no iperf3"),
 ])
 def test_each_invalid_case(events, after, errors, expected) -> None:
     assert expected in " ".join(T.problems(events, {"gnb": 0}, after, errors))
+
+
+@pytest.mark.parametrize("inspect_out, returncode, expected", [
+    ("2 true\n", 0, 2),
+    ("0 false\n", 0, T.NOT_RUNNING),  # exited without a restart: the M09e BE UE crash, 2026-11-14
+    ("", 1, T.NOT_RUNNING),  # no such container
+])
+def test_a_stopped_container_is_not_running(monkeypatch, inspect_out, returncode, expected) -> None:
+    def fake_run(cmd, **_):
+        assert cmd[:4] == ["docker", "inspect", "-f", "{{.RestartCount}} {{.State.Running}}"]
+        return T.subprocess.CompletedProcess(cmd, returncode, inspect_out, "")
+
+    monkeypatch.setattr(T.subprocess, "run", fake_run)
+    assert set(T.restart_counts().values()) == {expected}
 
 
 def test_iperf_failures_and_received_rate(tmp_path) -> None:

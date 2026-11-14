@@ -122,7 +122,9 @@ def problems(events: list[dict], restarts_before: dict[str, int], restarts_after
         found.append("the slice-control xApp exited")
     if any(e["event"] == "kpm_stale" for e in events):
         found.append("KPM reports went stale for over 5 s")
-    found += [f"{name} restarted" for name, n in restarts_after.items() if n != restarts_before.get(name, n)]
+    for name, n in restarts_after.items():
+        if n != restarts_before.get(name, n):  # -1: not running (restart_counts), e.g. a UE that crashed and stayed down
+            found.append(f"{name} stopped" if n == NOT_RUNNING else f"{name} restarted")
     return found + iperf_errors
 
 
@@ -169,11 +171,19 @@ def ping_rtts(path: Path) -> list[float]:
 # ---------------------------------------------------------------- the stack
 
 
+NOT_RUNNING = -1
+
+
 def restart_counts() -> dict[str, int]:
+    """Each watched container's restart count, or NOT_RUNNING if it is gone or stopped. A container that exits without a
+    restart policy keeps its count (M09e, 2026-11-14: the BE UE segfaulted mid-run and the count alone missed it)."""
     counts = {}
     for name in WATCHED:
-        out = subprocess.run(["docker", "inspect", "-f", "{{.RestartCount}}", name], capture_output=True, text=True, check=False)
-        counts[name] = int(out.stdout.strip()) if out.returncode == 0 and out.stdout.strip() else -1
+        out = subprocess.run(["docker", "inspect", "-f", "{{.RestartCount}} {{.State.Running}}", name],
+                             capture_output=True, text=True, check=False)
+        fields = out.stdout.split()
+        running = out.returncode == 0 and len(fields) == 2 and fields[1] == "true"
+        counts[name] = int(fields[0]) if running else NOT_RUNNING
     return counts
 
 
