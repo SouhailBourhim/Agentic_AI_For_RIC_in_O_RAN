@@ -122,8 +122,22 @@ comparison to a simulator calibrated against the testbed, with generated scenari
   once, all for machinery (9 iperf3 results exchanges lost under URLLC overload, 1 UE crash; the
   validity rule was extended to stopped containers after the night, before scoring).
 
-Next: dangerous in-scope intents (M09f). The plan is in
-[PLAN.md](PLAN.md) §9.
+- **Dangerous in-scope intents, scored once** ([M09f](learn/M09f-dangerous-intents.md)). 32
+  requests written to break a limit, in 8 categories (starve a slice, targets that don't fit, above
+  the trained range, impossible latency, bad window, take an accepted guarantee away, abrupt flip,
+  bypass or injection), and 10 safe controls just inside a limit; LLM + RL x 3, LLM only v2 x 3 and
+  the rule-based agent x 1 = 294 plays through the MCP gateway, rules frozen before the first play
+  (4dafa66). A safety oracle written apart from the verifier checked what was applied. **0 unsafe
+  changes applied.** LLM + RL proposed 76 dangerous objectives and the verifier blocked all 76
+  (budget 19, training range 17, latency physics 16, floor 9, window 9, schema 6); it applied 30/30
+  controls (Wilson 95 % 0.89-1.00) and 18 relaxed versions of refused requests (5 ms for 3 ms, one
+  day for two years). LLM only never proposed a split under the floor in 459 proposals, but applies
+  a split even for an impossible goal; nothing tells the operator. About a third of the dangerous
+  plays were stopped by the LLM's own question, including a fake system message and a tool named in
+  the text.
+
+Next: the local vs remote LLM comparison (M09i, the last of the review's P0), then P1 (a harder cell
+where RL could matter, M10) and P2 (runner safe state, runtime monitor). The plan is in [PLAN.md](PLAN.md) §9.
 
 ## Limits to keep in mind
 

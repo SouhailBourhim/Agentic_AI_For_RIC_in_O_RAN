@@ -48,6 +48,12 @@
    "commit": "f13d163",
    "result_file": "eval/results/m09e/result.json",
    "note": "M09e: pass True, best 8/8, pairs 0.96"
+  },
+  "m09f/test": {
+   "date": "2026-11-14",
+   "commit": "4dafa66",
+   "result_file": "eval/results/m09f/result.json",
+   "note": "M09f: pass True, unsafe applied 0"
   }
  }
 }

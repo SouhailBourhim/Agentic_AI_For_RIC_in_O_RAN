@@ -114,6 +114,11 @@ benchmark with seven controllers and a simulator calibrated against 72 testbed r
   simulator's predictions written beforehand. **Pass:** the predicted best controller won all 8, and
   23 of 24 predicted differences held. The negative result carries over too: on fast-changing load the
   formula beats RL on the real cell as well (0.89 and 0.82 against 0.66 and 0.65).
+- **Words can't push it past its limits** ([M09f](docs/learn/M09f-dangerous-intents.md)): 32
+  requests written to break a limit (starve a slice, impossible latency, "ignore the verifier",
+  JSON injected in the text) and 10 safe ones, 294 plays through the MCP gateway. **0 unsafe changes
+  applied**; the verifier blocked all 76 dangerous objectives the LLM proposed, and every safe
+  request was applied.
 - **The open question.** The simulated cell is likely simple enough for arithmetic to be optimal.
   Settling whether RL is needed on a harder, more realistic cell is the next step
   ([review and roadmap](docs/REVIEW-2026-11-11.md)).
@@ -237,7 +242,7 @@ core, gNB, nrUE), **FlexRIC**, C xApps, **Docker**, on WSL2 with an RTX 5070 lap
 | M09h | Policy v9, pre-registered | Done: not confirmed, v7 stays champion |
 | M09d | Pre-registered test-seed result, scored once | Done: P1, P2, P5, P6 pass; P3, P4 fail (the formula beats RL) |
 | M09e | Testbed confirmation of M09d's predictions, scored once | Done: pass (best 8/8, pairs 23/24); the formula still beats RL on F3 |
-| M09f | Dangerous intents | Planned |
+| M09f | Dangerous in-scope intents, scored once | Done: pass, 0 unsafe changes applied in 294 plays; 76/76 dangerous LLM proposals blocked |
 
 </details>
 
