@@ -1,0 +1,9 @@
+instance,predicted_best,testbed_best,match,static,llm_only_v2,formula,proposed
+f1_19,proposed,proposed,True,0.191,0.533,0.831,0.888
+f1_38,formula proposed,formula proposed,True,0.504,0.878,1.0,1.0
+f2_34,formula llm_only_v2 proposed static,formula llm_only_v2 proposed static,True,1.0,1.0,1.0,1.0
+f2_38,formula llm_only_v2 proposed static,formula llm_only_v2 proposed static,True,1.0,1.0,1.0,1.0
+f3_03,formula,formula,True,0.306,0.352,0.893,0.658
+f3_27,formula,formula,True,0.326,0.381,0.82,0.651
+f5_02,formula llm_only_v2 proposed static,formula llm_only_v2 proposed static,True,1.0,1.0,1.0,1.0
+f5_31,formula llm_only_v2 proposed static,llm_only_v2 static,True,1.0,1.0,0.99,0.992

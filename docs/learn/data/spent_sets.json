@@ -42,6 +42,12 @@
    "commit": "cbdc1ae",
    "result_file": "eval/results/m09d/result.json",
    "note": "M09d, v7: P1 True, P2 True, P3 False, P4 False, P5 True, P6a True, P6c True"
+  },
+  "m09e/testbed": {
+   "date": "2026-11-14",
+   "commit": "f13d163",
+   "result_file": "eval/results/m09e/result.json",
+   "note": "M09e: pass True, best 8/8, pairs 0.96"
   }
  }
 }
