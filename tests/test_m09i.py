@@ -55,3 +55,29 @@ def test_energy_is_the_integral_of_power_over_time() -> None:
     assert meter.wh() == pytest.approx(50.0 + 100.0)
     meter.samples = [(0.0, 50.0)]
     assert meter.wh() == 0.0
+
+
+def event(kind: str, t: float | None, iid: str = "i0001", **data) -> dict:
+    return {"event": kind, "ts_backend": t, "intent_id": iid, "data": data}
+
+
+def test_the_decision_delay_runs_from_arrival_to_the_first_change() -> None:
+    events = [event("received", 30.0, text="A"), event("received", 40.0, "i0002", text="B"),
+              event("applied", 49.0), event("applied", 70.0), event("shares_applied", 44.0, "i0002")]
+    assert I.decision_s(events, "A") == 19.0 and I.decision_s(events, "B") == 4.0
+    assert I.decision_s(events, "C") == ""  # never received: blank, not 0
+
+
+def test_the_applied_objective_is_compared_in_one_canonical_form() -> None:
+    def act(args: dict, accepted: bool = True) -> dict:
+        return event("agent_step", 32.0, node="act", tool="set_rl_objective", arguments=args,
+                     verifier={"accepted": accepted})
+    local = [event("received", 30.0, text="A"), act({"duration_s": 300, "min_thr_mbps": {"embb": 16}})]
+    remote = [event("received", 30.0, text="A"), act({"duration_s": "999"}, accepted=False),
+              act({"duration_s": "300.0", "max_latency_ms": None, "min_thr_mbps": {"embb": 16.0, "be": None}})]
+    assert I.applied_objective(local, "A") == I.applied_objective(remote, "A") != ""
+    rows = [{"model": m, "controller": "proposed", "instance": "x", "intent": 0, "objective": I.applied_objective(ev, "A")}
+            for m, ev in ((I.LOCAL, local), (I.REMOTE, remote))]
+    assert I.same_objectives(rows) == (1, 1)
+    rows[1]["objective"] = I.applied_objective([event("received", 30.0, text="A"), act({"duration_s": 240})], "A")
+    assert I.same_objectives(rows) == (0, 1)

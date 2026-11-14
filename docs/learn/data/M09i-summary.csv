@@ -1,0 +1,12 @@
+part,model,split_or_controller,value,low_95,high_95,what,latency_median_s,tokens_per_call,calls_per_run,decision_median_s,decision_max_s
+parse,qwen3_8b,tune,1.0,0.963,1.0,"intents right, 5 repeats",0.96,787.5,,,
+parse,qwen3_8b,heldout,0.95,0.8882,0.9785,"intents right, 5 repeats",0.969,787.8,,,
+loop,qwen3_8b,proposed,0.8034,,,"mean intent met, 37 intents in 25 runs",1.115,700.8,5.2,4.0,11.0
+loop,qwen3_8b,llm_only_v2,0.856,,,"mean intent met, 37 intents in 25 runs",1.025,1456.2,15.2,4.0,5.0
+parse,nemotron_3_ultra,tune,1.0,0.963,1.0,"intents right, 5 repeats",1.573,808.1,,,
+parse,nemotron_3_ultra,heldout,1.0,0.963,1.0,"intents right, 5 repeats",2.382,807.9,,,
+loop,nemotron_3_ultra,proposed,0.7504,,,"mean intent met, 37 intents in 25 runs",4.475,847.4,5.2,19.0,128.0
+loop,nemotron_3_ultra,llm_only_v2,0.6938,,,"mean intent met, 37 intents in 25 runs",4.17,1547.6,9.0,43.0,114.0
+"loop, remote minus local",nemotron_3_ultra - qwen3_8b,proposed,-0.053,-0.0958,-0.0117,"paired intent met, cluster bootstrap over 25 instances",,,,,
+"loop, remote minus local",nemotron_3_ultra - qwen3_8b,llm_only_v2,-0.1622,-0.2571,-0.0732,"paired intent met, cluster bootstrap over 25 instances",,,,,
+"loop, same objective applied",nemotron_3_ultra = qwen3_8b,proposed,1.0,,,"37 of 37 intents: the first accepted objective, compared",,,,,

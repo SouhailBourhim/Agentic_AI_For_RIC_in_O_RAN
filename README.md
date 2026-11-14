@@ -119,14 +119,18 @@ benchmark with seven controllers and a simulator calibrated against 72 testbed r
   JSON injected in the text) and 10 safe ones, 294 plays through the MCP gateway. **0 unsafe changes
   applied**; the verifier blocked all 76 dangerous objectives the LLM proposed, and every safe
   request was applied.
+- **A bigger remote LLM doesn't help here** ([M09i](docs/learn/M09i-local-vs-remote.md)): Nemotron 3
+  Ultra (550B, NVIDIA NIM free tier) against the laptop's qwen3:8b on the same intents. It parses at
+  least as well (100 % against 95 % held-out) and chose the same objective on all 37 LLM + RL goals,
+  but loses in the loop (−5 points of goal met with LLM + RL, −16 with LLM only) because the free
+  tier's rate limit delayed a third of its calls. A small local model is enough for this job.
 - **The open question.** The simulated cell is likely simple enough for arithmetic to be optimal.
   Settling whether RL is needed on a harder, more realistic cell is the next step
   ([review and roadmap](docs/REVIEW-2026-11-11.md)).
 - **Limits.** One cell, simulated radio channel, one phone per slice, delay measured at the radio
   link layer (not end to end). On the real cell, the controller is told each slice's offered
   traffic rate by the traffic script, because the base station doesn't report it.
-- **Still to run:** the test result's confirmation on the real cell (its predictions are written),
-  a set of dangerous-but-valid requests, and a local-versus-cloud LLM comparison.
+- **Next:** a harder cell where RL could matter, with fair baselines (the review's P1).
 
 ## What this project demonstrates
 
@@ -243,6 +247,7 @@ core, gNB, nrUE), **FlexRIC**, C xApps, **Docker**, on WSL2 with an RTX 5070 lap
 | M09d | Pre-registered test-seed result, scored once | Done: P1, P2, P5, P6 pass; P3, P4 fail (the formula beats RL) |
 | M09e | Testbed confirmation of M09d's predictions, scored once | Done: pass (best 8/8, pairs 23/24); the formula still beats RL on F3 |
 | M09f | Dangerous in-scope intents, scored once | Done: pass, 0 unsafe changes applied in 294 plays; 76/76 dangerous LLM proposals blocked |
+| M09i | Local (qwen3:8b) vs remote (Nemotron 3 Ultra) LLM | Done: same choices, remote parses as well; worse in the loop on free-tier rate limits |
 
 </details>
 

@@ -136,7 +136,19 @@ comparison to a simulator calibrated against the testbed, with generated scenari
   plays were stopped by the LLM's own question, including a fake system message and a tool named in
   the text.
 
-Next: the local vs remote LLM comparison (M09i, the last of the review's P0), then P1 (a harder cell
+- **Local vs remote LLM** ([M09i](learn/M09i-local-vs-remote.md)). qwen3:8b on the laptop
+  against Nemotron 3 Ultra (550B, 55B active) on NVIDIA NIM's free tier, the same prompts (tuned
+  for qwen3:8b) and the same agent. Parse step, 40 annotated intents x 5 repeats: both 100 % on the
+  tune split; held-out 100 % against 95 % (qwen3:8b misses h08 every time; the Wilson intervals
+  overlap). Closed loop, 25 dev instances, remote minus local intent met: **LLM + RL −5.3 points
+  [−9.6, −1.2], LLM only v2 −16.2 [−25.7, −7.3]**. Not worse choices: with LLM + RL both models
+  applied the same objective on 37 of 37 intents. 31.6 % of the remote calls waited out
+  rate-limit retries (up to 94 s), the harness charges that time to the cell, and the 6 intents
+  applied a minute or more late carry 90 % of the loss. Calls without long waits: median 2.7 s
+  against 1.0 s. At list price the remote model would cost $1.95 per 1,000 intents with LLM + RL;
+  €0 was paid. Local GPU energy: about 0.1 Wh per intent above idle.
+
+Next: P1 (a harder cell
 where RL could matter, M10) and P2 (runner safe state, runtime monitor). The plan is in [PLAN.md](PLAN.md) §9.
 
 ## Limits to keep in mind

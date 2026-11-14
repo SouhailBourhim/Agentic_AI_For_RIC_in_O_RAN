@@ -41,7 +41,7 @@ from eval.validate_sim import served_policy
 
 RESULTS = Path("eval/results/m09i")
 DATA = Path("docs/learn/data")
-EXTRACTION_CSV, RUNS_CSV, SUMMARY_CSV = (DATA / f"M09i-{n}.csv" for n in ("extraction", "runs", "summary"))
+EXTRACTION_CSV, RUNS_CSV, STEPS_CSV, SUMMARY_CSV = (DATA / f"M09i-{n}.csv" for n in ("extraction", "runs", "steps", "summary"))
 MODELS = {"qwen3_8b": ("ollama", "qwen3:8b"), "nemotron_3_ultra": ("nim", NIM_MODEL)}  # name: (provider, model id)
 # Both answer without a reasoning trace: qwen3:8b with Ollama's think=false (agent.llm), Nemotron with this switch
 # (checked 2026-11-14: same parse, 1.1 s instead of 3.7 s; left on, it wrote ~1,750 tokens per LLM-only call).
@@ -205,6 +205,66 @@ def extraction_rows() -> list[dict]:
     return rows
 
 
+def intent_ids(events: list[dict], text: str) -> list[str]:
+    return [e["intent_id"] for e in events if e["event"] == "received" and e["data"].get("text") == text]
+
+
+def decision_s(events: list[dict], text: str) -> float | str:
+    """Simulated seconds from the intent's arrival to the first change applied for it (an objective, or LLM only's split).
+
+    The harness charges each LLM call's latency to the simulated clock, so this is where a slow model shows.
+    """
+    ids = intent_ids(events, text)
+    arrived = [e["ts_backend"] for e in events if e["event"] == "received" and e["intent_id"] in ids]
+    applied = [e["ts_backend"] for e in events if e["event"] in ("applied", "shares_applied") and e["intent_id"] in ids]
+    return round(applied[0] - arrived[0], 1) if arrived and applied else ""
+
+
+def applied_objective(events: list[dict], text: str) -> str:
+    """The first objective the verifier accepted for this intent, numbers as floats (LLM + RL only; '' otherwise).
+
+    Written in one canonical form so two models' choices compare as text: Nemotron sends some numbers as strings
+    ("300.0") and leaves out empty slices, which the schema reads the same way.
+    """
+    ids = intent_ids(events, text)
+    for e in events:
+        d = e["data"]
+        if (e["event"] == "agent_step" and e["intent_id"] in ids and d.get("node") == "act"
+                and d.get("tool") == "set_rl_objective" and d.get("verifier", {}).get("accepted")):
+            args = d["arguments"]
+
+            def num(v):
+                return None if v is None else float(v)
+            canon = {"duration_s": num(args.get("duration_s")), "max_latency_ms": num(args.get("max_latency_ms")),
+                     "min_thr_mbps": {s: float(v) for s, v in sorted((args.get("min_thr_mbps") or {}).items()) if v is not None}}
+            return json.dumps(canon, sort_keys=True)
+    return ""
+
+
+def step_rows() -> list[dict]:
+    """Every timed LLM call of the closed loop, with its latency (retry waits included: the agent waited for them)."""
+    rows = []
+    for name in MODELS:
+        for inst in sample():
+            for controller in CONTROLLERS:
+                work = work_dir(inst, controller, name)
+                if not (work / "m09i.json").exists():
+                    continue
+                for e in load_run(work)[1]:
+                    if e["event"] == "agent_step" and e["data"].get("latency_s"):
+                        rows.append({"model": name, "controller": controller, "instance": inst.name,
+                                     "node": e["data"].get("node", ""), "latency_s": e["data"]["latency_s"]})
+    return rows
+
+
+def same_objectives(loop_rows: list[dict]) -> tuple[int, int]:
+    """LLM + RL: on how many intents both models had the same objective applied, of those both applied."""
+    chosen = {(r["model"], r["instance"], r["intent"]): r["objective"] for r in loop_rows if r["controller"] == "proposed"}
+    pairs = [(chosen[(LOCAL, i, k)], o) for (m, i, k), o in chosen.items()
+             if m == REMOTE and (LOCAL, i, k) in chosen and o and chosen[(LOCAL, i, k)]]
+    return sum(a == b for a, b in pairs), len(pairs)
+
+
 def run_rows() -> list[dict]:
     """One row per run and intent, measured as every simulator run is (eval.metrics), with the run's LLM usage."""
     rows = []
@@ -219,9 +279,10 @@ def run_rows() -> list[dict]:
                 events = load_run(work)[1]
                 steps = [e["data"] for e in events if e["event"] == "agent_step" and e["data"].get("latency_s")]
                 net_wh = (side["gpu_wh"] - side["idle_w"] * side["wall_s"] / 3600) if side["gpu_wh"] is not None else ""
-                for intent, row in zip(inst.intents, measured["intents"], strict=True):
+                for k, (intent, row) in enumerate(zip(inst.intents, measured["intents"], strict=True)):
                     rows.append({"model": name, "family": inst.family, "instance": inst.name, "controller": controller,
-                                 "intent_met": row["intent_met"], "reaction_s": row.get("reaction_s", ""),
+                                 "intent": k, "intent_met": row["intent_met"], "reaction_s": row.get("reaction_s", ""),
+                                 "decision_s": decision_s(events, intent.text), "objective": applied_objective(events, intent.text),
                                  "outcome": outcome_of(events, intent.text), "intents_in_run": len(inst.intents),
                                  "calls": side["usage"]["calls"], "prompt_tokens": side["usage"]["prompt_tokens"],
                                  "completion_tokens": side["usage"]["completion_tokens"], "llm_s": side["usage"]["seconds"],
@@ -275,14 +336,25 @@ def summary(ex_rows: list[dict], loop_rows: list[dict]) -> list[dict]:
                                                                    if r["step_latency_median_s"] != ""] or [0])), 3),
                         "tokens_per_call": round(sum(r["prompt_tokens"] + r["completion_tokens"] for r in runs.values())
                                                  / max(1, sum(r["calls"] for r in runs.values())), 1),
-                        "calls_per_run": round(float(np.mean([r["calls"] for r in runs.values()])), 1)})
+                        "calls_per_run": round(float(np.mean([r["calls"] for r in runs.values()])), 1),
+                        "decision_median_s": median_or_blank([r["decision_s"] for r in mine]),
+                        "decision_max_s": max([r["decision_s"] for r in mine if r["decision_s"] != ""], default="")})
     for controller in CONTROLLERS:
         diff = paired(loop_rows, controller)
         if diff:
             out.append({"part": "loop, remote minus local", "model": f"{REMOTE} - {LOCAL}", "split_or_controller": controller,
                         "value": diff["mean_diff"], "low_95": diff["low_95"], "high_95": diff["high_95"],
                         "what": f"paired intent met, cluster bootstrap over {diff['instances']} instances"})
+    same, both = same_objectives(loop_rows)
+    if both:
+        out.append({"part": "loop, same objective applied", "model": f"{REMOTE} = {LOCAL}", "split_or_controller": "proposed",
+                    "value": round(same / both, 4), "what": f"{same} of {both} intents: the first accepted objective, compared"})
     return out
+
+
+def median_or_blank(values: list) -> float | str:
+    kept = [v for v in values if v != ""]
+    return round(float(np.median(kept)), 1) if kept else ""
 
 
 def write_csv(path: Path, rows: list[dict]) -> None:
@@ -294,9 +366,9 @@ def write_csv(path: Path, rows: list[dict]) -> None:
 
 
 def table() -> list[dict]:
-    ex, runs = extraction_rows(), run_rows()
+    ex, runs, steps = extraction_rows(), run_rows(), step_rows()
     rows = summary(ex, runs)
-    for path, data in ((EXTRACTION_CSV, ex), (RUNS_CSV, runs), (SUMMARY_CSV, rows)):
+    for path, data in ((EXTRACTION_CSV, ex), (RUNS_CSV, runs), (STEPS_CSV, steps), (SUMMARY_CSV, rows)):
         if data:
             write_csv(path, data)
     return rows
