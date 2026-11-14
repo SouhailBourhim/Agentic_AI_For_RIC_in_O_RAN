@@ -6,8 +6,9 @@ Writes into docs/learn/img/:
 - M10c-h1.png: (a) H1, m10_rl minus formula_est, pooled and per family, on the test set (filled, 95 % interval) and
   on dev (hollow, the expectation), with the equivalence band of +-0.05; (b) mean intent met per executor on the test
   set, pooled. The RL policy in the project's accent colour, the comparator in dark ink, the rest grey.
-- M10c-training.png: the five seeds' validation checkpoints (reward and T1b on m10c_validation) against training
-  steps, with the median seed marked; read from models/m10c/*_validation.json (local, git-ignored).
+- M10c-training.png: the five seeds' validation checkpoints (reward and T1a on m10c_validation) against training
+  steps, with the median seed marked; read from models/m10c/*_validation.json (local, git-ignored). T1a is shown
+  because it decided which seeds kept a checkpoint.
 Reads docs/learn/data/M10c-result.json, M10c-dev.json and M10c-policy.json (committed).
 """
 
@@ -45,7 +46,7 @@ def plot_h1() -> Figure:
     diff_ax, means_ax = fig.subplots(1, 2, width_ratios=[1.1, 1])
     groups = ["all", *M10C_FAMILIES]
     y = np.arange(len(groups))[::-1]
-    diff_ax.axvspan(-EQUIVALENCE, EQUIVALENCE, color=GRID, alpha=0.6, linewidth=0, label="equivalence: +-0.05")
+    diff_ax.axvspan(-EQUIVALENCE, EQUIVALENCE, color=GRID, alpha=0.6, linewidth=0, label="equivalence: ±0.05")
     diff_ax.axvline(0, color=TEXT_MUTED, linewidth=0.8)
     for offset, result, filled, label in ((0.12, test, True, "test (decides)"), (-0.12, dev, False, "dev (expectation)")):
         for k, (_, mean, low, high) in enumerate(h1_rows(result)):
@@ -55,7 +56,7 @@ def plot_h1() -> Figure:
                             linewidths=1.5)
     diff_ax.set_yticks(y, [LABELS[g] for g in groups], fontsize=8.5)
     diff_ax.set_xlabel("m10 RL minus formula_est, mean intent met (95 % interval)", color=TEXT_MUTED, fontsize=8.5)
-    diff_ax.legend(frameon=False, fontsize=8, loc="lower right")
+    diff_ax.legend(frameon=False, fontsize=8, loc="upper left")
     titled(diff_ax, f"(a) H1: {test['h1']['reading']} ({test['intents']} test intents)")
 
     x = np.arange(len(EXECUTORS))
@@ -75,7 +76,7 @@ def plot_h1() -> Figure:
 def plot_training() -> Figure:
     chosen = json.loads((DATA / "M10c-policy.json").read_text())
     fig = Figure(figsize=(12, 3.6), facecolor=SURFACE, layout="constrained")
-    reward_ax, t1b_ax = fig.subplots(1, 2)
+    reward_ax, t1a_ax = fig.subplots(1, 2)
     for path in sorted(MODELS.glob("td3_m10c_seed*_validation.json")):
         name = path.name.removesuffix("_validation.json")
         history = json.loads(path.read_text())
@@ -84,7 +85,7 @@ def plot_training() -> Figure:
         style = {"color": ACCENT if median else NEUTRAL, "linewidth": LINE_WIDTH if median else 1.0,
                  "alpha": 1.0 if median else 0.7}
         reward_ax.plot(steps, [m["reward"] for m in history], **style)
-        t1b_ax.plot(steps, [m["t1b_captured"] for m in history], **style)
+        t1a_ax.plot(steps, [m["t1a_share_positive"] for m in history], **style)
         seed = name.split("seed")[-1]
         reward_ax.annotate(f"seed {seed}" + (" (median)" if median else ""), (steps[-1], history[-1]["reward"]),
                            xytext=(4, 0), textcoords="offset points", fontsize=7.5, va="center",
@@ -92,9 +93,10 @@ def plot_training() -> Figure:
         equal = history[-1]["equal_split_reward"]
     reward_ax.axhline(equal, color=TEXT_MUTED, linewidth=0.8, linestyle=(0, (4, 3)))
     reward_ax.text(52, equal, "equal split", fontsize=7.5, color=TEXT_MUTED, va="bottom")
-    t1b_ax.axhline(0.5, color=TEXT_MUTED, linewidth=0.8, linestyle=(0, (4, 3)))
-    t1b_ax.text(52, 0.5, "T1b rule 0.5", fontsize=7.5, color=TEXT_MUTED, va="bottom")
-    for ax, title in ((reward_ax, "(a) validation reward per checkpoint"), (t1b_ax, "(b) T1b captured per checkpoint")):
+    t1a_ax.axhline(0.90, color=TEXT_MUTED, linewidth=0.8, linestyle=(0, (4, 3)))
+    t1a_ax.text(52, 0.90, "T1a rule 0.90: a checkpoint is kept only above it", fontsize=7.5, color=TEXT_MUTED, va="bottom")
+    for ax, title in ((reward_ax, "(a) validation reward per checkpoint"),
+                      (t1a_ax, "(b) T1a: share of material cases where the objective helps")):
         ax.set_xlabel("training steps (thousands)", color=TEXT_MUTED, fontsize=8.5)
         titled(ax, title)
     reward_ax.set_xlim(right=reward_ax.get_xlim()[1] * 1.12)

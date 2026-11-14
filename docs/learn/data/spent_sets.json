@@ -60,6 +60,12 @@
    "commit": "e4aad3b",
    "result_file": "runs/m10c/test_result.json",
    "note": "5 models, min_share 0.05"
+  },
+  "m10c/test": {
+   "date": "2026-11-14",
+   "commit": "548834b",
+   "result_file": "docs/learn/data/M10c-result.json",
+   "note": "H1: formula better"
   }
  }
 }

@@ -151,6 +151,24 @@ comparison to a simulator calibrated against the testbed, with generated scenari
 Next: P1 (a harder cell
 where RL could matter, M10) and P2 (runner safe state, runtime monitor). The plan is in [PLAN.md](PLAN.md) §9.
 
+## A harder cell (M10, 2026-11-14)
+
+- **M10a, the cell** ([note](learn/M10a-varying-channel.md)). Each slice's UE gets a radio channel:
+  - mean SINR 8-18 dB (10-20 dB from cell revision 2);
+  - shadowing σ 6 dB at 3 or 30 km/h (3GPP TR 38.901 UMa NLOS);
+  - the TR 36.942 A.2 mapping, normalised so the told 79 Mb/s stays the mean capacity.
+
+  Earlier runs replay byte for byte. Formula rev 4, sized on the told capacity, drops from 0.964 to 0.618 on the even F1a dev instances.
+- **M10b, fair executors and a go/stop gate** ([note](learn/M10b-fair-executors.md)). `formula_est` (rev 4 sized on each slice's measured rate, tuned within 3 logged revisions on even dev indices) is the best non-learned executor (0.715 at cell revision 2).
+  - Estimating the rate costs nothing (formula_told − formula_est +0.005 [−0.017, +0.025]); the oracle's lead (+0.12) is all foresight.
+  - **The difficulty gate failed twice** (the oracle met ≥ 0.90 of the window on 57.8 % / 61.5 % of intents, rule 80 %; F4 alone at 16 %), so M10 stopped as registered.
+- **M10c′, RL against the estimating formula** ([note](learn/M10c-rl-vs-formula.md)): a new experiment on F1, F2, F3, F5, said so; rules committed before training. One recipe (v9_noswitch options + 6 efficiency inputs, alpha 0.25), 5 seeds; only seed 74 kept a checkpoint, so the median seed 72's final model was tested (the registered fallback).
+  - 160 fresh test instances, scripted objectives, scored once: **m10 RL − formula_est −0.046 [−0.072, −0.022], "formula better"** (dev expectation −0.060).
+  - By family: F1 −0.037, F2 +0.058, F3 −0.250, F5 +0.039.
+  - Pooled means: formula_est 0.814, m10 RL 0.767, oracle 0.945.
+  - On F3 the policy keeps URLLC at 0.42 of the cell where the formula keeps 0.63, and URLLC is over its bound 42 % of the window against 16 %.
+  - Held-out goal test: every seed fails T1a (0.79-0.86), reported.
+
 ## Limits to keep in mind
 
 One cell, RF simulation (clean channel), one UE per slice, one author for the intents, bounds on
