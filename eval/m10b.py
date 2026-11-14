@@ -51,8 +51,9 @@ def half(parity: int) -> list[Instance]:
     return [inst for inst in dev_instances() if inst.index % 2 == parity]
 
 
-def work_of(inst: Instance, executor: str, study: str) -> Path:
-    return RESULTS / RunSpec(study, inst.name, "scripted", inst.seed, executor=executor).run_id
+def work_of(inst: Instance, executor: str, study: str, root: Path | None = None) -> Path:
+    """Where a run lives; `root` lets M10c' keep its runs in eval/results/m10c."""
+    return (root or RESULTS) / RunSpec(study, inst.name, "scripted", inst.seed, executor=executor).run_id
 
 
 def play(job: tuple[Instance, str, str]) -> Path:
@@ -85,14 +86,14 @@ def accepted_flags(events: list[dict]) -> list[bool]:
             if e["event"] == "agent_step" and e["data"].get("tool") == "set_rl_objective"]
 
 
-def score(instances: list[Instance], executors, study: str) -> list[dict]:
+def score(instances: list[Instance], executors, study: str, root: Path | None = None) -> list[dict]:
     """One row per instance, intent and executor. `accepted` comes from each run's own log; the verifier is
     deterministic and sees the same applied intents in every run, so it must agree across executors (checked)."""
     rows = []
     for inst in instances:
         flags = None
         for executor in executors:
-            work = work_of(inst, executor, study)
+            work = work_of(inst, executor, study, root)
             measured = measure_run(work, inst.scenario())["intents"]
             mine = accepted_flags(load_run(work)[1])
             if flags is not None and mine != flags:
@@ -123,8 +124,8 @@ def checks(rows: list[dict]) -> dict:
             "comparator": comparator}
 
 
-def paired_interval(rows: list[dict], a: str, b: str) -> tuple[float, float, float]:
-    """Mean of a minus b over accepted intents, with a 95 % cluster-bootstrap interval by instance (M09d)."""
+def paired_interval(rows: list[dict], a: str, b: str, level: float = 0.95) -> tuple[float, float, float]:
+    """Mean of a minus b over accepted intents, with a cluster-bootstrap interval by instance (M09d), 95 % by default."""
     kept = [r for r in rows if r["accepted"]]
     by = {(r["instance"], r["intent"], r["executor"]): r["intent_met"] for r in kept}
     groups = []
@@ -133,7 +134,7 @@ def paired_interval(rows: list[dict], a: str, b: str) -> tuple[float, float, flo
         groups.append(np.array([by[(name, k, a)] - by[(name, k, b)] for k in ks]))
     draws = bootstrap_means(groups)
     total = np.concatenate(groups)
-    return float(total.mean()), *interval(draws, 0.95)
+    return float(total.mean()), *interval(draws, level)
 
 
 # ---------------------------------------------------------------- tuning and checks

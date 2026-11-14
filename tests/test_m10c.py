@@ -128,3 +128,85 @@ def test_older_observations_are_a_prefix_of_the_m10c_one() -> None:
     assert OBS_SIZE_WITH_APPLIED + 6 == OBS_SIZE_WITH_EFFICIENCY
     with pytest.raises(ValueError):
         m09.cell("m10x")
+
+
+# ---------------------------------------------------------------- the test set and the scoring (eval.m10c)
+
+
+def test_the_m10c_test_set_is_fresh_and_has_no_f4() -> None:
+    from eval import generator as G
+
+    with pytest.raises(SystemExit):
+        G.generate("f1", 0, split="m10c_test")
+    test = G.m10c_test_instances()
+    assert len(test) == 160 and {i.family for i in test} == {"f1", "f2", "f3", "f5"}
+    used = {i.seed for i in G.dev_instances()} | {i.seed for i in G.test_instances()}
+    assert all(i.seed >= 300000 for i in test) and not used & {i.seed for i in test}
+
+
+def test_the_h1_readings_in_their_order() -> None:
+    from eval.m10c import reading
+
+    assert reading(0.01, 0.04) == "RL superior"  # superior comes first, even inside the equivalence margin
+    assert reading(-0.04, -0.01) == "formula better"
+    assert reading(-0.04, 0.03) == "equivalent"
+    assert reading(-0.08, 0.03) == "inconclusive" and reading(-0.03, 0.07) == "inconclusive"
+
+
+def test_the_summary_on_a_synthetic_table() -> None:
+    from eval import m10c
+
+    rows = []
+    for k, family in enumerate(["f1", "f2", "f3", "f5"] * 3):
+        for e in m10c.EXECUTORS:
+            met = {"m10_rl": 0.7, "formula_est": 0.6, "formula_told": 0.65, "oracle": 0.9}.get(e, 0.5)
+            rows.append({"family": family, "variant": "", "instance": f"i{k}", "intent": 0, "executor": e,
+                         "accepted": True, "intent_met": met})
+    out = m10c.summary(rows)
+    assert out["h1"]["mean"] == pytest.approx(0.1) and out["h1"]["reading"] == "RL superior"
+    assert out["foresight_closed"] == pytest.approx((0.7 - 0.65) / (0.9 - 0.65))
+    assert set(out["h1_by_family"]) == {"f1", "f2", "f3", "f5"} and out["intents"] == 12
+
+
+def _seed_files(folder: Path, rewards: dict[int, float | None]) -> None:
+    for seed, reward in rewards.items():
+        stem = folder / f"td3_m10c_seed{seed}"
+        stem.with_suffix(".zip").write_text("")
+        history = [{"t2_pass": reward is not None, "t1a_pass": True, "t1a_required": True, "t1b_captured": 0.6,
+                    "reward": reward or 0.0}]
+        stem.with_name(f"{stem.name}_validation.json").write_text(json.dumps(history))
+        if reward is not None:
+            stem.with_name(f"{stem.name}_best.zip").write_text("")
+
+
+def test_the_choice_is_the_median_seed_with_its_fallback(tmp_path: Path, monkeypatch) -> None:
+    from eval import m10c
+
+    monkeypatch.setattr(m10c, "POLICY_DIR", tmp_path)
+    monkeypatch.setattr(m10c, "CHOICE", tmp_path / "choice.json")
+    _seed_files(tmp_path, {70: 0.1, 71: 0.3, 72: None, 73: 0.2, 74: 0.25})
+    choice = m10c.choose()
+    assert choice["file"].endswith("td3_m10c_seed73_best.zip") and not choice["fallback_to_final_model"]
+    for f in tmp_path.glob("td3_m10c_seed7[0134]_best.zip"):
+        f.unlink()  # now only seed 72's... none: every seed without a checkpoint
+    _seed_files(tmp_path, {70: None, 71: None, 73: None, 74: None})
+    choice = m10c.choose()
+    assert choice["fallback_to_final_model"] and choice["file"].endswith(".zip") and "_best" not in choice["file"]
+
+
+def test_the_learned_executor_plays_at_its_alpha(tmp_path: Path, monkeypatch, tiny_policy_file: Path) -> None:
+    from eval import m10c
+    from eval.generator import dev_instances
+
+    monkeypatch.setattr(m10c, "RESULTS", tmp_path)
+    inst = dev_instances(["f5"], 1)[0]
+    work = m10c.play((inst, "m10_rl", "t", str(tiny_policy_file)))
+    run = json.loads((work / "run.json").read_text())
+    assert run["executor"] == "m10_rl" and run["alpha"] == 0.25 and run["delay_ticks"] == 2
+
+
+def test_the_test_is_scored_once_and_only_with_final() -> None:
+    from eval import m10c
+
+    with pytest.raises(SystemExit, match="final"):
+        m10c.score_test(final=False)

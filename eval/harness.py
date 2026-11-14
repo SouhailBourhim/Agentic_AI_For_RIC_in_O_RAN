@@ -47,6 +47,8 @@ USES_RL = ("rl_only", "proposed", "scripted")  # scripted: the over-serving side
 # verifier and apply step with the default weights (apply_scripted), and the executor turns the objective into a
 # split. Only "v7" among them needs a policy file; "oracle" reads the cell itself, with no KPI delay (its caller's job).
 EXECUTORS = ("static", "v7", "rev4", "formula_est", "mpc_est", "formula_told", "oracle")
+# M10c': the policy trained on the m10 cell, as one more executor (its file is the run's policy_file).
+LEARNED_EXECUTORS = ("m10_rl",)
 # M09b's references: "formula" is LLM + formula (the proposed agent, rl.baselines.FormulaPolicy instead of RL);
 # "llm_only_v2" is the fairer LLM only (its revised prompt); "oracle" is the ceiling (eval/oracle.py), no agent.
 # M09g's diagnostic: "formula_a10" is LLM + formula behind the served RL policy's filter (spec.alpha).
@@ -137,13 +139,13 @@ def rebase_event_file(path: Path, clock_offset_s: float) -> None:
 
 
 def needs_policy_file(spec: RunSpec) -> bool:
-    return spec.controller in USES_RL and spec.executor in (None, "v7")
+    return spec.controller in USES_RL and spec.executor in (None, "v7", *LEARNED_EXECUTORS)
 
 
 def make_policy(spec: RunSpec, backend, scenario: Scenario, cfg: CellConfig, policy_file: Path | None):
     """What stands where the RL policy stands in the Runner, for this run. The Runner applies its splits."""
     controller = spec.executor if spec.executor is not None else spec.controller
-    if controller == "v7" or (spec.executor is None and spec.controller in USES_RL):
+    if controller in ("v7", *LEARNED_EXECUTORS) or (spec.executor is None and spec.controller in USES_RL):
         return SlicePolicy.load(policy_file, spec.alpha)
     if controller in ("formula", "rev4"):
         return FormulaPolicy(cfg.told_urllc_base_latency_ms)
@@ -172,8 +174,9 @@ def run_once(spec: RunSpec, scenario: Scenario, work: Path, policy_file: Path | 
     `channel` gives each slice's UE a radio channel (M10a, eval.sim_profiles.channel_of); None = as before M10."""
     if needs_policy_file(spec) and policy_file is None:
         raise ValueError(f"{spec.controller} needs a policy file")
-    if spec.executor is not None and (spec.controller != "scripted" or spec.executor not in EXECUTORS):
-        raise ValueError(f"an executor runs under the scripted controller, one of {EXECUTORS}; got {spec}")
+    if spec.executor is not None and (spec.controller != "scripted" or spec.executor not in EXECUTORS + LEARNED_EXECUTORS):
+        raise ValueError(f"an executor runs under the scripted controller, one of {EXECUTORS + LEARNED_EXECUTORS}; "
+                         f"got {spec}")
     if spec.controller in USES_AGENT and llm is None:
         raise ValueError(f"{spec.controller} needs an LLM")
     work.mkdir(parents=True, exist_ok=True)

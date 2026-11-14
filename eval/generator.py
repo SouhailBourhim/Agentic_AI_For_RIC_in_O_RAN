@@ -28,7 +28,7 @@ C = 79.0
 SECONDS = 360
 FAMILIES = ("f1", "f2", "f3", "f4", "f5")
 PER_FAMILY = 40
-SPLITS = {"dev": 100_000, "test": 200_000}
+SPLITS = {"dev": 100_000, "test": 200_000, "m10c_test": 300_000}  # m10c_test: M10c' (DECISIONS 2026-11-14)
 BOUNDS = (5, 8, 10, 15, 20)
 EASY_BOUNDS = (10, 15, 20, 30, 50)
 BASE = {"embb": (0.42, 0.52), "urllc": (0.06, 0.12), "be": (0.22, 0.32)}
@@ -179,6 +179,8 @@ def family_f5(rng: np.random.Generator) -> tuple[str, dict, tuple]:
 def generate(family: str, index: int, split: str = "dev") -> Instance:
     if split == "test":
         raise SystemExit("the test seeds belong to M09d and are refused before it (docs/DECISIONS.md)")
+    if split == "m10c_test":
+        raise SystemExit("the m10c_test seeds belong to M10c' and are played only by eval.m10c (docs/DECISIONS.md)")
     return draw(family, index, split)
 
 
@@ -202,6 +204,14 @@ def test_instances(families=FAMILIES, per_family: int = PER_FAMILY) -> list[Inst
     """The 200 test instances, for M09d only. generate() keeps refusing "test", so no M09b path can reach them;
     eval.m09d guards the play itself (committed protocol, set not yet spent)."""
     return [draw(f, i, "test") for f in families for i in range(per_family)]
+
+
+M10C_FAMILIES = ("f1", "f2", "f3", "f5")  # F4 left out after M10b (DECISIONS 2026-11-14)
+
+
+def m10c_test_instances(families=M10C_FAMILIES, per_family: int = PER_FAMILY) -> list[Instance]:
+    """M10c''s 160 test instances, on fresh seeds; generate() refuses them, eval.m10c guards the play."""
+    return [draw(f, i, "m10c_test") for f in families for i in range(per_family)]
 
 
 def main() -> None:
