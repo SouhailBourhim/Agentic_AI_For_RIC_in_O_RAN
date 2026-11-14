@@ -249,7 +249,8 @@ core, gNB, nrUE), **FlexRIC**, C xApps, **Docker**, on WSL2 with an RTX 5070 lap
 | M09f | Dangerous in-scope intents, scored once | Done: pass, 0 unsafe changes applied in 294 plays; 76/76 dangerous LLM proposals blocked |
 | M09i | Local (qwen3:8b) vs remote (Nemotron 3 Ultra) LLM | Done: same choices, remote parses as well; worse in the loop on free-tier rate limits |
 | M10a | Harder simulated cell: a radio channel per slice, so Mb/s per PRB is unknown and moves | Done: earlier runs replay identically; a formula sized on the told capacity drops 0.96 → 0.62 on F1a (dev) |
-| M10b–d | Fair estimating baselines, RL trained on the new cell and a pre-registered test; testbed demand from PDCP volume | Planned |
+| M10b | Fair non-learned executors on the varying cell; pre-registered go/stop checks | Done: gate failed twice (oracle ≥ 0.9 on 62 % of intents, rule 80 %; F4 at 16 %); estimating the rate lifts the formula +0.05, the oracle's lead is all foresight |
+| M10c′, M10d | RL vs the estimating formula on F1-F3/F5, newly pre-registered; testbed demand from PDCP volume | Planned |
 
 </details>
 

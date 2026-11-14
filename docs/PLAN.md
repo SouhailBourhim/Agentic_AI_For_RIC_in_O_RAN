@@ -305,11 +305,13 @@ M09d and M09e agree that LLM + formula beats LLM + RL (0.929 against 0.780). The
 | # | Delivers | Who runs the long part |
 |---|---|---|
 | M10a ✅ | Profile `m10`: the M09a cell plus a radio channel per slice's UE (3GPP shadowing, TR 36.942 mapping, mean = the told 79 Mb/s); the measured efficiency as 6 new policy inputs; every earlier run replays byte-identical | me |
-| M10b | Fair non-learned executors (`formula_est` sized on the measured efficiency, `mpc_est` a causal look-ahead) in an LLM-free mode; difficulty and headroom checks on dev (tune on even indices, check on odd); one logged revision of the cell, then go or stop; the M10c comparator fixed | me, or Souhail if over 15 min |
+| M10b ✅ (gate failed, stopped) | Fair non-learned executors (`formula_est` sized on the measured efficiency, `mpc_est` a causal look-ahead) in an LLM-free mode; difficulty and headroom checks on dev (tune on even indices, check on odd); one logged revision of the cell, then go or stop; the M10c comparator fixed | me, or Souhail if over 15 min |
 | M10c | One RL arm trained on `m10` (v9_noswitch options + efficiency inputs, alpha 0.25), 5 seeds, median seed; goal test reported, not blocking; pre-registered test on fresh seeds: LLM + RL against LLM + comparator, scored once | Souhail (training ~1.5 h, dev ~2 h, test ~2.5 h) |
 | M10d | Testbed: demand from `DRB.PdcpSduVolumeDL` instead of the iperf3 target; S1 rerun on both sources | Souhail (image rebuild, testbed) |
 
 **M10a done 2026-11-14.** On the even F1a dev instances, formula rev 4 (sized on the told 79 Mb/s) drops from 0.964 to 0.618 intent met when the same instances get a channel. That shows the cell is no longer solved by arithmetic, not that RL can do better: M10b asks that. Note: [learn/M10a-varying-channel.md](learn/M10a-varying-channel.md).
+
+**M10b done 2026-11-14: the difficulty gate failed twice, M10 stopped as registered.** formula_est (rev 4 sized on the measured rate, tuned on even dev indices: 0.738 against rev 4's 0.686) is the best non-learned executor (odd half: 0.678 / 0.715 at cell revisions 1 / 2). The oracle met ≥ 0.90 of the window on 57.8 % / 61.5 % of intents (rule 80 %); F4 alone is at 0.16. Estimating the rate costs nothing (formula_told − formula_est ≈ 0); the oracle's lead (+0.12 to +0.14) is all foresight. Next (Souhail's choice): M10c′, a new pre-registered experiment on F1-F3 and F5, F4's exclusion stated. Note: [learn/M10b-fair-executors.md](learn/M10b-fair-executors.md).
 
 ## 8. Open questions
 
