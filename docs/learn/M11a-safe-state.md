@@ -122,7 +122,7 @@ Expected:
 ## 6. Questions to check understanding
 
 1. **Why doesn't M11a change any simulator result?**
-   `SimBackend.health()` always returns a 0 s report age and a working actuator, and the simulator never raises, so `update_mode` never leaves `normal`. The decision path is the same code in the same order. `test_m09b_runs_replay_byte_for_byte` checks the KPI files are byte-identical, and `test_the_simulator_never_enters_the_safe_state` checks 600 ticks of the demo.
+   `SimBackend.health()` always returns a 0 s report age and a working actuator, and the simulator never raises, so `update_mode` never leaves `normal`. The decision path is the same code in the same order. `test_m09b_runs_replay_byte_for_byte` and `test_m09b_rl_only_replays_byte_for_byte` (tests/test_m10a.py) check the KPI files are byte-identical, and `test_the_simulator_never_enters_the_safe_state` checks 600 ticks of the demo.
 2. **KPIs come back after 30 s of staleness. At which tick does the policy decide again, and what is its first split?**
    On the third clean tick (the first two still apply 1/3). Its first split is `0.1·policy + 0.9·(1/3)` per slice, because `restart_from` seeded the filter with the equal split. So it is at most 0.067 away from 1/3.
 3. **Why is a failed `apply_prb_split` handled on the next tick, not the current one?**

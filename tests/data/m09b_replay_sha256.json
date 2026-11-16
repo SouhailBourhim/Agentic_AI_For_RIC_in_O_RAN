@@ -1,0 +1,20 @@
+{
+  "about": "sha256 of kpi.csv of the original M09b dev runs (eval/results/m09b/m09b_dev, played 2026-11-08), instance 00 of each family; tests/test_m10a.py replays them. Never regenerate from a new run.",
+  "kpi_csv_sha256": {
+    "f1_00/static": "797a1e6663ac21557689cd10e426ce62bc653c91f58284504da4e166fa47ea8b",
+    "f1_00/rl_only": "9cf9fd10812984772c56a1f62a05e8ab28888a5991a40f905e237362754e14f3",
+    "f1_00/oracle": "09201cbac643f165222274e89f2f4b31411b59f9ca86038cc6157b7300d3d763",
+    "f2_00/static": "c7645a046de7fc0cdba590697b10fc5dcdeb99cd2d77babcda39531f8b7381b2",
+    "f2_00/rl_only": "08f2cc9521818c0e8443d65d4343f371f90b875006b86e69cf29ade0df14fa87",
+    "f2_00/oracle": "eb6f630e1a8643af183bde405df954607024a74547d93e902d63afd354bf3440",
+    "f3_00/static": "25a23a61f4d700ab7d9cb01d010cdfe5997fb2a8bb2ec74f813649f4bf2b3a3c",
+    "f3_00/rl_only": "de9d25a59396850b007e95c54ba2f4265711aeda301ed9e916d239334954e1d2",
+    "f3_00/oracle": "3e4b9e9191e16c239d79ae36d8d97a8cb2051eea9be4513a5c8dbb266a77c10a",
+    "f4_00/static": "18c5c34a7fb801a8fd65e999f5a89e41de5f1e27cdbd0be34b4357b65b30e587",
+    "f4_00/rl_only": "c3b898189d18e7a4ee42e1eabe88d25b8446e264e6cee4c298d8011aca1683ba",
+    "f4_00/oracle": "cddcba99476f81e49396aafd2c05cdafdc55d184f251f93501f6aff0793e3c7b",
+    "f5_00/static": "920308348e769ff48904f13d566a6ead667443299c367b1573dd66611c4c73a3",
+    "f5_00/rl_only": "6965e8fc407a7273257ee97e6836913cff738b4d528de841dd56f1538079ebaa",
+    "f5_00/oracle": "86950c21c7d08e2aeb5e99073bc47b116f20b82aa025440b29b586a206b53e35"
+  }
+}

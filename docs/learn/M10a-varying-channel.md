@@ -51,12 +51,12 @@ flowchart LR
 ## 4. How to run it and check it
 
 ```bash
-uv run pytest tests/test_m10a.py -q    # 19 tests, ~20 s; the replay test needs the M09b runs on disk
+uv run pytest tests/test_m10a.py -q    # ~35 s; RL only's replay needs the served weights (local only)
 uv run pytest -q                       # the whole suite
 uv run python -m eval.plot_m10a        # the two figures below, ~5 s
 ```
 
-**Earlier results replay.** `test_m09b_runs_replay_byte_for_byte` plays static, RL only (v7) and the oracle on instance 00 of each family at the current code. It checks that each `kpi.csv` is byte-identical to the M09b run on disk: 15 of 15. It also passed on HEAD before any change. It is skipped on a clean clone (no runs); CI runs everything else.
+**Earlier results replay.** `test_m09b_runs_replay_byte_for_byte` plays static, RL only (v7) and the oracle on instance 00 of each family at the current code. It checks that each `kpi.csv` is byte-identical to the M09b run on disk: 15 of 15. It also passed on HEAD before any change. It is skipped on a clean clone (no runs); CI runs everything else. *Since 2026-11-16 the originals' sha256 are committed (`tests/data/m09b_replay_sha256.json`), so static and the oracle (10 runs) replay in CI too; RL only needs the served weights, which are not in git, and replays locally only.*
 
 ![M10a channel](img/M10a-channel.png)
 

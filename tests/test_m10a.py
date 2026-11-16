@@ -1,13 +1,16 @@
 """M10a: a radio channel per slice (sim/channel.py), the measured efficiency features, and the "m10" profile.
 
 Two kinds of tests. First, nothing earlier moves: with no channel every function gives exactly what it gave, and
-(locally, where the M09b runs are on disk) static, RL only and the oracle replay byte for byte. Second, the channel
+static, RL only and the oracle replay the M09b runs byte for byte: compared by sha256 with the original files, whose
+hashes are committed (tests/data/m09b_replay_sha256.json). static and the oracle replay everywhere, CI included; RL
+only needs the served weights, which are not in git, so it replays locally only. Second, the channel
 is what the note says it is, and training (SlicingEnv) and serving (backend + runner) see the same cell and build
 the same observation from it.
 """
 
 import copy
-import filecmp
+import hashlib
+import json
 from pathlib import Path
 
 import numpy as np
@@ -27,6 +30,8 @@ from sim.traffic import TrafficPattern
 from verifier.objective import DEFAULT_OBJECTIVE, SLICES
 
 M09B_DEV = Path("eval/results/m09b/m09b_dev")
+M09B_REPLAY = json.loads((Path(__file__).parent / "data" / "m09b_replay_sha256.json").read_text())["kpi_csv_sha256"]
+SERVED = Path("var/policy_cache/served.json")
 
 
 def _trace(seed: int = 0, seconds: int = 200) -> ch.ChannelTrace:
@@ -42,17 +47,37 @@ def _traffic() -> dict[str, TrafficPattern]:
 # ---------------------------------------------------------------- nothing earlier moves
 
 
-@pytest.mark.skipif(not (M09B_DEV / "f1_00").exists() or not Path("var/policy_cache/served.json").exists(),
-                    reason="needs the M09b dev runs and the served policy on disk (local only)")
-def test_m09b_runs_replay_byte_for_byte(tmp_path: Path) -> None:
-    """Instance 00 of each family, the three controllers with no LLM: kpi.csv identical to M09b's."""
+def sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def replay(controller: str, root: Path, policy: Path | None) -> None:
+    """Instance 00 of each family, played now: its kpi.csv must hash to the original M09b run's."""
+    for inst in dev_instances(FAMILIES, 1):
+        work = benchmark.play(inst, controller, policy, None, root=root)
+        assert sha256(work / "kpi.csv") == M09B_REPLAY[f"{inst.name}/{controller}"], f"{inst.name} {controller}"
+
+
+@pytest.mark.parametrize("controller", ["static", "oracle"])
+def test_m09b_runs_replay_byte_for_byte(controller: str, tmp_path: Path) -> None:
+    """No policy file needed: these two replay in CI too."""
+    replay(controller, tmp_path, None)
+
+
+@pytest.mark.skipif(not SERVED.exists(), reason="needs the served policy (var/policy_cache, not in git): local only")
+def test_m09b_rl_only_replays_byte_for_byte(tmp_path: Path) -> None:
     from eval.validate_sim import served_policy
 
+    replay("rl_only", tmp_path, served_policy())
+
+
+@pytest.mark.skipif(not (M09B_DEV / "f1_00").exists(), reason="needs the M09b dev runs on disk (local only)")
+def test_the_committed_hashes_are_the_original_runs() -> None:
+    """The references in tests/data are what M09b wrote, not a later run's output."""
     for inst in dev_instances(FAMILIES, 1):
         for controller in ("static", "rl_only", "oracle"):
-            work = benchmark.play(inst, controller, served_policy(), None, root=tmp_path)
-            old = benchmark.work_of(inst, controller) / "kpi.csv"
-            assert filecmp.cmp(work / "kpi.csv", old, shallow=False), f"{inst.name} {controller}"
+            path = benchmark.work_of(inst, controller) / "kpi.csv"
+            assert sha256(path) == M09B_REPLAY[f"{inst.name}/{controller}"], path
 
 
 def test_an_efficiency_of_one_changes_nothing() -> None:
