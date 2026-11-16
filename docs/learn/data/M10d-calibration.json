@@ -1,0 +1,60 @@
+{
+ "pass": true,
+ "checks": [
+  {
+   "check": "steady embb at 30 Mb/s: median |PDCP - target|",
+   "value": 1.0,
+   "limit": 1.5,
+   "ok": true
+  },
+  {
+   "check": "steady urllc at 10 Mb/s: median |PDCP - target|",
+   "value": 0.0,
+   "limit": 1.0,
+   "ok": true
+  },
+  {
+   "check": "steady be at 5 Mb/s: median |PDCP - target|",
+   "value": 0.0,
+   "limit": 1.0,
+   "ok": true
+  },
+  {
+   "check": "step urllc to 4 Mb/s: |PDCP - target| at report 3",
+   "value": 0.0,
+   "limit": 1.0,
+   "ok": true
+  },
+  {
+   "check": "step urllc to 12 Mb/s: |PDCP - target| at report 3",
+   "value": 0.0,
+   "limit": 1.0,
+   "ok": true
+  },
+  {
+   "check": "step urllc to 20 Mb/s: |PDCP - target| at report 3",
+   "value": 1.0,
+   "limit": 1.0,
+   "ok": true
+  },
+  {
+   "check": "step urllc to 8.4 Mb/s: |PDCP - target| at report 3",
+   "value": 0.6,
+   "limit": 1.0,
+   "ok": true
+  },
+  {
+   "check": "overload urllc at 30 Mb/s: median |PDCP - target|",
+   "value": 1.0,
+   "limit": 1.5,
+   "ok": true
+  },
+  {
+   "check": "overload urllc: median throughput (must stay well under the offered rate)",
+   "value": 4.054,
+   "limit": 15.0,
+   "ok": true
+  }
+ ],
+ "revision": 1
+}
