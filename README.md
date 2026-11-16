@@ -13,9 +13,12 @@ re-divides the radio resources of a 5G cell every second. The LLM never touches 
 > confirmed, the low-latency slice gets the share of the cell it needs and its delay drops back
 > under 10 ms.
 
-![Live demo: the RL controller serving an operator intent](docs/learn/img/M04b-grafana-after.png)
-*Live run (Grafana). An intent arrives during a traffic surge on the low-latency slice: the
-controller gives it most of the radio resources and its delay falls under the 10 ms bound.*
+![Live demo: the RL controller serving an operator intent](docs/learn/img/M12-demo.gif)
+*`uv run python -m demo` on Grafana, 8× speed. Traffic surges on the low-latency slice (orange)
+and its delay climbs to about a second. The intent "20 Mb/s and under 10 ms for URLLC" arrives
+through the MCP gateway and passes the verifier. The RL controller then gives the slice more of the
+radio resources: its delay falls under 10 ms, and the other slices pay for it. Five minutes later
+the intent expires and the default objective returns.*
 
 Built end to end by **Souhail Bourhim**, on one laptop: a simulated cell, an RL controller, an
 8B LLM on the local GPU, and a real open-source 5G network (OpenAirInterface core, base station
@@ -28,7 +31,8 @@ and three phones, with the FlexRIC controller) running in Docker.
 | **Problem** | LLMs let operators state intents instead of writing configuration, but they are slow, non-deterministic and sometimes wrong. A mobile network can't be steered by something like that directly. |
 | **Approach** | Give each part only the job it is good at: the LLM *understands*, plain Python *verifies*, RL *acts* in real time. Safety comes from what each part can reach, not from what the LLM promises. |
 | **Runs on** | A Python simulator and a real OAI 5G cell, behind one interface. The agent, verifier and controller don't know which one is underneath. |
-| **Scale** | ~22,000 lines of Python and C, 500+ automated tests in CI, 21 written technical notes, ~200 logged design decisions. |
+| **Evidence** | Every claim with its experiment, number, interval and verdict, negative results included: **[docs/CLAIMS.md](docs/CLAIMS.md)**. |
+| **Scale** | ~22,000 lines of Python and C, 700+ automated tests in CI, 30+ written technical notes ([index](docs/learn/README.md)), ~200 logged design decisions. |
 
 ## Highlights
 
@@ -98,7 +102,8 @@ Four controllers on the real cell, share of the operator's time window in which 
 Where the goal needs adaptation, only LLM + RL delivers it. Where a fixed split is already
 enough, the RL controller costs something. The detailed record, including a 200-scenario
 benchmark with seven controllers and a simulator calibrated against 72 testbed runs, is in
-**[docs/RESULTS.md](docs/RESULTS.md)**.
+**[docs/RESULTS.md](docs/RESULTS.md)**; every claim with its evidence and verdict is in
+**[docs/CLAIMS.md](docs/CLAIMS.md)**.
 
 ### Honest status
 
@@ -166,6 +171,18 @@ uv sync
 ```
 
 ```bash
+uv run python -m demo
+```
+
+In about 30 seconds this runs the whole chain on the simulator as separate processes: the
+controller, the agent service and worker, and the MCP gateway. It plays the operator through the
+gateway's three tools: during a traffic surge it asks for "20 Mb/s and under 10 ms for URLLC",
+follows the request to `applied`, and prints the slice's delay before and after (about 700 ms
+→ 7 ms). It uses a rule-based parser instead of the LLM, confirms automatically, and uses the
+formula executor if no trained controller is on the machine (all printed;
+[M12 note](docs/learn/M12-presentable.md)).
+
+```bash
 uv run pytest -q
 ```
 
@@ -211,9 +228,11 @@ core, gNB, nrUE), **FlexRIC**, C xApps, **Docker**, on WSL2 with an RTX 5070 lap
 
 | Read this | To learn |
 |---|---|
+| [docs/CLAIMS.md](docs/CLAIMS.md) | Every claim, its evidence and its verdict, in one table |
 | [docs/RESULTS.md](docs/RESULTS.md) | Every result in detail, with figures |
+| [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) | Who can reach what, each threat with the test that covers it |
 | [docs/REVIEW-2026-11-11.md](docs/REVIEW-2026-11-11.md) | What is missing and the roadmap |
-| [docs/learn/](docs/learn/) | One technical note per checkpoint: what was built, how it works, how to run it |
+| [docs/learn/](docs/learn/README.md) | One technical note per checkpoint, indexed in reading order: what was built, how it works, how to run it |
 | [docs/PLAN.md](docs/PLAN.md), [docs/DECISIONS.md](docs/DECISIONS.md) | The plan and every dated decision |
 | [Design document (French)](docs/Proposition_IA_agentique_RIC_ORAN_v2.pdf) | The original proposal |
 
@@ -228,6 +247,7 @@ core, gNB, nrUE), **FlexRIC**, C xApps, **Docker**, on WSL2 with an RTX 5070 lap
 | [agent/](agent/) | LangGraph agent, LLM client, internal tools, FastAPI service, worker |
 | [gateway/](gateway/) | MCP gateway (exactly three tools), CLI client, isolated Hermes configuration |
 | [console/](console/) | Operator confirmation console |
+| [demo/](demo/) | The one-command demo (`uv run python -m demo`) |
 | [backends/](backends/) | Backend interface, simulator backend, FlexRIC (testbed) backend |
 | [store/](store/) | Shared state: KPI table, `a1_policy` (an emulation of O-RAN A1), intents, event log |
 | [xapps/](xapps/) | KPM monitoring xApp, slice-control xApp (C, E2), RL xApp image |
@@ -267,8 +287,13 @@ core, gNB, nrUE), **FlexRIC**, C xApps, **Docker**, on WSL2 with an RTX 5070 lap
 | M11a | Runner safe state: stale KPIs, dead actuator or an error → equal split, alert, status; xApp restart | Done: enters at once, hands back after 3 clean ticks; simulator runs unchanged (replay byte-identical) |
 | M11b | Runtime monitor with formula fallback | Planned |
 | M11c | Threat model: who can reach what, each threat with its tests, residual risks stated | Done: [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md), 21 threats / 9 residual risks; a corrupt policy row no longer ends the runner |
+| M12 | Presentable: one-command demo, claims table, notes index, licence | Done: `uv run python -m demo` in ~30 s with no GPU or LLM; [docs/CLAIMS.md](docs/CLAIMS.md), 23 claims |
 
 </details>
+
+## Licence
+
+Apache License 2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 ## Contact
 

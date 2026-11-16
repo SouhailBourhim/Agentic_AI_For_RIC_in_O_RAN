@@ -329,6 +329,10 @@ The review (`REVIEW-2026-11-11.md` §3.3-§3.4, P2) found that the fast loop has
 
 **M11c done 2026-11-16 (before M11b, which waits for the shield PR).** [THREAT_MODEL.md](THREAT_MODEL.md): 21 threats, each with the tests that cover it, and 9 residual risks stated with what a real system would do; `tests/test_threat_model.py` keeps every reference alive. The review's §3.7 item (agent API without authentication, "say so in a short threat model") is answered there (R2). Found and fixed on the way: a corrupt `a1_policy` row ended the runner (T19). Note: [learn/M11c-threat-model.md](learn/M11c-threat-model.md).
 
+## 12. M12: presentable (the review's P3, decided 2026-11-16)
+
+**M12 done 2026-11-16.** `uv run python -m demo` runs the whole chain on the simulator in about 30 s with no GPU or LLM, through the MCP gateway's three tools ([learn/M12-presentable.md](learn/M12-presentable.md)). [CLAIMS.md](CLAIMS.md) gathers 23 claims with their evidence and verdicts; [learn/README.md](learn/README.md) indexes the notes; Apache-2.0 licence. The Grafana GIF (recorded by Souhail) is at the top of the README. Left: champion weights as a release asset (not now).
+
 ## 8. Open questions
 
 - ~~**Hard minimum PRB share per slice in the RL runner (discuss in M04a).**~~ **Decided and done (M04a): 5 % per slice, `sim.cell.apply_min_share`, retrained; see docs/learn/M04a-plumbing.md §5 and DECISIONS.md.** The M03 verifier

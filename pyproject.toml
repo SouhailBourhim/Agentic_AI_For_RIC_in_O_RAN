@@ -1,8 +1,9 @@
 [project]
 name = "agentic-ric-oran"
 version = "0.1.0"
-description = "LLM agent (LangGraph) steering a goal-conditioned RL xApp (DDPG) for RAN slicing, behind a deterministic verifier."
+description = "LLM agent (LangGraph) steering a goal-conditioned RL xApp (TD3) for RAN slicing, behind a deterministic verifier."
 readme = "README.md"
+license = "Apache-2.0"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.162.0",
