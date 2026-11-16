@@ -40,3 +40,6 @@ testbed/captures/
 
 # MLflow store (runs, registry, artifacts) and the planned KPI store
 var/
+
+graphify-out/
+.claude/settings.local.json
