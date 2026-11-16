@@ -323,9 +323,11 @@ The review (`REVIEW-2026-11-11.md` §3.3-§3.4, P2) found that the fast loop has
 |---|---|---|
 | M11a ✅ | Runner safe state: stale KPIs, dead actuator or an exception → equal split at once, alert, `get_status`/Prometheus; back to the policy after 3 clean ticks; xApp restart on the testbed | me (testbed check: Souhail, optional) |
 | M11b | Runtime monitor with formula fallback: a stated target missed for N s while the formula's split would meet it → the formula executes that intent, logged | me |
-| M11c | Threat model in one page, each line with the test that covers it | me |
+| M11c ✅ | Threat model in one page, each line with the test that covers it | me |
 
 **M11a done 2026-11-16.** `Backend.health()` reports the KPI report age and whether the actuator is alive; the runner enters the safe state at once and leaves it after 3 clean ticks, its filter restarted from the equal split. Every simulator run plays the same path (the M09b replay stays byte-identical). Under injected faults the equal split holds the cell for the fault plus 2 s; it costs throughput (eMBB capped near 26 Mb/s against 38 offered). Note: [learn/M11a-safe-state.md](learn/M11a-safe-state.md).
+
+**M11c done 2026-11-16 (before M11b, which waits for the shield PR).** [THREAT_MODEL.md](THREAT_MODEL.md): 21 threats, each with the tests that cover it, and 9 residual risks stated with what a real system would do; `tests/test_threat_model.py` keeps every reference alive. The review's §3.7 item (agent API without authentication, "say so in a short threat model") is answered there (R2). Found and fixed on the way: a corrupt `a1_policy` row ended the runner (T19). Note: [learn/M11c-threat-model.md](learn/M11c-threat-model.md).
 
 ## 8. Open questions
 

@@ -16,8 +16,9 @@ from monitoring.exporter import RicCollector
 from rl.policy import SlicePolicy
 from rl.runner import RESUME_AFTER_TICKS, Runner
 from sim.cell import CellConfig
-from store import db, kpi
+from store import a1_policy, db, kpi
 from store.events import read_events
+from verifier.objective import RLObjective, SliceValues
 
 EQUAL = pytest.approx([1 / 3, 1 / 3, 1 / 3])
 
@@ -159,3 +160,21 @@ def test_status_and_prometheus_show_the_safe_state(ric_db) -> None:
     registry = CollectorRegistry()
     registry.register(RicCollector(db.db_path()))
     assert 'ric_runner_safe_mode{reason="actuator_down"} 1.0' in generate_latest(registry).decode()
+
+
+def test_a_corrupt_policy_row_keeps_the_previous_objective(ric_db) -> None:
+    """M11c: a row whose objective fails the schema used to raise outside the tick and end the runner. Now the
+    segment read before stays in force, as when the database can't be read, and the problem is logged once."""
+    protect = RLObjective(weights=SliceValues(embb=0.2, urllc=0.6, be=0.2), min_thr_mbps=SliceValues(urllc=10.0),
+                          valid_from=0.0, valid_until=100.0)
+    a1_policy.write_schedule(ric_db, [a1_policy.Segment(protect, ("i0001",), {"accepted": True}, "console", 0.0, 100.0)],
+                             "test", 0.0)
+    r = runner(FaultyBackend())
+    assert r.tick().policy_id == 1
+    ric_db.execute("UPDATE a1_policy SET objective = ? WHERE policy_id = 1", ('{"weights": "not a table"}',))
+    results = [r.tick() for _ in range(3)]
+    assert all(x.policy_id == 1 and x.mode == "normal" and not x.db_ok for x in results)
+    assert r.row is not None and r.row.objective == protect
+    invalid = [e for e in read_events() if e["event"] == "a1_policy_invalid"]
+    assert len(invalid) == 1 and invalid[0]["data"]["kept_policy_id"] == 1
+    assert invalid[0]["data"]["error"].startswith("ValidationError")

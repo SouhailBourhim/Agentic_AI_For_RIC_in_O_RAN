@@ -188,6 +188,7 @@ class Runner:
         self.last_policy_id: int | None = None  # policy in force at the previous tick
         self.pending: list[tuple[list[KpiRecord], int | None]] = []  # KPI ticks not written yet
         self.on_error = on_error
+        self.policy_invalid_logged = False  # M11c: a corrupt a1_policy row is logged once, not every tick
         self.mode = "normal"  # M11a: 'normal' (the policy decides) or 'safe' (SAFE_SPLIT)
         self.reason: str | None = None  # why safe
         self.since = backend.now()  # backend clock when the current mode started
@@ -196,12 +197,24 @@ class Runner:
         self.pending_state: tuple[str, str | None, float] | None = ("normal", None, self.since)  # written at flush
 
     def read_policy(self, now: float) -> bool:
-        """Refresh the segment in force. On any database error keep the previous one."""
+        """Refresh the segment in force. On any database error keep the previous one.
+
+        M11c: a row that can't be parsed (its objective fails RLObjective's schema, or its JSON is broken) is
+        treated the same way, so a corrupt a1_policy row can't end the runner. pydantic's ValidationError and
+        json's JSONDecodeError are both ValueErrors. Logged once until a read succeeds again."""
         try:
             self.row = a1_policy.in_force(self.conn, now)
-            return True
         except sqlite3.Error:
             return False
+        except ValueError as err:
+            if not self.policy_invalid_logged:
+                log_event("runner", "a1_policy_invalid", ts_backend=now,
+                          data={"error": f"{type(err).__name__}: {str(err).splitlines()[0]}",
+                                "kept_policy_id": self.row.policy_id if self.row is not None else None})
+                self.policy_invalid_logged = True
+            return False
+        self.policy_invalid_logged = False
+        return True
 
     def tick(self) -> TickResult:
         now = self.backend.now()

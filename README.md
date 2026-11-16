@@ -139,8 +139,10 @@ benchmark with seven controllers and a simulator calibrated against 72 testbed r
 - **Safety of the fast loop** ([M11a](docs/learn/M11a-safe-state.md)): if the measurements stop, the
   actuator dies or the code fails, the controller puts a fixed equal split on the cell at once, raises
   an alert and says so in `get_status`; it hands back after 3 good seconds.
+- **Threat model** ([docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)): who can reach what, what each could do
+  at worst, the test that shows it can't, and the risks that are stated rather than defended.
 - **Next:** a runtime monitor that hands an intent to the formula when RL misses its target (M11b),
-  a one-page threat model (M11c), and demand from the base station's own PDCP counter (M10d).
+  and demand from the base station's own PDCP counter (M10d).
 
 ## What this project demonstrates
 
@@ -263,7 +265,8 @@ core, gNB, nrUE), **FlexRIC**, C xApps, **Docker**, on WSL2 with an RTX 5070 lap
 | M10c′ | RL trained on the varying cell vs the estimating formula, F1-F3/F5, pre-registered | Done: formula better, −0.046 [−0.072, −0.022]; RL wins steady loads (F2, F5), loses F3 (−0.25) |
 | M10d | Testbed demand from the gNB's PDCP volume instead of the traffic script | Planned |
 | M11a | Runner safe state: stale KPIs, dead actuator or an error → equal split, alert, status; xApp restart | Done: enters at once, hands back after 3 clean ticks; simulator runs unchanged (replay byte-identical) |
-| M11b / M11c | Runtime monitor with formula fallback; threat model | Planned |
+| M11b | Runtime monitor with formula fallback | Planned |
+| M11c | Threat model: who can reach what, each threat with its tests, residual risks stated | Done: [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md), 21 threats / 9 residual risks; a corrupt policy row no longer ends the runner |
 
 </details>
 
