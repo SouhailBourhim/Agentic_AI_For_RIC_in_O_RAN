@@ -166,9 +166,12 @@ def test_a_scripted_intent_with_no_importance_runs_the_default_weights(ric_db) -
     assert {s: getattr(schedule[0].objective.min_thr_mbps, s) for s in stated} == stated
 
 
-def test_every_executor_plays_without_an_llm(tmp_path: Path, monkeypatch) -> None:
-    """One short instance per executor through m10b.play: no LLM anywhere, the verifier logged once per intent."""
+def test_every_executor_plays_without_an_llm(tmp_path: Path, monkeypatch, tiny_policy_file: Path) -> None:
+    """One short instance per executor through m10b.play: no LLM anywhere, the verifier logged once per intent.
+
+    v7 plays the tiny test policy: the served weights are gitignored, so CI has no var/policy_cache."""
     monkeypatch.setattr(m10b, "RESULTS", tmp_path)
+    monkeypatch.setattr(m10b, "served_policy", lambda: tiny_policy_file)
     inst = dev_instances(["f5"], 1)[0]
     for executor in EXECUTORS:
         work = m10b.play((inst, executor, "test"))
