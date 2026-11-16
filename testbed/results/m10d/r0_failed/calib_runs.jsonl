@@ -1,0 +1,6 @@
+{"phase": "steady", "label": "steady", "split": "del", "seconds": 60, "rates_mbps": {"embb": 30.0, "urllc": 10.0, "be": 5.0}, "start_wall": 1794864333.9252455, "end_wall": 1794864396.6666584}
+{"phase": "steps", "label": "step_04", "split": "del", "seconds": 20, "rates_mbps": {"urllc": 4.0}, "start_wall": 1794864396.6667156, "end_wall": 1794864419.406819}
+{"phase": "steps", "label": "step_12", "split": "del", "seconds": 20, "rates_mbps": {"urllc": 12.0}, "start_wall": 1794864419.4068625, "end_wall": 1794864442.20046}
+{"phase": "steps", "label": "step_20", "split": "del", "seconds": 20, "rates_mbps": {"urllc": 20.0}, "start_wall": 1794864442.2005033, "end_wall": 1794864462.9266174}
+{"phase": "steps", "label": "step_8p4", "split": "del", "seconds": 20, "rates_mbps": {"urllc": 8.4}, "start_wall": 1794864462.9266691, "end_wall": 1794864485.6759973}
+{"phase": "overload", "label": "overload", "split": "51 5 50", "seconds": 40, "rates_mbps": {"urllc": 30.0}, "start_wall": 1794864487.6778896, "end_wall": 1794864628.763137}

@@ -11,6 +11,12 @@ The calibration rules (docs/DECISIONS.md, 2026-11-16, written before the first c
 - steps: the third report after each step's start is within tolerance (a lag of 2 reports at most).
 One logged revision is allowed; if it still fails, M10d stops and S1 isn't played (--final refuses).
 
+Revision 1 (2026-11-16, after the first calibration run failed on the overload check only): a run's window is
+iperf3's sending time, [start, start + seconds], not the time testbed/traffic.run took to return. A saturated slice
+drains its backlog for long after the sender stops (about 100 s in that run), and PDCP rightly reads 0 there: no
+arrivals. The failed run is kept in testbed/results/m10d/r0_failed/ and is not rescored; only a calibration run
+recorded after the revision (REVISION_1_NOT_BEFORE) is scored.
+
 S1 (eval/testbed_scenarios.py, M08d): {LLM + RL, LLM + formula} x {offered, measured, throughput} x 3 repeats, played
 by M08d's own player (eval.testbed_control.play) with the executor and the demand source as extra runner arguments.
 Descriptive; the expectation written first, H-d: LLM + RL on the measured demand is within 0.05 of the same on the
@@ -37,6 +43,7 @@ SETTLE_REPORTS = 2  # reports dropped at a run's start (iperf3 starting mid-peri
 STEP_REPORT = 2  # the third report after a step must be within tolerance
 OVERLOAD_SERVICE_MAX = 0.5  # in the overload phase, throughput must stay at most this fraction of the offered rate
 H_D_MARGIN = 0.05
+REVISION_1_NOT_BEFORE = 1794865373.0  # Unix time of revision 1: earlier calibration data is refused (see the docstring)
 
 CALIB_DIR = Path("testbed/results/m10d")
 CALIB_OUT = Path("docs/learn/data/M10d-calibration.json")
@@ -71,8 +78,10 @@ def reports_by_slice(lines: list[str]) -> dict[str, list[tuple[float, float | No
 
 
 def in_run(reports: list, run: dict) -> list:
-    """The report periods that start inside the run's window and end before it closes."""
-    return [r for r in reports if run["start_wall"] <= r[0] and r[0] + KPM_PERIOD_S <= run["end_wall"]]
+    """The report periods inside the run's sending window (revision 1): iperf3 sends for run["seconds"] from its start;
+    after that a saturated slice only drains, with nothing arriving."""
+    end = min(run["end_wall"], run["start_wall"] + run["seconds"])
+    return [r for r in reports if run["start_wall"] <= r[0] and r[0] + KPM_PERIOD_S <= end]
 
 
 def check(name: str, value: float | None, limit: float, ok: bool | None = None) -> dict:
@@ -105,7 +114,10 @@ def calibration(runs: list[dict], reports: dict[str, list]) -> dict:
 
 def score_calibration(directory: Path = CALIB_DIR) -> dict:
     runs = [json.loads(line) for line in (directory / "calib_runs.jsonl").read_text().splitlines()]
+    if min(run["start_wall"] for run in runs) < REVISION_1_NOT_BEFORE:
+        raise SystemExit(f"{directory} was recorded before revision 1: run testbed/pdcp_check_m10d.py again")
     result = calibration(runs, reports_by_slice((directory / "calib_kpm.jsonl").read_text().splitlines()))
+    result["revision"] = 1
     CALIB_OUT.parent.mkdir(parents=True, exist_ok=True)
     CALIB_OUT.write_text(json.dumps(result, indent=1) + "\n")
     return result

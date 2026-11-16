@@ -126,9 +126,11 @@ def test_demands_are_the_three_documented() -> None:
 # ---------------------------------------------------------------- eval/m10d.py: the rules, before any testbed run
 
 PLAN_RUNS = [
-    {"phase": "steady", "label": "steady", "rates_mbps": {"embb": 30.0, "urllc": 10.0, "be": 5.0}, "start_wall": 0.0, "end_wall": 60.0},
-    {"phase": "steps", "label": "step_12", "rates_mbps": {"urllc": 12.0}, "start_wall": 100.0, "end_wall": 120.0},
-    {"phase": "overload", "label": "overload", "rates_mbps": {"urllc": 30.0}, "start_wall": 200.0, "end_wall": 240.0},
+    {"phase": "steady", "label": "steady", "rates_mbps": {"embb": 30.0, "urllc": 10.0, "be": 5.0}, "seconds": 60,
+     "start_wall": 0.0, "end_wall": 60.0},
+    {"phase": "steps", "label": "step_12", "rates_mbps": {"urllc": 12.0}, "seconds": 20, "start_wall": 100.0, "end_wall": 120.0},
+    {"phase": "overload", "label": "overload", "rates_mbps": {"urllc": 30.0}, "seconds": 40, "start_wall": 200.0,
+     "end_wall": 240.0},
 ]
 
 
@@ -210,3 +212,19 @@ def test_h_d_is_the_gap_between_measured_and_offered_for_rl() -> None:
     summary = m10d.summarise(rows)
     assert summary["medians"]["rl/offered"] == {"median": 0.96, "n": 3}
     assert summary["h_d"]["rl_measured_minus_offered"] == pytest.approx(-0.03) and summary["h_d"]["holds"]
+
+
+def test_revision_1_the_drain_after_the_sender_stops_is_not_scored() -> None:
+    """The first calibration run: iperf3 returned 100 s after its 40 s, while the saturated slice drained its backlog
+    and PDCP rightly read 0. Only the sending window counts."""
+    draining = [{**run, "end_wall": run["end_wall"] + 100.0} if run["phase"] == "overload" else run for run in PLAN_RUNS]
+    reports = {s: [(float(t), demand(s, t), service(s, t)) for t in range(400)] for s in SLICES}
+    assert m10d.calibration(draining, reports)["pass"]
+
+
+def test_calibration_data_from_before_revision_1_is_refused(tmp_path) -> None:
+    run = {**PLAN_RUNS[0], "start_wall": m10d.REVISION_1_NOT_BEFORE - 1000}
+    (tmp_path / "calib_runs.jsonl").write_text(json.dumps(run) + "\n")
+    (tmp_path / "calib_kpm.jsonl").write_text("")
+    with pytest.raises(SystemExit, match="before revision 1"):
+        m10d.score_calibration(tmp_path)
