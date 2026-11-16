@@ -8,11 +8,20 @@ apply_prb_split is the only call that changes the radio. Only the RL runner may 
 (hard invariant 4); tests/test_runner_realtime.py checks no other module does.
 """
 
+from dataclasses import dataclass
 from typing import Protocol
 
 from store.kpi import CellInfo, KpiRecord
 
-__all__ = ["Backend", "CellInfo", "KpiRecord"]
+__all__ = ["Backend", "BackendHealth", "CellInfo", "KpiRecord"]
+
+
+@dataclass(frozen=True)
+class BackendHealth:
+    """What the runner needs to know before trusting a tick (M11a): are the KPIs fresh, can a split reach the radio?"""
+
+    kpi_age_s: float | None  # age of the newest KPI report, s; None = nothing reported yet
+    actuator_ok: bool  # False = a split sent now would not reach the radio (the slice-control xApp is down)
 
 
 class Backend(Protocol):
@@ -37,4 +46,8 @@ class Backend(Protocol):
     def sleep(self, seconds: float) -> None:
         """Let `seconds` of backend time pass. The sim advances its cell (possibly faster than
         real time); the testbed just waits."""
+        ...
+
+    def health(self) -> BackendHealth:
+        """Freshness of the KPIs and state of the actuator, as of the last read_kpis / apply_prb_split."""
         ...

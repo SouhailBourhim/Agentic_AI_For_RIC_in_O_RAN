@@ -194,7 +194,8 @@ def run_once(spec: RunSpec, scenario: Scenario, work: Path, policy_file: Path | 
         elapsed = lambda: backend.now() - clock_offset_s  # noqa: E731  the scenario's clock
         policy = make_policy(spec, backend, scenario, cfg, policy_file)
         kpi.write_backend_info(conn, backend.info(), spec.run_id)
-        runner = Runner(backend, policy, db.connect(work / "ric.db", timeout_s=0.0), cfg.dt_s)
+        # on_error="raise": a bug ends the evaluation run instead of quietly playing the safe split (M11a)
+        runner = Runner(backend, policy, db.connect(work / "ric.db", timeout_s=0.0), cfg.dt_s, on_error="raise")
         waiting = list(scenario.intents)
 
         def advance(ticks: int) -> None:

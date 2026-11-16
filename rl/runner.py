@@ -13,6 +13,13 @@ It never waits on anything else (hard invariant 5): no LLM, no agent, no HTTP, n
 loop. The database is opened with a zero busy-timeout. A read that fails keeps the last
 objective, and KPI records that cannot be written are kept and written at the next tick.
 
+Safe state (M11a). If the KPIs are stale (no report for SAFE_KPI_AGE_S), the actuator is down (the
+slice-control xApp died) or the backend or the policy raises, the runner stops asking the policy and
+applies SAFE_SPLIT, the static controller's equal split, at once. It logs safe_mode_enter, writes the
+runner_state row that get_status and Prometheus show, and goes back to the policy after
+RESUME_AFTER_TICKS clean ticks in a row. On the simulator the backend is always healthy, so this
+never happens there and every earlier run replays unchanged.
+
 Run (the simulated cell lives inside this process):
   uv run python -m rl.runner --scenario demo --speed 1          live demo, one tick per second
   uv run python -m rl.runner --scenario urllc_spike --speed 0 --ticks 60
@@ -31,7 +38,7 @@ from pathlib import Path
 
 import numpy as np
 
-from backends.base import Backend, KpiRecord
+from backends.base import Backend, BackendHealth, KpiRecord
 from backends.flexric import FlexRICBackend
 from backends.sim import SimBackend, scenario_traffic
 from rl.baselines import EqualSplitPolicy, FormulaPolicy
@@ -49,6 +56,12 @@ POLICY_CACHE = Path("var/policy_cache")
 # jitters on the simulator too (M08a: 5.6-8.5 % of the cell per s, 1.8-3.2 % at this value). No retraining.
 SERVED_SMOOTHING_ALPHA = 0.10
 MAX_PENDING_TICKS = 600  # KPI ticks kept in memory while the database is busy (10 min at 1 s)
+# M11a, the safe state. The equal split is the static controller's: it needs no KPI and no objective, and every
+# slice keeps a third of the cell, far above the 5 % floor. Not "the last good split": the policy chose it on
+# data that may already have been going bad. Not the formula: it needs fresh KPIs too (that fallback is M11b).
+SAFE_SPLIT = np.full(len(SLICES), 1.0 / len(SLICES))
+SAFE_KPI_AGE_S = 5.0  # five missed 1 s KPM reports, FlexRIC's own kpm_stale threshold (backends/flexric.STALE_S)
+RESUME_AFTER_TICKS = 3  # clean ticks in a row before the policy decides again: one fresh report is not a recovery
 
 
 def load_policy(policy_file: Path | None = None, alpha: float = SERVED_SMOOTHING_ALPHA) -> tuple[SlicePolicy, str]:
@@ -126,6 +139,15 @@ def observation_from_records(records: list[KpiRecord], objective: RLObjective, c
     return np.concatenate(parts).astype(np.float32)
 
 
+def health_problem(health: BackendHealth) -> str | None:
+    """Why the runner should not trust this tick, or None. A dead actuator first: nothing reaches the radio."""
+    if not health.actuator_ok:
+        return "actuator_down"
+    if health.kpi_age_s is None or health.kpi_age_s > SAFE_KPI_AGE_S:
+        return "kpi_stale"
+    return None
+
+
 def update_efficiency(tracker: EfficiencyTracker, records: list[KpiRecord], capacity_mbps: float) -> None:
     """Feed the tracker one tick of KPI records: the same three fields SlicingEnv feeds it from its late view."""
     by_slice = {r.slice: r for r in records}
@@ -139,12 +161,18 @@ class TickResult:
     policy_id: int | None  # a1_policy row in force (None = default objective)
     shares: tuple[float, ...]
     db_ok: bool  # False if the policy read or the KPI write had to be skipped this tick
+    mode: str  # 'normal' or 'safe' (M11a)
 
 
 class Runner:
     """The control loop, separate from the CLI so tests can drive it tick by tick."""
 
-    def __init__(self, backend: Backend, policy: SlicePolicy, conn: sqlite3.Connection, dt_s: float = 1.0) -> None:
+    def __init__(self, backend: Backend, policy: SlicePolicy, conn: sqlite3.Connection, dt_s: float = 1.0,
+                 on_error: str = "safe") -> None:
+        """on_error: 'safe' (served runner) turns an exception into the safe state; 'raise' (evaluation runs,
+        eval.harness) lets it propagate, so a bug ends the run instead of quietly playing the equal split."""
+        if on_error not in ("safe", "raise"):
+            raise ValueError(f"on_error is 'safe' or 'raise', got {on_error!r}")
         self.backend = backend
         self.policy = policy
         self.conn = conn
@@ -159,6 +187,13 @@ class Runner:
         self.row: a1_policy.PolicyRow | None = None  # last segment read successfully
         self.last_policy_id: int | None = None  # policy in force at the previous tick
         self.pending: list[tuple[list[KpiRecord], int | None]] = []  # KPI ticks not written yet
+        self.on_error = on_error
+        self.mode = "normal"  # M11a: 'normal' (the policy decides) or 'safe' (SAFE_SPLIT)
+        self.reason: str | None = None  # why safe
+        self.since = backend.now()  # backend clock when the current mode started
+        self.clean_ticks = 0  # clean ticks in a row while safe
+        self.apply_error: Exception | None = None  # the last apply_prb_split failed: next tick is an error
+        self.pending_state: tuple[str, str | None, float] | None = ("normal", None, self.since)  # written at flush
 
     def read_policy(self, now: float) -> bool:
         """Refresh the segment in force. On any database error keep the previous one."""
@@ -176,16 +211,32 @@ class Runner:
             row = None  # the database was unreadable past the segment's end: back to the default
         objective = row.objective if row is not None else DEFAULT_OBJECTIVE
 
-        records = self.backend.read_kpis()
-        self.history.update(seen_loads(records))  # every tick, whoever sets the split, so it's never stale
-        update_efficiency(self.efficiency, records, self.cfg.capacity_mbps)
-        if row is not None and row.mode == "direct_share" and row.shares is not None:
-            shares = np.asarray(row.shares, dtype=np.float64)
-        else:
-            obs = observation_from_records(records, objective, self.cfg, self.history, self.applied, self.efficiency)
-            shares = self.policy.shares(obs)
+        shares = SAFE_SPLIT
+        try:
+            records = self.backend.read_kpis()
+            self.history.update(seen_loads(records))  # every tick, whoever sets the split, so it's never stale
+            update_efficiency(self.efficiency, records, self.cfg.capacity_mbps)
+            problem = "error" if self.apply_error is not None else health_problem(self.backend.health())
+            if self.update_mode(problem, now, self.apply_error) == "normal":
+                if row is not None and row.mode == "direct_share" and row.shares is not None:
+                    shares = np.asarray(row.shares, dtype=np.float64)
+                else:
+                    obs = observation_from_records(records, objective, self.cfg, self.history, self.applied,
+                                                   self.efficiency)
+                    shares = self.policy.shares(obs)
+        except Exception as err:  # the policy or the backend failed: the safe split, never a dead loop
+            if self.on_error == "raise":
+                raise
+            self.update_mode("error", now, err)
+            shares = SAFE_SPLIT
+        self.apply_error = None
         shares = apply_min_share(shares, MIN_SLICE_SHARE)  # always the last step before applying
-        self.backend.apply_prb_split([float(x) for x in shares])
+        try:
+            self.backend.apply_prb_split([float(x) for x in shares])
+        except Exception as err:
+            if self.on_error == "raise":
+                raise
+            self.apply_error = err  # the next tick enters (or stays in) the safe state with reason 'error'
         self.applied = np.asarray(shares, dtype=np.float64)
         self.backend.sleep(self.dt_s)
 
@@ -195,16 +246,57 @@ class Runner:
                       data={"from": self.last_policy_id, "to": policy_id,
                             "intent_ids": list(row.intent_ids) if row is not None else []})
             self.last_policy_id = policy_id
-        self.pending.append((self.backend.read_kpis(), policy_id))
+        try:
+            self.pending.append((self.backend.read_kpis(), policy_id))
+        except Exception:
+            if self.on_error == "raise":
+                raise
+            # Nothing to record for this tick. The next tick's read meets the same failure and enters the safe state.
         write_ok = self.flush()
-        return TickResult(self.backend.now(), policy_id, tuple(float(x) for x in shares), read_ok and write_ok)
+        return TickResult(self.backend.now(), policy_id, tuple(float(x) for x in shares), read_ok and write_ok,
+                          self.mode)
+
+    def update_mode(self, problem: str | None, now: float, error: Exception | None = None) -> str:
+        """Enter the safe state at once on a problem; leave it after RESUME_AFTER_TICKS clean ticks in a row.
+
+        Every change (and a change of reason while safe) is logged and queued for the runner_state row."""
+        if problem is not None:
+            self.clean_ticks = 0
+            if self.mode == "safe" and problem == self.reason:
+                return self.mode
+            data: dict = {"reason": problem, "previous_reason": self.reason}
+            if error is not None:
+                data["error"] = f"{type(error).__name__}: {error}"
+            log_event("runner", "safe_mode_enter", ts_backend=now, data=data)
+            if self.mode == "normal":
+                self.since = now
+            self.mode, self.reason = "safe", problem
+            self.pending_state = (self.mode, self.reason, self.since)
+            return self.mode
+        if self.mode == "normal":
+            return self.mode
+        self.clean_ticks += 1
+        if self.clean_ticks < RESUME_AFTER_TICKS:
+            return self.mode
+        log_event("runner", "safe_mode_exit", ts_backend=now,
+                  data={"reason": self.reason, "safe_s": round(now - self.since, 3)})
+        self.mode, self.reason, self.since, self.clean_ticks = "normal", None, now, 0
+        self.pending_state = (self.mode, None, now)
+        if isinstance(self.policy, SlicePolicy):
+            # The filter restarts from the split in force, not from its last output before the outage:
+            # otherwise the first resumed split jumps straight back to a decision made on old data.
+            self.policy.restart_from(self.applied)
+        return self.mode
 
     def flush(self) -> bool:
-        """Write every pending KPI tick in one transaction; keep them if the database is busy."""
+        """Write every pending KPI tick, and the runner state if it changed, in one transaction;
+        keep them if the database is busy."""
         try:
             self.conn.execute("BEGIN IMMEDIATE")
             for records, policy_id in self.pending:
                 kpi.write_records(self.conn, records, policy_id)
+            if self.pending_state is not None:
+                kpi.write_runner_state(self.conn, *self.pending_state)
             self.conn.execute("COMMIT")
         except sqlite3.Error:
             if self.conn.in_transaction:
@@ -212,6 +304,7 @@ class Runner:
             del self.pending[:-MAX_PENDING_TICKS]  # bounded memory: drop the oldest if it lasts
             return False
         self.pending.clear()
+        self.pending_state = None
         return True
 
     def run(self, ticks: int | None = None) -> None:
@@ -227,7 +320,7 @@ def clear_run_state(conn: sqlite3.Connection) -> None:
     timetables and intents of a previous run would refer to the wrong times. The JSONL event
     log is kept (it is the record of every run)."""
     conn.execute("BEGIN IMMEDIATE")
-    for table in ("kpi", "a1_policy", "a1_schedule", "intents", "backend_info"):
+    for table in ("kpi", "a1_policy", "a1_schedule", "intents", "backend_info", "runner_state"):
         conn.execute(f"DELETE FROM {table}")
     conn.execute("DELETE FROM sqlite_sequence")  # policy ids restart at 1
     conn.execute("COMMIT")

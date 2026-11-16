@@ -72,5 +72,6 @@ def get_overview(conn=Depends(connection)) -> dict:
     found = kpi.read_backend_info(conn)
     result = machine.overview(conn, time.time())
     result["backend"] = None if found is None else {**found[0].__dict__, "model_version": found[1]}
+    result["runner"] = kpi.read_runner_state(conn)  # M11a: 'normal', or 'safe' with its reason and since when
     result["mode"] = os.environ.get("RIC_MODE", "demo")
     return result

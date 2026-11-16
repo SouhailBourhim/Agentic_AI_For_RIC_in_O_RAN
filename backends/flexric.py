@@ -13,7 +13,9 @@ The same RL runner, policy, verifier and agent run on it unchanged. What is diff
 - the clock is the wall clock: one tick is one real second.
 
 If the xApp dies, the radio keeps the last split (the gNB holds it), the runner keeps running and
-the failure is logged. If KPM reports stop, the last values are held and that is logged too.
+the failure is logged; the next split restarts the xApp, at most MAX_XAPP_RESTARTS times, XAPP_RESTART_S
+apart (M11a). If KPM reports stop, the last values are held and that is logged too. health() tells the
+runner both (the age of the newest report, whether the xApp is alive), so it can enter its safe state.
 """
 
 import json
@@ -22,6 +24,7 @@ import threading
 import time
 from collections import deque
 
+from backends.base import BackendHealth
 from store import testbed
 from store.events import log_event
 from store.kpi import CellInfo, KpiRecord
@@ -31,6 +34,8 @@ N_PRB = 106  # gNB carrier PRBs (testbed/rfsim-flexric/conf/gnb.conf); the gNB c
 MIN_PRB = 5  # the gNB refuses fewer (its PF scheduler allocates at least 5 PRBs); 5 % of 106 = 5.3
 REPORT_PERIOD_S = 1.0  # KPM granularity period (xapps/kpm/xapp_kpm_slices.c)
 STALE_S = 5.0  # no new KPM values for this long: hold the last ones and log it
+MAX_XAPP_RESTARTS = 3  # then give up: something outside the xApp is broken (RIC, gNB), restarting won't fix it
+XAPP_RESTART_S = 10.0  # at least this long between two starts: FlexRIC aborts a stuck xApp after ~6 s
 # The default command runs the xApp binary inside the RL xApp container (xapps/rl/Dockerfile).
 XAPP_CMD = ["stdbuf", "-o0", "/usr/local/flexric/xApp/c/slice/xapp_slice_ctrl"]
 # RRU.PrbTotDl of a fully used cell, as a share: it averages over EVERY slot, uplink ones included.
@@ -67,26 +72,52 @@ class FlexRICBackend:
     def __init__(self, conn, cell: CellInfo, xapp_cmd: list[str] | None = None) -> None:
         self.conn = conn
         self.cell = cell
-        self.xapp = subprocess.Popen(xapp_cmd or XAPP_CMD, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                     text=True, bufsize=1)
-        self.xapp_alive = True
+        self.xapp_cmd = xapp_cmd or XAPP_CMD
         self.last_prbs: list[int] | None = None
         # (wall time sent, shares actually sent): to know the split in force when a report was measured
         self.history: deque[tuple[float, tuple[float, ...]]] = deque(maxlen=120)
         self.stale_logged = False
-        threading.Thread(target=self._read_replies, daemon=True).start()
+        self.report_age_s: float | None = None  # age of the newest KPM report at the last read_kpis (health)
+        self.restarts = 0
+        self.gave_up = False
+        self._start_xapp()
 
-    def _read_replies(self) -> None:
-        """Log each JSON line of the xApp (acks with their round-trip time, errors)."""
-        assert self.xapp.stdout is not None
-        for line in self.xapp.stdout:
+    def _start_xapp(self) -> None:
+        """Start the slice-control xApp and the thread that reads its answers. Popen returns at once."""
+        self.xapp = subprocess.Popen(self.xapp_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
+                                     bufsize=1)
+        self.xapp_alive = True
+        self.started_wall = time.time()
+        threading.Thread(target=self._read_replies, args=(self.xapp,), daemon=True).start()
+
+    def _read_replies(self, xapp: subprocess.Popen) -> None:
+        """Log each JSON line of one xApp process (acks with their round-trip time, errors)."""
+        assert xapp.stdout is not None
+        for line in xapp.stdout:
             try:
                 reply = json.loads(line)
             except json.JSONDecodeError:
                 continue  # FlexRIC's own log lines share stdout
             log_event("slice_ctrl_xapp", f"xapp_{reply.pop('event', 'unknown')}", data=reply)
-        self.xapp_alive = False
-        log_event("slice_ctrl_xapp", "xapp_exited", data={"returncode": self.xapp.wait()})
+        if xapp is self.xapp:  # an older process ending after a restart says nothing about the current one
+            self.xapp_alive = False
+        log_event("slice_ctrl_xapp", "xapp_exited", data={"returncode": xapp.wait()})
+
+    def _restart_if_due(self) -> None:
+        """Start the xApp again if it died, at most MAX_XAPP_RESTARTS times, XAPP_RESTART_S apart (M11a)."""
+        if self.gave_up or time.time() - self.started_wall < XAPP_RESTART_S:
+            return
+        if self.restarts >= MAX_XAPP_RESTARTS:
+            self.gave_up = True
+            log_event("flexric_backend", "xapp_restart_gave_up", data={"restarts": self.restarts})
+            return
+        self.restarts += 1
+        log_event("flexric_backend", "xapp_restart", data={"attempt": self.restarts})
+        self._start_xapp()
+        self.last_prbs = None  # the new process has sent nothing: send the next split even if unchanged
+
+    def health(self) -> BackendHealth:
+        return BackendHealth(kpi_age_s=self.report_age_s, actuator_ok=self.xapp_alive)
 
     def info(self) -> CellInfo:
         return self.cell
@@ -99,10 +130,12 @@ class FlexRICBackend:
 
     def apply_prb_split(self, shares: list[float]) -> None:
         prbs = shares_to_prbs(shares)
+        if not self.xapp_alive:
+            self._restart_if_due()
         if prbs == self.last_prbs:
             return  # the gNB keeps the last ranges; nothing to send
         if not self.xapp_alive or self.xapp.stdin is None:
-            return  # logged once by the reader thread; the gNB keeps the last split it got
+            return  # logged by the reader thread; the gNB keeps the last split it got
         try:
             self.xapp.stdin.write(" ".join(map(str, prbs)) + "\n")
             self.xapp.stdin.flush()
@@ -127,6 +160,7 @@ class FlexRICBackend:
         reports = testbed.read_latest(self.conn)
         targets = testbed.read_traffic_targets(self.conn)
         newest = max((r.report_wall for r in reports.values()), default=None)
+        self.report_age_s = None if newest is None else now - newest
         stale = newest is None or now - newest > STALE_S
         if stale != self.stale_logged:
             log_event("flexric_backend", "kpm_stale" if stale else "kpm_fresh",

@@ -136,8 +136,11 @@ benchmark with seven controllers and a simulator calibrated against 72 testbed r
 - **Limits.** One cell, simulated radio channel, one phone per slice, delay measured at the radio
   link layer (not end to end). On the real cell, the controller is told each slice's offered
   traffic rate by the traffic script, because the base station doesn't report it.
-- **Next:** demand from the base station's own PDCP counter on the real cell (M10d), then a runtime
-  safety monitor with a formula fallback (the review's P2).
+- **Safety of the fast loop** ([M11a](docs/learn/M11a-safe-state.md)): if the measurements stop, the
+  actuator dies or the code fails, the controller puts a fixed equal split on the cell at once, raises
+  an alert and says so in `get_status`; it hands back after 3 good seconds.
+- **Next:** a runtime monitor that hands an intent to the formula when RL misses its target (M11b),
+  a one-page threat model (M11c), and demand from the base station's own PDCP counter (M10d).
 
 ## What this project demonstrates
 
@@ -259,6 +262,8 @@ core, gNB, nrUE), **FlexRIC**, C xApps, **Docker**, on WSL2 with an RTX 5070 lap
 | M10b | Fair non-learned executors on the varying cell; pre-registered go/stop checks | Done: gate failed twice (oracle ≥ 0.9 on 62 % of intents, rule 80 %; F4 at 16 %); estimating the rate lifts the formula +0.05, the oracle's lead is all foresight |
 | M10c′ | RL trained on the varying cell vs the estimating formula, F1-F3/F5, pre-registered | Done: formula better, −0.046 [−0.072, −0.022]; RL wins steady loads (F2, F5), loses F3 (−0.25) |
 | M10d | Testbed demand from the gNB's PDCP volume instead of the traffic script | Planned |
+| M11a | Runner safe state: stale KPIs, dead actuator or an error → equal split, alert, status; xApp restart | Done: enters at once, hands back after 3 clean ticks; simulator runs unchanged (replay byte-identical) |
+| M11b / M11c | Runtime monitor with formula fallback; threat model | Planned |
 
 </details>
 

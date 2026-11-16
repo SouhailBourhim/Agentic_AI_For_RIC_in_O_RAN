@@ -315,6 +315,18 @@ M09d and M09e agree that LLM + formula beats LLM + RL (0.929 against 0.780). The
 
 **M10c′ done 2026-11-14: "formula better", pre-registered, scored once.** RL trained on m10 (v9_noswitch options + efficiency inputs, alpha 0.25; seeds 70-74, only seed 74 kept a checkpoint, so the median seed 72's final model was tested by the registered fallback) against formula_est on 160 fresh test instances of F1, F2, F3, F5, scripted objectives: −0.046 [−0.072, −0.022] (dev expectation −0.060). RL wins F2 (+0.058) and F5 (+0.039) and loses F1 (−0.037) and F3 (−0.250: it keeps URLLC at 0.42 of the cell where the formula keeps 0.63). Held-out goal test: every seed fails T1a (reported). The executor can be a formula; the value is in the intent → objective → verifier chain. Note: [learn/M10c-rl-vs-formula.md](learn/M10c-rl-vs-formula.md).
 
+## 11. M11: closing the safety story (the review's P2, decided 2026-11-16)
+
+The review (`REVIEW-2026-11-11.md` §3.3-§3.4, P2) found that the fast loop has no safe state and that the verifier checks an objective, not whether the policy then meets it. M11 closes both, one sub-checkpoint at a time, each with its own plan.
+
+| # | Delivers | Who runs the long part |
+|---|---|---|
+| M11a ✅ | Runner safe state: stale KPIs, dead actuator or an exception → equal split at once, alert, `get_status`/Prometheus; back to the policy after 3 clean ticks; xApp restart on the testbed | me (testbed check: Souhail, optional) |
+| M11b | Runtime monitor with formula fallback: a stated target missed for N s while the formula's split would meet it → the formula executes that intent, logged | me |
+| M11c | Threat model in one page, each line with the test that covers it | me |
+
+**M11a done 2026-11-16.** `Backend.health()` reports the KPI report age and whether the actuator is alive; the runner enters the safe state at once and leaves it after 3 clean ticks, its filter restarted from the equal split. Every simulator run plays the same path (the M09b replay stays byte-identical). Under injected faults the equal split holds the cell for the fault plus 2 s; it costs throughput (eMBB capped near 26 Mb/s against 38 offered). Note: [learn/M11a-safe-state.md](learn/M11a-safe-state.md).
+
 ## 8. Open questions
 
 - ~~**Hard minimum PRB share per slice in the RL runner (discuss in M04a).**~~ **Decided and done (M04a): 5 % per slice, `sim.cell.apply_min_share`, retrained; see docs/learn/M04a-plumbing.md §5 and DECISIONS.md.** The M03 verifier

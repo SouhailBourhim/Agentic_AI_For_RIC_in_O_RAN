@@ -108,3 +108,14 @@ def read_backend_info(conn: sqlite3.Connection) -> tuple[CellInfo, str] | None:
     info = CellInfo(row["cell_id"], row["source"], tuple(json.loads(row["slices"])), row["n_prb"],
                     row["capacity_mbps"], row["urllc_base_latency_ms"])
     return info, row["model_version"]
+
+
+def write_runner_state(conn: sqlite3.Connection, mode: str, reason: str | None, since_backend: float) -> None:
+    """Replace the single runner_state row (M11a). The runner calls it inside its KPI transaction."""
+    conn.execute("INSERT OR REPLACE INTO runner_state VALUES (1, ?, ?, ?, ?)", (mode, reason, since_backend, time.time()))
+
+
+def read_runner_state(conn: sqlite3.Connection) -> dict | None:
+    """{mode, reason, since_backend} for get_status, or None if no runner has written it yet."""
+    row = conn.execute("SELECT mode, reason, since_backend FROM runner_state WHERE id = 1").fetchone()
+    return None if row is None else dict(row)

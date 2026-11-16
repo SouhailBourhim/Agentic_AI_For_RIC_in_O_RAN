@@ -40,6 +40,14 @@ CREATE TABLE IF NOT EXISTS backend_info (  -- one row, written by the runner at 
     started_wall REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS runner_state (  -- one row, written by the runner at startup and when its mode changes
+    id INTEGER PRIMARY KEY CHECK (id = 1),     -- (M11a)
+    mode TEXT NOT NULL,                    -- 'normal' (the policy decides) | 'safe' (the safe split is applied)
+    reason TEXT,                           -- why safe: 'kpi_stale' | 'actuator_down' | 'error'; NULL when normal
+    since_backend REAL NOT NULL,           -- backend clock when this mode started
+    updated_wall REAL NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS a1_schedule (   -- one row per timetable; the newest one is in force
     schedule_id INTEGER PRIMARY KEY AUTOINCREMENT,
     created_wall REAL NOT NULL,

@@ -8,7 +8,8 @@ import time
 
 import pytest
 
-from backends.flexric import N_PRB, PRB_FULL_CELL, FlexRICBackend, shares_to_prbs
+from backends import flexric
+from backends.flexric import MAX_XAPP_RESTARTS, N_PRB, PRB_FULL_CELL, FlexRICBackend, shares_to_prbs
 from rl.policy import SMOOTHING_ALPHA, SlicePolicy
 from rl.runner import SERVED_SMOOTHING_ALPHA, Runner, load_policy
 from store import testbed
@@ -81,6 +82,50 @@ def test_a_dead_xapp_is_logged_and_the_runner_carries_on(ric_db) -> None:
     b.apply_prb_split([0.6, 0.3, 0.1])  # no exception
     b.apply_prb_split([0.2, 0.3, 0.5])
     assert b.last_prbs is None
+
+
+def test_a_dead_xapp_is_restarted_at_most_three_times(ric_db, monkeypatch) -> None:
+    """M11a: the next split starts it again, XAPP_RESTART_S apart; after MAX_XAPP_RESTARTS the backend gives up."""
+    b = backend(ric_db, DEAD_XAPP)
+    exited = lambda n: sum(e["event"] == "xapp_exited" for e in read_events()) >= n  # noqa: E731
+    wait_for(lambda: exited(1))
+    b.apply_prb_split([0.6, 0.3, 0.1])  # dead, but started less than XAPP_RESTART_S ago: not yet
+    assert b.restarts == 0 and not b.health().actuator_ok
+    monkeypatch.setattr(flexric, "XAPP_RESTART_S", 0.0)
+    for attempt in range(1, MAX_XAPP_RESTARTS + 1):
+        b.apply_prb_split([0.6, 0.3, 0.1])
+        assert b.restarts == attempt
+        wait_for(lambda n=attempt + 1: exited(n))
+    b.apply_prb_split([0.6, 0.3, 0.1])
+    b.apply_prb_split([0.6, 0.3, 0.1])
+    assert b.restarts == MAX_XAPP_RESTARTS and b.gave_up
+    events = [e["event"] for e in read_events() if e["source"] == "flexric_backend"]
+    assert events == ["xapp_restart"] * MAX_XAPP_RESTARTS + ["xapp_restart_gave_up"]
+
+
+def test_a_restarted_xapp_gets_the_split_again(ric_db, monkeypatch) -> None:
+    """The new process has sent nothing to the gNB: the same split is sent again, not skipped as unchanged."""
+    b = backend(ric_db, FAKE_XAPP)
+    b.apply_prb_split([0.6, 0.3, 0.1])
+    wait_for(lambda: any(e["event"] == "xapp_ack" for e in read_events()))
+    b.close()  # the xApp exits, as if it had crashed
+    wait_for(lambda: not b.xapp_alive)
+    monkeypatch.setattr(flexric, "XAPP_RESTART_S", 0.0)
+    b.apply_prb_split([0.6, 0.3, 0.1])
+    wait_for(lambda: sum(e["event"] == "xapp_ack" for e in read_events()) == 2)
+    assert b.health().actuator_ok
+    b.close()
+
+
+def test_health_reports_the_age_of_the_newest_report(ric_db) -> None:
+    b = backend(ric_db, FAKE_XAPP)
+    b.read_kpis()
+    assert b.health().kpi_age_s is None  # nothing reported yet: the runner treats it as stale
+    testbed.write_latest(ric_db, [testbed.SliceReport(s, time.time() - 3, 1.0, 0.1, None, 1)
+                                  for s in ("embb", "urllc", "be")])
+    b.read_kpis()
+    assert b.health().kpi_age_s == pytest.approx(3.0, abs=0.5) and b.health().actuator_ok
+    b.close()
 
 
 def test_kpis_use_the_split_in_force_during_the_report(ric_db) -> None:

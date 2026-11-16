@@ -55,6 +55,11 @@ class SlicePolicy:
         """Forget the previous action (start of an episode, or after a restart)."""
         self._previous = None
 
+    def restart_from(self, split: np.ndarray) -> None:
+        """Continue the filter from `split` (M11a: the safe split the runner applied while the policy was not asked),
+        so the next output moves from it at the filter's pace instead of jumping back to the last output."""
+        self._previous = np.asarray(split, dtype=np.float64)
+
     @property
     def n_inputs(self) -> int | None:
         """How many observation values the actor was trained on: 22, or 25 with the load history (M09c).

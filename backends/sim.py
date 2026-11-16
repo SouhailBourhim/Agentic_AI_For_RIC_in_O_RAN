@@ -13,6 +13,7 @@ from collections import deque
 
 import numpy as np
 
+from backends.base import BackendHealth
 from sim.cell import CellConfig, SliceStep, step_slice
 from sim.channel import ChannelTrace
 from sim.scenarios import demo_traffic, s1_spike_traffic, s2_steady_traffic, urllc_spike
@@ -110,6 +111,11 @@ class SimBackend:
 
     def now(self) -> float:
         return self._time_s + self.clock_offset_s
+
+    def health(self) -> BackendHealth:
+        """The simulated cell always reports and always obeys: the runner never enters its safe state here (M11a),
+        so every earlier simulator run plays the same path. DelayedBackend's late view is late, not stale."""
+        return BackendHealth(kpi_age_s=0.0, actuator_ok=True)
 
     def sleep(self, seconds: float) -> None:
         """Advance the cell by seconds / dt ticks, pacing against the wall clock if speed > 0.

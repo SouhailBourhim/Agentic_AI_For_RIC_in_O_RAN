@@ -146,6 +146,16 @@ class RicCollector(Collector):
             info = GaugeMetricFamily("ric_served_model_info", "Policy served by the RL runner", labels=["version"])
             info.add_metric([row["model_version"]], 1)
             yield info
+        # M11a. A database written before M11a has no runner_state table (the exporter opens it read-only, so it
+        # is never created here): no series, rather than a failed scrape.
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'runner_state'").fetchone():
+            state = conn.execute("SELECT mode, reason FROM runner_state WHERE id = 1").fetchone()
+            if state is not None:
+                safe = GaugeMetricFamily("ric_runner_safe_mode", "1 while the RL runner applies its safe split"
+                                         " (reason: kpi_stale, actuator_down, error), 0 while the policy decides",
+                                         labels=["reason"])
+                safe.add_metric([state["reason"] or "none"], 1 if state["mode"] == "safe" else 0)
+                yield safe
 
     def intent_metrics(self, conn: sqlite3.Connection) -> Iterator[GaugeMetricFamily]:
         states = Counter(r["state"] for r in conn.execute("SELECT state FROM intents"))
