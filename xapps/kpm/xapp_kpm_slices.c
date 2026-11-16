@@ -6,8 +6,8 @@
  *   - one KPM REPORT style 4 subscription PER SLICE, whose matching condition is that slice's
  *     S-NSSAI as 4 bytes (SST + 3-byte SD). The stock xApp sends 1 byte (SST 1 only), which the
  *     OAI gNB matches only against UEs whose SD is 0xFFFFFF (ran_func_kpm.c, nssai_matches);
- *   - only three per-UE measurements: DRB.RlcSduDelayDl (first, see meas_names), DRB.UEThpDl,
- *     RRU.PrbTotDl;
+ *   - only four per-UE measurements: DRB.RlcSduDelayDl (first, see meas_names), DRB.UEThpDl,
+ *     RRU.PrbTotDl, and (M10d) DRB.PdcpSduVolumeDL, the slice's demand as the gNB sees it;
  *   - one callback per slice, because the FlexRIC callback receives no subscription id;
  *   - output: one JSON line per UE per report on stdout. All the mapping to the project's KPI
  *     record is done in Python (xapps/kpm_monitor.py), where it is tested.
@@ -47,7 +47,8 @@ static const slice_t slices[] = {
 // DRB.RlcSduDelayDl must come first: every RLC measurement the gNB fills reads the RLC statistics
 // and then RESETS the delay average (OAI get_rlc_stats_per_drb -> nr_rlc_activate_avg_time_to_tx),
 // so a delay read right after DRB.UEThpDl always sees an empty average, i.e. 0.
-static const char* const meas_names[] = {"DRB.RlcSduDelayDl", "DRB.UEThpDl", "RRU.PrbTotDl"};
+// DRB.PdcpSduVolumeDL (M10d) reads the PDCP statistics, not the RLC ones, so its place after them changes nothing.
+static const char* const meas_names[] = {"DRB.RlcSduDelayDl", "DRB.UEThpDl", "RRU.PrbTotDl", "DRB.PdcpSduVolumeDL"};
 #define N_MEAS (sizeof(meas_names) / sizeof(meas_names[0]))
 
 static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;  // callbacks run on the xApp's threads

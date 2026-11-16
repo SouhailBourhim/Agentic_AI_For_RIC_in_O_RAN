@@ -183,7 +183,8 @@ class FlexRICBackend:
                 prb_used=r.prb_cell / PRB_FULL_CELL / alloc,
                 n_ue=r.n_ue,
                 latency_ms=r.latency_ms,
-                offered_load_mbps=targets.get(s),
+                offered_load_mbps=targets.get(s),  # the iperf3 rate: what scoring needs; the runner reads it only with
+                measured_load_mbps=r.measured_load_mbps,  # --demand offered, and this (M10d) with --demand measured
             ))
         return records
 

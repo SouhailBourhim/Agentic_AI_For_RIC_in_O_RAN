@@ -267,15 +267,18 @@ def export(conn, work: Path, started: float, t0: float, seconds: float) -> list[
     return events
 
 
-def play(run: TestbedRun, scale: float = 1.0) -> Path:
-    """One run, from a clean store. Writes run.json last: without it the run didn't finish and is played again."""
-    work = RESULTS / run.run_id
+def play(run: TestbedRun, scale: float = 1.0, extra_args: str = "", results: Path | None = None) -> Path:
+    """One run, from a clean store. Writes run.json last: without it the run didn't finish and is played again.
+
+    extra_args are added to the runner's arguments and results replaces RESULTS (M10d: the executor and the demand
+    source, eval/m10d.py). Both default to M08d's run, unchanged."""
+    work = (results or RESULTS) / run.run_id
     if work.exists():
         shutil.rmtree(work)
     work.mkdir(parents=True)
     os.environ["RIC_DB"] = TESTBED_DB
     env = {**os.environ, "RIC_MODE": "eval", "RIC_CONTROLLER": "proposed" if run.controller not in USES_AGENT else run.controller,
-           "RUNNER_ARGS": runner_args(run.controller)}
+           "RUNNER_ARGS": f"{runner_args(run.controller)} {extra_args}".strip()}
     py = sys.executable
     conn = db.connect(Path(TESTBED_DB))
     clear_run_state(conn)
@@ -334,7 +337,8 @@ def play(run: TestbedRun, scale: float = 1.0) -> Path:
     invalid = problems(events, before, restart_counts(), errors)
     (work / "run.json").write_text(json.dumps(
         {**dataclasses.asdict(run), "seed": run.repeat, "alpha": SERVED_SMOOTHING_ALPHA, "delay_ticks": 0, "importance": None, "commit": commit(),
-         "scale": scale, "t0": t0, "wall_s": round(time.monotonic() - began, 1), "valid": not invalid, "problems": invalid}, indent=1))
+         "scale": scale, "t0": t0, "wall_s": round(time.monotonic() - began, 1), "valid": not invalid, "problems": invalid,
+         **({"runner_args": env["RUNNER_ARGS"]} if extra_args else {})}, indent=1))
     return work
 
 

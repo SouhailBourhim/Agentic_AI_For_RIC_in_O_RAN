@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds our gNB image: OAI v3.0.0 + kpm-per-ue.patch (M07a) + slice-control.patch (M07b), with
+# Builds our gNB image: OAI v3.0.0 + kpm-per-ue.patch (M07a; M10d: PDCP volume per UE, remainder carried) + slice-control.patch (M07b), with
 # OAI's own Dockerfiles.
 #
 # The steps are those of OAI's docker/README.md at v3.0.0 (ran-base -> ran-build -> oai-gnb),

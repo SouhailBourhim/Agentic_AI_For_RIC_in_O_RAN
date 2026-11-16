@@ -22,9 +22,13 @@ Mapping from KPM to the record (decided in the spike, docs/learn/M06-spike.md se
   prb_share_alloc = 1.0 until M07b: the stock scheduler has no per-slice cap, so each slice may
                     use the whole cell
   offered_load_mbps, buffer_bytes: NULL (KPM does not measure them)
+  measured_load_mbps = sum over the slice's UEs of DRB.PdcpSduVolumeDL (Mb per report period) / KPM_PERIOD_S
+                    (M10d): the bytes PDCP received from the core, i.e. the slice's demand at the gNB, whatever
+                    the scheduler then served. None while the gNB doesn't report it.
 """
 
 import argparse
+import dataclasses
 import json
 import os
 import subprocess
@@ -51,6 +55,8 @@ MODEL_VERSION = "none (monitoring only, M07a)"
 
 # Measurement names in the xApp's JSON lines (3GPP TS 28.552 names, as the gNB reports them)
 THP_DL, PRB_DL, DELAY_DL = "DRB.UEThpDl", "RRU.PrbTotDl", "DRB.RlcSduDelayDl"
+PDCP_DL = "DRB.PdcpSduVolumeDL"  # M10d: whole Mb per report period (OAI's unit)
+KPM_PERIOD_S = 1.0  # the C xApp's report period (xapps/kpm/xapp_kpm_slices.c), turns Mb per period into Mb/s
 
 
 @dataclass(frozen=True)
@@ -64,6 +70,7 @@ class UeReport:
     thp_dl_kbps: float | None
     prb_dl_pct: float | None
     rlc_delay_dl_us: float | None
+    pdcp_dl_mb: float | None = None  # M10d
 
 
 def parse_line(line: str, arrived_s: float | None = None) -> UeReport | dict | None:
@@ -90,6 +97,7 @@ def parse_line(line: str, arrived_s: float | None = None) -> UeReport | dict | N
         thp_dl_kbps=obj.get(THP_DL),
         prb_dl_pct=obj.get(PRB_DL),
         rlc_delay_dl_us=obj.get(DELAY_DL),
+        pdcp_dl_mb=obj.get(PDCP_DL),
     )
 
 
@@ -113,6 +121,7 @@ def to_record(slice_name: str, ues: list[UeReport], ts: float, cell_id: str = CE
     thr = sum(u.thp_dl_kbps for u in ues if u.thp_dl_kbps is not None) / 1000
     prb_cell = sum(u.prb_dl_pct for u in ues if u.prb_dl_pct is not None) / 100
     delays = [u.rlc_delay_dl_us for u in ues if u.rlc_delay_dl_us is not None]
+    volumes = [u.pdcp_dl_mb for u in ues if u.pdcp_dl_mb is not None]
     return KpiRecord(
         ts=ts,
         source="flexric",
@@ -123,6 +132,7 @@ def to_record(slice_name: str, ues: list[UeReport], ts: float, cell_id: str = CE
         prb_used=prb_cell / PRB_SHARE_ALLOC,
         n_ue=len(ues),
         latency_ms=max(delays) / 1000 if delays else None,
+        measured_load_mbps=sum(volumes) / KPM_PERIOD_S if volumes else None,
     )
 
 
@@ -169,6 +179,11 @@ class SliceAggregator:
         if reason is not None:
             self.log("report_implausible", slice=r.slice, ue=r.ue, reason=reason)
             return
+        if r.pdcp_dl_mb is not None and r.pdcp_dl_mb / KPM_PERIOD_S > 2 * self.capacity_mbps:
+            # A wrapped PDCP counter (a gNB without M10d's patch) blanks only this measure: the other three are
+            # still real, and a gNB that never reported PDCP must keep working as before.
+            self.log("pdcp_implausible", slice=r.slice, ue=r.ue, pdcp_dl_mb=r.pdcp_dl_mb)
+            r = dataclasses.replace(r, pdcp_dl_mb=None)
         current = self.newest.get(r.slice)
         if current is not None and current[0] == r.collect_start_us:
             current[2].append(r)  # another UE of the same report
@@ -248,8 +263,8 @@ def write_kpi(conn, records: list[KpiRecord]) -> None:
 def write_for_runner(conn, records: list[KpiRecord]) -> None:
     """M07b mode: the newest values per slice, for FlexRICBackend. PRB_SHARE_ALLOC is 1.0, so the
     record's prb_used is the share of the whole cell."""
-    testbed.write_latest(conn, [testbed.SliceReport(r.slice, r.ts, r.dl_thr_mbps, r.prb_used, r.latency_ms, r.n_ue)
-                                for r in records])
+    testbed.write_latest(conn, [testbed.SliceReport(r.slice, r.ts, r.dl_thr_mbps, r.prb_used, r.latency_ms, r.n_ue,
+                                                    r.measured_load_mbps) for r in records])
 
 
 def run_live(container: str, conn, raw_out: Path | None, write=write_kpi) -> None:

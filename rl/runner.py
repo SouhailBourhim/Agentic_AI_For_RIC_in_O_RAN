@@ -95,16 +95,32 @@ def load_policy(policy_file: Path | None = None, alpha: float = SERVED_SMOOTHING
     return SlicePolicy.load(cached, alpha), label
 
 
-def seen_loads(records: list[KpiRecord]) -> dict[str, float]:
-    """The offered load per slice as the policy sees it: measured if the backend knows it, else the throughput."""
+# M10d: where the demand the controller sees comes from. Every load it reads goes through seen_loads: the
+# observation, the load history and so the formula too, which reads the observation.
+DEMANDS = ("offered", "measured", "throughput")
+
+
+def seen_loads(records: list[KpiRecord], demand: str = "offered") -> dict[str, float]:
+    """The load per slice as the controller sees it; the throughput when the chosen source has no value.
+
+    offered: offered_load_mbps, as before M10d (the simulator's true arrivals; on the testbed the iperf3 rate);
+    measured: measured_load_mbps, what the gNB measured (KPM DRB.PdcpSduVolumeDL, M10d);
+    throughput: the throughput only, M07b's "blind" run: a slice asks at least what it got.
+    """
+    if demand not in DEMANDS:
+        raise ValueError(f"demand is one of {DEMANDS}, got {demand!r}")
+    field = {"offered": "offered_load_mbps", "measured": "measured_load_mbps", "throughput": "dl_thr_mbps"}[demand]
     by_slice = {r.slice: r for r in records}
-    return {s: by_slice[s].offered_load_mbps if by_slice[s].offered_load_mbps is not None else by_slice[s].dl_thr_mbps
-            for s in SLICES}
+    loads = {}
+    for s in SLICES:
+        value = getattr(by_slice[s], field)
+        loads[s] = value if value is not None else by_slice[s].dl_thr_mbps
+    return loads
 
 
 def observation_from_records(records: list[KpiRecord], objective: RLObjective, cfg: CellConfig,
                              history: LoadHistory | None = None, applied: np.ndarray | None = None,
-                             efficiency: EfficiencyTracker | None = None) -> np.ndarray:
+                             efficiency: EfficiencyTracker | None = None, demand: str = "offered") -> np.ndarray:
     """The policy input built from one tick of KPI records (same function as in training).
 
     Fields a backend cannot measure are replaced conservatively: an unknown offered load by
@@ -119,7 +135,7 @@ def observation_from_records(records: list[KpiRecord], objective: RLObjective, c
     """
     by_slice = {r.slice: r for r in records}
     obs = build_observation(
-        loads_mbps=seen_loads(records),
+        loads_mbps=seen_loads(records, demand),
         throughput_mbps={s: by_slice[s].dl_thr_mbps for s in SLICES},
         latency_ms={s: by_slice[s].latency_ms or 0.0 for s in SLICES},
         shares={s: by_slice[s].prb_share_alloc for s in SLICES},
@@ -168,11 +184,15 @@ class Runner:
     """The control loop, separate from the CLI so tests can drive it tick by tick."""
 
     def __init__(self, backend: Backend, policy: SlicePolicy, conn: sqlite3.Connection, dt_s: float = 1.0,
-                 on_error: str = "safe") -> None:
+                 on_error: str = "safe", demand: str = "offered") -> None:
         """on_error: 'safe' (served runner) turns an exception into the safe state; 'raise' (evaluation runs,
-        eval.harness) lets it propagate, so a bug ends the run instead of quietly playing the equal split."""
+        eval.harness) lets it propagate, so a bug ends the run instead of quietly playing the equal split.
+        demand: where the controller's loads come from (seen_loads, M10d)."""
         if on_error not in ("safe", "raise"):
             raise ValueError(f"on_error is 'safe' or 'raise', got {on_error!r}")
+        if demand not in DEMANDS:
+            raise ValueError(f"demand is one of {DEMANDS}, got {demand!r}")
+        self.demand = demand
         self.backend = backend
         self.policy = policy
         self.conn = conn
@@ -227,7 +247,7 @@ class Runner:
         shares = SAFE_SPLIT
         try:
             records = self.backend.read_kpis()
-            self.history.update(seen_loads(records))  # every tick, whoever sets the split, so it's never stale
+            self.history.update(seen_loads(records, self.demand))  # every tick, whoever sets the split
             update_efficiency(self.efficiency, records, self.cfg.capacity_mbps)
             problem = "error" if self.apply_error is not None else health_problem(self.backend.health())
             if self.update_mode(problem, now, self.apply_error) == "normal":
@@ -235,7 +255,7 @@ class Runner:
                     shares = np.asarray(row.shares, dtype=np.float64)
                 else:
                     obs = observation_from_records(records, objective, self.cfg, self.history, self.applied,
-                                                   self.efficiency)
+                                                   self.efficiency, self.demand)
                     shares = self.policy.shares(obs)
         except Exception as err:  # the policy or the backend failed: the safe split, never a dead loop
             if self.on_error == "raise":
@@ -353,6 +373,9 @@ def main() -> None:
     parser.add_argument("--urllc-base-latency-ms", type=float, default=None,
                         help="flexric: the URLLC base latency told to the verifier and the formula, instead of "
                              "cell_info's (M09e tells the M09a calibrated value, as the M09 simulator profile does)")
+    parser.add_argument("--demand", choices=DEMANDS, default="offered",
+                        help="the load the controller sees (M10d): offered (default; on the testbed the iperf3 rate), "
+                             "measured (the gNB's PDCP volume), throughput (none: M07b's blind run)")
     parser.add_argument("--ticks", type=int, default=None, help="stop after N ticks (default: run forever)")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--policy-file", type=Path, default=None, help="serve this SB3 file instead of the champion")
@@ -386,10 +409,11 @@ def main() -> None:
     setup.close()
     conn = db.connect(timeout_s=0.0)
     log_event("runner", "run_start", ts_backend=backend.now(),
-              data={"model_version": model_version, "scenario": args.scenario, "speed": args.speed, "alpha": alpha})
+              data={"model_version": model_version, "scenario": args.scenario, "speed": args.speed, "alpha": alpha,
+                    "demand": args.demand})
     print(f"RL runner: {model_version}, scenario {args.scenario}, speed {args.speed}, db {db.db_path()}")
     try:
-        Runner(backend, policy, conn, cfg.dt_s).run(args.ticks)
+        Runner(backend, policy, conn, cfg.dt_s, demand=args.demand).run(args.ticks)
     except KeyboardInterrupt:
         pass
     if isinstance(backend, FlexRICBackend):

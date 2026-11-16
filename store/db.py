@@ -125,7 +125,12 @@ def connect(path: Path | None = None, timeout_s: float = 5.0) -> sqlite3.Connect
 
 # Columns added after a table was first created: (table, column, SQL type). CREATE TABLE IF NOT
 # EXISTS does not add columns to an existing table, so they are added here, once.
-ADDED_COLUMNS = [("intents", "supersedes", "TEXT")]
+ADDED_COLUMNS = [
+    ("intents", "supersedes", "TEXT"),
+    # M10d: the demand the gNB measured (DRB.PdcpSduVolumeDL), Mb/s; kpi.offered_load_mbps stays the iperf3 truth
+    ("kpi", "measured_load_mbps", "REAL"),
+    ("kpm_latest", "measured_load_mbps", "REAL"),
+]
 
 
 def migrate(conn: sqlite3.Connection) -> None:

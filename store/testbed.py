@@ -27,19 +27,22 @@ class SliceReport:
     prb_cell: float  # share of the WHOLE cell's PRBs the slice's UEs used, 0..1
     latency_ms: float | None
     n_ue: int
+    measured_load_mbps: float | None = None  # M10d: from DRB.PdcpSduVolumeDL; None if the gNB doesn't report it
 
 
 def write_latest(conn: sqlite3.Connection, reports: list[SliceReport]) -> None:
-    conn.executemany(
-        "INSERT OR REPLACE INTO kpm_latest VALUES (?, ?, ?, ?, ?, ?)",
-        [(r.slice, r.report_wall, r.dl_thr_mbps, r.prb_cell, r.latency_ms, r.n_ue) for r in reports],
+    conn.executemany(  # by name: the columns of a migrated table are not in declaration order (store/db.py)
+        "INSERT OR REPLACE INTO kpm_latest (slice, report_wall, dl_thr_mbps, prb_cell, latency_ms, n_ue,"
+        " measured_load_mbps) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [(r.slice, r.report_wall, r.dl_thr_mbps, r.prb_cell, r.latency_ms, r.n_ue, r.measured_load_mbps)
+         for r in reports],
     )
 
 
 def read_latest(conn: sqlite3.Connection) -> dict[str, SliceReport]:
     rows = conn.execute("SELECT * FROM kpm_latest").fetchall()
     return {r["slice"]: SliceReport(r["slice"], r["report_wall"], r["dl_thr_mbps"], r["prb_cell"],
-                                    r["latency_ms"], r["n_ue"]) for r in rows}
+                                    r["latency_ms"], r["n_ue"], r["measured_load_mbps"]) for r in rows}
 
 
 def write_traffic_target(conn: sqlite3.Connection, rates_mbps: dict[str, float]) -> None:

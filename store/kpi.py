@@ -12,7 +12,8 @@ import sqlite3
 import time
 from dataclasses import asdict, dataclass
 
-FIELDS = ("dl_thr_mbps", "prb_share_alloc", "prb_used", "latency_ms", "offered_load_mbps", "buffer_bytes")
+FIELDS = ("dl_thr_mbps", "prb_share_alloc", "prb_used", "latency_ms", "offered_load_mbps", "buffer_bytes",
+          "measured_load_mbps")
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,9 @@ class KpiRecord:
     latency_ms: float | None = None
     offered_load_mbps: float | None = None
     buffer_bytes: float | None = None
+    # M10d: the demand the gNB itself measured (KPM DRB.PdcpSduVolumeDL, the bytes PDCP received from the core).
+    # Separate from offered_load_mbps, which on the testbed stays the iperf3 rate that scoring needs as the truth.
+    measured_load_mbps: float | None = None
 
 
 @dataclass(frozen=True)
@@ -50,7 +54,7 @@ def write_records(conn: sqlite3.Connection, records: list[KpiRecord], policy_id:
     rows = [(*asdict(r).values(), policy_id) for r in records]
     conn.executemany(
         "INSERT INTO kpi (ts, source, cell_id, slice, dl_thr_mbps, prb_share_alloc, prb_used, n_ue,"
-        " latency_ms, offered_load_mbps, buffer_bytes, policy_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        " latency_ms, offered_load_mbps, buffer_bytes, measured_load_mbps, policy_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         rows,
     )
 

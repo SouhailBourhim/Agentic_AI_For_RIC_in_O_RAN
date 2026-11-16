@@ -1,8 +1,93 @@
 diff --git a/openair2/E2AP/RAN_FUNCTION/O-RAN/ran_func_kpm_subs.c b/openair2/E2AP/RAN_FUNCTION/O-RAN/ran_func_kpm_subs.c
-index 9c029d1..9b7472a 100644
+index 9c029d1..e91873a 100644
 --- a/openair2/E2AP/RAN_FUNCTION/O-RAN/ran_func_kpm_subs.c
 +++ b/openair2/E2AP/RAN_FUNCTION/O-RAN/ran_func_kpm_subs.c
-@@ -193,8 +193,37 @@ static meas_record_lst_t fill_RRC_ConnMean(__attribute__((unused)) const label_i
+@@ -30,7 +30,45 @@ typedef struct uldlcounter {
+   uint32_t ul;
+ } uldlcounter_t;
+ 
+-static uldlcounter_t last_pdcp_sdu_total_bytes[MAX_MOBILES_PER_GNB] = {0};
++/* agentic-ric (M10d): the previous PDCP SDU byte counters, kept PER UE (by rrc_ue_id: PDCP has no RNTI) for the
++   same reason as the M07a table below: stock v3.0.0 indexes them by the UE's position in one subscription's match
++   list, so with one subscription per S-NSSAI the UEs share slot 0. The report is whole Mb (OAI's unit, kept), and
++   the counter advances by exactly the bytes reported: the remainder under 1 Mb is carried to the next period
++   instead of dropped, so the reports add up to the real volume (stock truncation reads ~0.5 Mb/s low). */
++#define BYTES_PER_MB 125000u  // 10^6 bits / 8
++typedef struct {
++  bool used;
++  uint32_t rrc_ue_id;
++  uldlcounter_t pdcp_sdu_bytes;  // SDU bytes already reported (DRB.PdcpSduVolumeDL / DRB.PdcpSduVolumeUL)
++} pdcp_prev_t;
++static pdcp_prev_t pdcp_prev[MAX_MOBILES_PER_GNB] = {0};
++
++static pdcp_prev_t* pdcp_prev_of(const uint32_t rrc_ue_id)
++{
++  for (int i = 0; i < MAX_MOBILES_PER_GNB; i++)
++    if (pdcp_prev[i].used && pdcp_prev[i].rrc_ue_id == rrc_ue_id)
++      return &pdcp_prev[i];
++  // New UE: a free slot, or (table full of departed UEs) a slot chosen by its id. Its first report is then a
++  // delta from zero, as for any UE's first report in stock OAI.
++  int slot = rrc_ue_id % MAX_MOBILES_PER_GNB;
++  for (int i = 0; i < MAX_MOBILES_PER_GNB; i++)
++    if (!pdcp_prev[i].used) {
++      slot = i;
++      break;
++    }
++  pdcp_prev[slot] = (pdcp_prev_t){.used = true, .rrc_ue_id = rrc_ue_id};
++  return &pdcp_prev[slot];
++}
++
++/* Whole Mb in counter - *reported, and *reported advanced by exactly that many Mb (the rest is carried).
++   uint32 arithmetic, so a counter that wraps still gives the right difference. */
++static uint32_t take_whole_mb(const uint32_t counter, uint32_t* reported)
++{
++  const uint32_t new_bytes = counter - *reported;
++  const uint32_t mb = new_bytes / BYTES_PER_MB;
++  *reported += mb * BYTES_PER_MB;
++  return mb;
++}
+ 
+ static nr_pdcp_statistics_t get_pdcp_stats_per_drb(const uint32_t rrc_ue_id, const int rb_id)
+ {
+@@ -49,7 +87,7 @@ static nr_pdcp_statistics_t get_pdcp_stats_per_drb(const uint32_t rrc_ue_id, con
+ static meas_record_lst_t fill_DRB_PdcpSduVolumeDL(__attribute__((unused)) const label_info_lst_t label,
+                                                   __attribute__((unused)) uint32_t gran_period_ms,
+                                                   cudu_ue_info_pair_t ue_info,
+-                                                  const size_t ue_idx,
++                                                  __attribute__((unused)) const size_t ue_idx,
+                                                   __attribute__((unused))e2_node_level_stats_t* node_stats)
+ {
+   meas_record_lst_t meas_record = {0};
+@@ -61,8 +99,7 @@ static meas_record_lst_t fill_DRB_PdcpSduVolumeDL(__attribute__((unused)) const
+   meas_record.value = INTEGER_MEAS_VALUE;
+ 
+   // Get DL data volume delivered to PDCP layer
+-  meas_record.int_val = (pdcp.rxsdu_bytes - last_pdcp_sdu_total_bytes[ue_idx].dl)*8/1000000;   // [Mb]
+-  last_pdcp_sdu_total_bytes[ue_idx].dl = pdcp.rxsdu_bytes;
++  meas_record.int_val = take_whole_mb(pdcp.rxsdu_bytes, &pdcp_prev_of(ue_info.rrc_ue_id)->pdcp_sdu_bytes.dl);   // [Mb]
+ 
+   return meas_record;
+ }
+@@ -72,7 +109,7 @@ static meas_record_lst_t fill_DRB_PdcpSduVolumeDL(__attribute__((unused)) const
+ static meas_record_lst_t fill_DRB_PdcpSduVolumeUL(__attribute__((unused)) const label_info_lst_t label,
+                                                   __attribute__((unused)) uint32_t gran_period_ms,
+                                                   cudu_ue_info_pair_t ue_info,
+-                                                  const size_t ue_idx,
++                                                  __attribute__((unused)) const size_t ue_idx,
+                                                   __attribute__((unused))e2_node_level_stats_t* node_stats)
+ {
+   meas_record_lst_t meas_record = {0};
+@@ -84,8 +121,7 @@ static meas_record_lst_t fill_DRB_PdcpSduVolumeUL(__attribute__((unused)) const
+   meas_record.value = INTEGER_MEAS_VALUE;
+ 
+   // Get UL data volume delivered from PDCP layer
+-  meas_record.int_val = (pdcp.txsdu_bytes - last_pdcp_sdu_total_bytes[ue_idx].ul)*8/1000000;   // [Mb]
+-  last_pdcp_sdu_total_bytes[ue_idx].ul = pdcp.txsdu_bytes;
++  meas_record.int_val = take_whole_mb(pdcp.txsdu_bytes, &pdcp_prev_of(ue_info.rrc_ue_id)->pdcp_sdu_bytes.ul);   // [Mb]
+ 
+   return meas_record;
+ }
+@@ -193,8 +229,37 @@ static meas_record_lst_t fill_RRC_ConnMean(__attribute__((unused)) const label_i
  }
  
  #if defined (NGRAN_GNB_DU)
@@ -42,7 +127,7 @@ index 9c029d1..9b7472a 100644
  
  static nr_rlc_statistics_t get_rlc_stats_per_drb(const rnti_t rnti, const int rb_id)
  {
-@@ -239,7 +268,7 @@ static meas_record_lst_t fill_DRB_RlcSduDelayDl(__attribute__((unused)) const la
+@@ -239,7 +304,7 @@ static meas_record_lst_t fill_DRB_RlcSduDelayDl(__attribute__((unused)) const la
  static meas_record_lst_t fill_DRB_UEThpDl(__attribute__((unused)) const label_info_lst_t label,
                                            uint32_t gran_period_ms,
                                            cudu_ue_info_pair_t ue_info,
@@ -51,7 +136,7 @@ index 9c029d1..9b7472a 100644
                                            __attribute__((unused))e2_node_level_stats_t* node_stats)
  {
    meas_record_lst_t meas_record = {0};
-@@ -249,8 +278,9 @@ static meas_record_lst_t fill_DRB_UEThpDl(__attribute__((unused)) const label_in
+@@ -249,8 +314,9 @@ static meas_record_lst_t fill_DRB_UEThpDl(__attribute__((unused)) const label_in
    meas_record.value = REAL_MEAS_VALUE;
  
    // Calculate DL Thp
@@ -63,7 +148,7 @@ index 9c029d1..9b7472a 100644
  
    return meas_record;
  }
-@@ -261,7 +291,7 @@ static meas_record_lst_t fill_DRB_UEThpDl(__attribute__((unused)) const label_in
+@@ -261,7 +327,7 @@ static meas_record_lst_t fill_DRB_UEThpDl(__attribute__((unused)) const label_in
  static meas_record_lst_t fill_DRB_UEThpUl(__attribute__((unused)) const label_info_lst_t label,
                                            uint32_t gran_period_ms,
                                            cudu_ue_info_pair_t ue_info,
@@ -72,7 +157,7 @@ index 9c029d1..9b7472a 100644
                                            __attribute__((unused))e2_node_level_stats_t* node_stats)
  {
    meas_record_lst_t meas_record = {0};
-@@ -273,8 +303,9 @@ static meas_record_lst_t fill_DRB_UEThpUl(__attribute__((unused)) const label_in
+@@ -273,8 +339,9 @@ static meas_record_lst_t fill_DRB_UEThpUl(__attribute__((unused)) const label_in
    meas_record.value = REAL_MEAS_VALUE;
  
    // Calculate UL Thp
@@ -84,7 +169,7 @@ index 9c029d1..9b7472a 100644
    
    return meas_record;
  }
-@@ -284,7 +315,7 @@ static meas_record_lst_t fill_DRB_UEThpUl(__attribute__((unused)) const label_in
+@@ -284,7 +351,7 @@ static meas_record_lst_t fill_DRB_UEThpUl(__attribute__((unused)) const label_in
  static meas_record_lst_t fill_RRU_PrbTotDl(__attribute__((unused)) const label_info_lst_t label,
                                             __attribute__((unused)) uint32_t gran_period_ms,
                                             cudu_ue_info_pair_t ue_info,
@@ -93,7 +178,7 @@ index 9c029d1..9b7472a 100644
                                             e2_node_level_stats_t* node_stats)
  {
    meas_record_lst_t meas_record = {0};
-@@ -292,9 +323,12 @@ static meas_record_lst_t fill_RRU_PrbTotDl(__attribute__((unused)) const label_i
+@@ -292,9 +359,12 @@ static meas_record_lst_t fill_RRU_PrbTotDl(__attribute__((unused)) const label_i
    meas_record.value = INTEGER_MEAS_VALUE;
  
    // Get the number of DL PRBs
@@ -109,7 +194,7 @@ index 9c029d1..9b7472a 100644
  
    return meas_record;
  }
-@@ -304,7 +338,7 @@ static meas_record_lst_t fill_RRU_PrbTotDl(__attribute__((unused)) const label_i
+@@ -304,7 +374,7 @@ static meas_record_lst_t fill_RRU_PrbTotDl(__attribute__((unused)) const label_i
  static meas_record_lst_t fill_RRU_PrbTotUl(__attribute__((unused)) const label_info_lst_t label,
                                             __attribute__((unused)) uint32_t gran_period_ms,
                                             cudu_ue_info_pair_t ue_info,
@@ -118,7 +203,7 @@ index 9c029d1..9b7472a 100644
                                             e2_node_level_stats_t* node_stats)
  {
    meas_record_lst_t meas_record = {0};
-@@ -312,9 +346,12 @@ static meas_record_lst_t fill_RRU_PrbTotUl(__attribute__((unused)) const label_i
+@@ -312,9 +382,12 @@ static meas_record_lst_t fill_RRU_PrbTotUl(__attribute__((unused)) const label_i
    meas_record.value = INTEGER_MEAS_VALUE;
  
    // Get the number of UL PRBs
