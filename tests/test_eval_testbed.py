@@ -202,13 +202,16 @@ def test_each_segment_starts_on_the_clock_on_its_own_port(monkeypatch, tmp_path)
     started, waited, deadlines = [], [], []
 
     class Proc:
-        def wait(self) -> None:
-            waited.append(len(started))
+        stdout: list[str] = []
 
-    def iperf(name, rate, seconds, out, segment=0, deadline_s=None):
+        def wait(self) -> None:
+            if T.threading.current_thread() is T.threading.main_thread():  # the player; each reader waits on its own
+                waited.append(len(started))
+
+    def iperf(name, rate, seconds, out, segment=0, deadline_s=None, stream=False):
+        assert stream  # the player follows each session's real start (M10d)
         started.append((name, segment))
         deadlines.append(deadline_s)
-        out.write_text("{}")
         return Proc()
 
     sleeps = []
@@ -221,27 +224,102 @@ def test_each_segment_starts_on_the_clock_on_its_own_port(monkeypatch, tmp_path)
     T.play_segments(T.TestbedRun("dev", "s1", "static", 1), tmp_path, 1.0, str(db_path), errors, T.time.time())
     assert [s for _, s in started] == [0, 0, 0, 1, 1, 1, 2, 2, 2]
     assert sleeps[1] == pytest.approx(120.0, abs=2.0) and sleeps[2] == pytest.approx(300.0, abs=2.0)
-    assert waited[0] == len(started)  # nothing waited on before all the segments had started
-    assert errors == []
+    assert waited and waited[0] == len(started)  # the player waited on nothing before all the segments had started
+    assert len(errors) == 9 and all("no iperf3 result" in e for e in errors)  # sessions that printed nothing: failures
     # every process, iperf3 and ping, stops itself DRAIN_S after the scenario's end (360 s), whatever its queue
     assert all(d == pytest.approx(360.0 + T.DRAIN_S, abs=2.0) for d in deadlines)  # time.sleep is mocked: all start at t0
 
 
-def test_the_traffic_thread_leaves_traffic_target_to_the_run(monkeypatch, tmp_path) -> None:
-    """M08d: a late thread cleared the next run's offered load. The thread no longer clears it; play() does."""
+def stream(*events: tuple[str, object]) -> list[str]:
+    """iperf3 --json-stream lines."""
+    return [json.dumps({"event": e, "data": d}) + "\n" for e, d in events]
+
+
+SESSION = stream(("start", {"timestamp": {"timesecs": 1}}), ("interval", {"sum": {"bits_per_second": 8e6, "seconds": 1.0}}),
+                 ("end", {"sum": {"bits_per_second": 8e6, "seconds": 1.0}}))
+
+
+def test_the_traffic_thread_writes_what_sessions_send_and_nothing_after_it_ends(monkeypatch, tmp_path) -> None:
+    """M08d: a late thread cleared the next run's offered load. M10d: the thread writes each session's rate while it
+    sends, and nothing once it has returned (play() joins it, then clears traffic_target)."""
     from store import testbed as store_testbed
 
+    targets = []
+
     class Proc:
+        def __init__(self, lines: list[str]) -> None:
+            self.stdout = lines
+
         def wait(self) -> None:
             pass
 
+    real_change = T.SentRates.change
+
+    def change(self, s, segment, rate):
+        real_change(self, s, segment, rate)
+        targets.append((s, rate, store_testbed.read_traffic_targets(T.db.connect(self.conn_path)).get(s)))
+
+    monkeypatch.setattr(T.SentRates, "change", change)
     monkeypatch.setattr(T.time, "sleep", lambda s: None)
-    monkeypatch.setattr(T.traffic, "iperf", lambda name, rate, seconds, out, segment=0, deadline_s=None: (out.write_text("{}"), Proc())[1])
-    monkeypatch.setattr(T.traffic, "ping", lambda name, seconds, out, deadline_s=None: Proc())
+    monkeypatch.setattr(T.traffic, "iperf", lambda name, rate, seconds, out, segment=0, deadline_s=None, stream=False: Proc(list(SESSION)))
+    monkeypatch.setattr(T.traffic, "ping", lambda name, seconds, out, deadline_s=None: Proc([]))
     monkeypatch.setattr(T, "log_event", lambda *a, **k: None)
     db_path = tmp_path / "ric.db"
-    T.play_segments(T.TestbedRun("dev", "s2", "static", 1), tmp_path, 1.0, str(db_path), [], T.time.time())
-    assert store_testbed.read_traffic_targets(T.db.connect(db_path)) == STEADY
+    errors: list[str] = []
+    T.play_segments(T.TestbedRun("dev", "s2", "static", 1), tmp_path, 1.0, str(db_path), errors, T.time.time())
+    assert errors == []
+    assert sorted((s, r, t) for s, r, t in targets if r is not None) == sorted((s, r, r) for s, r in STEADY.items())
+    assert {s: t for s, r, t in targets if r is None} == dict.fromkeys(STEADY, 0.0)  # each session stopped at its end
+    assert json.loads((tmp_path / "seg0_embb.json").read_text())["intervals"][0]["sum"]["seconds"] == 1.0
+
+
+def test_a_slice_sends_the_sum_of_its_sessions_and_nothing_after_close(tmp_path, monkeypatch) -> None:
+    from store import testbed as store_testbed
+
+    monkeypatch.setattr(T, "log_event", lambda *a, **k: None)
+    sent = T.SentRates(str(tmp_path / "ric.db"), "dev")
+    read = lambda: store_testbed.read_traffic_targets(T.db.connect(tmp_path / "ric.db"))["embb"]  # noqa: E731
+    sent.change("embb", 1, 39.5)
+    sent.change("embb", 2, 8.0)  # the next segment's session started before the previous one ended
+    assert read() == 47.5
+    sent.change("embb", 1, None)
+    assert read() == 8.0
+    sent.close()
+    sent.change("embb", 2, None)  # a session ending after the run: written nowhere
+    assert read() == 8.0
+
+
+def test_a_session_counts_from_its_start_event_for_its_length(tmp_path) -> None:
+    """A late handshake delays the start event; the session then sends for -t seconds, or until its process ends."""
+    calls = []
+
+    def slow_stdout():
+        yield from stream(("start", {}))
+        T.time.sleep(0.4)  # the server's -t (0.05 s here) runs out while the client is still receiving its queue
+        yield from stream(("end", {"sum": {}}))
+
+    class Proc:
+        stdout = slow_stdout()
+
+        def wait(self) -> None:
+            calls.append("exit")
+
+    T.follow_session(Proc(), tmp_path / "a.json", 0.05, lambda: calls.append("start"), lambda: calls.append("stop"))
+    assert calls == ["start", "stop", "exit"]
+
+    calls.clear()
+    killed = stream(("start", {}), ("error", T.DEADLINE_STOP + " by signal Terminated(15)"), ("end", {"sum": {}}))
+    Proc.stdout = iter(killed)
+    T.follow_session(Proc(), tmp_path / "b.json", 60.0, lambda: calls.append("start"), lambda: calls.append("stop"))
+    assert calls == ["start", "exit", "stop"]  # stopped by its deadline before -t ran out: it stops there, once
+    assert T.iperf_failure(tmp_path / "b.json") is None and T.stopped_by_deadline(tmp_path / "b.json")
+
+
+def test_stream_events_rebuild_the_document_minus_j_writes() -> None:
+    events = [json.loads(line) for line in SESSION]
+    assert T.traffic.assemble(events) == {"start": {"timestamp": {"timesecs": 1}},
+                                          "intervals": [{"sum": {"bits_per_second": 8e6, "seconds": 1.0}}],
+                                          "end": {"sum": {"bits_per_second": 8e6, "seconds": 1.0}}}
 
 
 def test_a_deadline_stop_is_not_a_failure_and_its_intervals_still_count(tmp_path) -> None:
@@ -261,7 +339,10 @@ def test_traffic_commands_carry_their_deadline(monkeypatch, tmp_path) -> None:
     T.traffic.iperf("be", "23.5M", 120, tmp_path / "x.json", segment=1, deadline_s=419.2)
     T.traffic.ping("be", 120, tmp_path / "p.txt", deadline_s=419.2)
     T.traffic.iperf("be", "23.5M", 120, tmp_path / "y.json")  # M06/M07 scripts: unchanged
-    iperf, ping, plain = commands
+    T.traffic.iperf("be", "23.5M", 120, tmp_path / "z.json", segment=1, deadline_s=419.2, stream=True)
+    iperf, ping, plain, streamed = commands
+    assert "-J" in iperf and "--json-stream" not in iperf and "-J" in plain
+    assert "--json-stream" in streamed and "-J" not in streamed
     assert iperf[iperf.index("timeout"):iperf.index("timeout") + 4] == ["timeout", "-s", "TERM", "420"]
     assert iperf[iperf.index("--name") + 1] == "traffic-be-seg1" and "5213" in iperf
     assert ping[3:6] == ["ping", "-w", "420"] and ping[-1] == T.traffic.EXT_DN_IP
@@ -307,3 +388,17 @@ def test_played_load_fills_only_missing_ticks():
     filled = with_played_load(kpis, "s3")
     assert filled["be"]["load"].tolist() == [QUIET["be"], QUIET["be"], 99.0]
     assert filled["urllc"]["load"].tolist() == [QUIET["urllc"], QUIET["urllc"], 99.0]
+
+
+def test_the_export_keeps_kpi_csv_and_writes_the_measured_demand_beside_it(tmp_path, monkeypatch) -> None:
+    from store import kpi as store_kpi
+    from store.kpi import KpiRecord
+
+    monkeypatch.setattr(T, "read_events", lambda: [])
+    conn = T.db.connect(tmp_path / "ric.db")
+    store_kpi.write_records(conn, [KpiRecord(ts=1001.0, source="testbed", cell_id="c", slice="embb", dl_thr_mbps=17.0,
+                                          prb_share_alloc=0.3, prb_used=0.3, n_ue=1, latency_ms=900.0,
+                                          offered_load_mbps=39.5, measured_load_mbps=0.0)], None)
+    T.export(conn, tmp_path, 0.0, 1000.0, 360.0)
+    assert (tmp_path / "kpi.csv").read_text().splitlines()[0] == "ts,slice,dl_thr_mbps,offered_load_mbps,latency_ms,prb_share_alloc,policy_id"
+    assert (tmp_path / "kpi_measured.csv").read_text().splitlines() == ["ts,slice,measured_load_mbps", "1.0,embb,0.0"]

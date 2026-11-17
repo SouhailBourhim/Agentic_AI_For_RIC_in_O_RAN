@@ -72,18 +72,36 @@ def iperf_container(name: str, segment: int) -> str:
     return f"traffic-{name}-seg{segment}"
 
 
-def iperf(name: str, rate: str, seconds: int, out: Path, segment: int = 0, deadline_s: float | None = None) -> subprocess.Popen:
+def iperf(name: str, rate: str, seconds: int, out: Path, segment: int = 0, deadline_s: float | None = None,
+          stream: bool = False) -> subprocess.Popen:
     """With a deadline (M08d's fix), iperf3 runs under `timeout` inside its named container and stops itself after
-    deadline_s even if its slice's queue hasn't drained: on SIGTERM it still writes its JSON, with an "interrupt" error."""
+    deadline_s even if its slice's queue hasn't drained: on SIGTERM it still writes its JSON, with an "interrupt" error.
+
+    With stream (M10d's fix), iperf3 writes its events line by line (--json-stream) to the process's stdout instead of
+    one JSON document to `out` at the end: the caller learns when the session really started sending (its "start"
+    event) and writes the document itself (`assemble`). On a slice with a long queue that can be 15-35 s after the
+    process started, because the session's control handshake waits in the same queue."""
     spec = SLICES[name]
     client = ["iperf3", "-c", EXT_DN_IP, "-p", str(spec["port"] + SEGMENT_PORT_STEP * segment), "-B", ue_ip(spec["container"]),
-              "-u", "-b", rate, "-R", "-t", str(seconds), "-J"]
+              "-u", "-b", rate, "-R", "-t", str(seconds), "--json-stream" if stream else "-J"]
     if deadline_s is None:
         cmd = ["docker", "run", "--rm", "--net", f"container:{spec['container']}", "nicolaka/netshoot", *client]
     else:
         cmd = ["docker", "run", "--rm", "--name", iperf_container(name, segment), "--net", f"container:{spec['container']}",
                "nicolaka/netshoot", "timeout", "-s", "TERM", str(math.ceil(deadline_s)), *client]
-    return subprocess.Popen(cmd, stdout=out.open("w"), stderr=subprocess.PIPE, text=True)
+    return subprocess.Popen(cmd, stdout=subprocess.PIPE if stream else out.open("w"), stderr=subprocess.PIPE, text=True)
+
+
+def assemble(events: list[dict]) -> dict:
+    """iperf3's --json-stream events as the document -J writes: the "start" event's data is its "start", the "interval"
+    events its "intervals", "end" its "end", and an "error" event its "error" (e.g. the deadline's interrupt)."""
+    doc: dict = {"start": {}, "intervals": [], "end": {}}
+    for event in events:
+        if event.get("event") == "interval":
+            doc["intervals"].append(event["data"])
+        elif event.get("event") in ("start", "end", "error"):
+            doc[event["event"]] = event["data"]
+    return doc
 
 
 def ping(name: str, seconds: int, out: Path, deadline_s: float | None = None) -> subprocess.Popen:

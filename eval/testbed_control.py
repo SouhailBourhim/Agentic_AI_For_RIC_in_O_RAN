@@ -24,6 +24,7 @@ at 4bdfba4, stay in eval/results/m08c/ and docs/learn/data/M08c-runs.csv.
 import argparse
 import csv
 import dataclasses
+import functools
 import json
 import os
 import shutil
@@ -32,6 +33,7 @@ import sys
 import threading
 import time
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -191,30 +193,108 @@ def segment_seconds(scenario: str, scale: float) -> list[int]:
     return [max(5, round(seconds * scale)) for seconds, _ in SEGMENTS[scenario]]
 
 
+class SentRates:
+    """What each slice's iperf3 sessions are really sending, written to traffic_target whenever it changes (M10d).
+
+    Until M10d, traffic_target took each segment's rate on the scenario's clock. But a session starts sending only once
+    its control handshake has crossed the slice's DL queue, 15-35 s late on a saturated slice, so the "offered" rate
+    was wrong for those seconds. Now a slice's rate is the sum of its sessions that are sending: from a session's
+    "start" event for its -t seconds, or until its process ends. Sessions of two segments can overlap."""
+
+    def __init__(self, conn_path: str, run_id: str) -> None:
+        self.conn_path, self.run_id = Path(conn_path), run_id
+        self.lock = threading.Lock()
+        self.sending: dict[str, dict[int, float]] = {}
+        self.closed = False
+
+    def change(self, s: str, segment: int, rate: float | None) -> None:
+        """rate None: that session stopped. After close() nothing is written, so no late session reaches the next run."""
+        with self.lock:
+            if self.closed:
+                return
+            mine = self.sending.setdefault(s, {})
+            if rate is None:
+                mine.pop(segment, None)
+            else:
+                mine[segment] = rate
+            conn = db.connect(self.conn_path)
+            testbed.write_traffic_target(conn, {s: sum(mine.values())})
+            conn.close()
+            log_event("scenario", "session_start" if rate is not None else "session_stop",
+                      data={"run": self.run_id, "slice": s, "segment": segment, "rate_mbps": rate, "wall": time.time()})
+
+    def close(self) -> None:
+        with self.lock:
+            self.closed = True
+
+
+def follow_session(proc, out: Path, seconds: float, started: Callable[[], None], stopped: Callable[[], None]) -> None:
+    """One iperf3 session in --json-stream mode: `started` at its "start" event, `stopped` once, after `seconds` (the
+    server's -t) or when the process ends if that comes first (its deadline, an error); then the -J document to out."""
+    events: list[dict] = []
+    once = threading.Lock()
+    done = []
+
+    def stop() -> None:
+        with once:
+            if not done:
+                done.append(True)
+                stopped()
+
+    timer = None
+    for line in proc.stdout:
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue  # iperf3 prints nothing else in this mode; a partial line at a kill is dropped
+        events.append(event)
+        if event.get("event") == "start" and timer is None:
+            started()
+            timer = threading.Timer(seconds, stop)
+            timer.daemon = True
+            timer.start()
+    proc.wait()
+    if timer is not None:
+        timer.cancel()
+        stop()
+    # no event at all (the container never ran iperf3): an empty file, which iperf_failure reports, as with -J
+    out.write_text(json.dumps(traffic.assemble(events), indent=1) if events else "")
+
+
 def play_segments(run: TestbedRun, work: Path, scale: float, conn_path: str, errors: list[str], t0: float) -> None:
     """One thread: the traffic, on the scenario's clock. M08c waited for each iperf3 to close, which takes as long as the
     queues take to drain, so a controller that built a queue delayed its own surge by up to 28 s (M08c's note).
 
     Every process gets the same deadline, DRAIN_S after the scenario's end, and stops itself there. In M08d a process
     waiting on a 95 s queue outlived its run, and this thread then cleared the next run's traffic_target; now nothing
-    here outlives the deadline, and only play() clears traffic_target."""
-    conn = db.connect(Path(conn_path))
+    here outlives the deadline, and only play() clears traffic_target.
+
+    traffic_target follows the sessions as they really send (SentRates, M10d), not the segments' clock; the
+    segment_start event still marks the clock (S1's reaction time starts there, as in M08d)."""
     lengths = segment_seconds(run.scenario, scale)
     deadline = t0 + sum(lengths) + DRAIN_S
-    procs, results = [], []
+    sent = SentRates(conn_path, run.run_id)
+    procs, readers, results = [], [], []
     at = 0.0
     for i, ((_, rates), seconds) in enumerate(zip(SEGMENTS[run.scenario], lengths, strict=True)):
         time.sleep(max(0.0, t0 + at - time.time()))
-        testbed.write_traffic_target(conn, rates)
         log_event("scenario", "segment_start", data={"run": run.run_id, "segment": i, "rates_mbps": rates, "seconds": seconds, "wall": time.time()})
         left = deadline - time.time()
-        procs += [traffic.iperf(s, f"{rate}M", seconds, work / f"seg{i}_{s}.json", segment=i, deadline_s=left) for s, rate in rates.items()]
+        for s, rate in rates.items():
+            out = work / f"seg{i}_{s}.json"
+            proc = traffic.iperf(s, f"{rate}M", seconds, out, segment=i, deadline_s=left, stream=True)
+            reader = threading.Thread(target=follow_session, daemon=True, args=(
+                proc, out, seconds, functools.partial(sent.change, s, i, rate), functools.partial(sent.change, s, i, None)))
+            reader.start()
+            readers.append(reader)
+            results.append(out)
         procs += [traffic.ping(s, seconds, work / f"seg{i}_ping_{s}.txt", deadline_s=left) for s in rates]
-        results += [work / f"seg{i}_{s}.json" for s in rates]
         at += seconds
-    conn.close()
     for proc in procs:
         proc.wait()
+    for reader in readers:
+        reader.join()
+    sent.close()
     errors += [e for path in results if (e := iperf_failure(path))]
 
 
@@ -262,6 +342,13 @@ def export(conn, work: Path, started: float, t0: float, seconds: float) -> list[
         writer = csv.writer(f)
         writer.writerow(["ts", "slice", "dl_thr_mbps", "offered_load_mbps", "latency_ms", "prb_share_alloc", "policy_id"])
         writer.writerows([r[0] - t0, *tuple(r)[1:]] for r in rows)
+    # M10d: the demand the gNB measured, in its own file so kpi.csv keeps its columns (and earlier files their bytes)
+    measured = conn.execute("SELECT ts, slice, measured_load_mbps FROM kpi WHERE ts > ? AND ts <= ? ORDER BY ts, slice",
+                            (t0, t0 + seconds)).fetchall()
+    with (work / "kpi_measured.csv").open("w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["ts", "slice", "measured_load_mbps"])
+        writer.writerows([r[0] - t0, r[1], r[2]] for r in measured)
     events = rebase_events([e for e in read_events() if e["ts_wall"] >= started], t0)
     (work / "events.jsonl").write_text("".join(json.dumps(e, ensure_ascii=False) + "\n" for e in events))
     return events
