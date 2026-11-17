@@ -335,6 +335,9 @@ The review (`REVIEW-2026-11-11.md` §3.3-§3.4, P2) found that the fast loop has
 
 ## 8. Open questions
 
+- **OCUDU (formerly the srsRAN Project) as the RAN, instead of or next to OAI (supervisor's suggestion, 2026-11-17).** Not decided. What it would change, cost and how we would decide (a timeboxed spike first): [PERSPECTIVES.md, P-1](PERSPECTIVES.md#p-1-ocudu-formerly-the-srsran-project-as-the-ran-instead-of-or-next-to-oai).
+- **Real radio with a USRP instead of the RF simulator (2026-11-17).** Not decided; no SDR in hand yet. Requirements (cabled setup, native Linux, UEs with programmable SIMs) and a first spike: [PERSPECTIVES.md, P-2](PERSPECTIVES.md#p-2-real-radio-with-a-usrp-instead-of-the-rf-simulator).
+- **Realistic channels with NVIDIA Sionna in the simulator (2026-11-17).** Not decided. 3GPP or ray-traced channel traces replayed in place of the M10 AR(1) channel, generated offline: [PERSPECTIVES.md, P-3](PERSPECTIVES.md#p-3-realistic-channels-with-sionna-in-the-simulator).
 - ~~**Hard minimum PRB share per slice in the RL runner (discuss in M04a).**~~ **Decided and done (M04a): 5 % per slice, `sim.cell.apply_min_share`, retrained; see docs/learn/M04a-plumbing.md §5 and DECISIONS.md.** The M03 verifier
   only checks that the *targets* leave every slice at least 5 % of the PRBs; it cannot
   guarantee the split the policy chooses. A deterministic clamp in the runner (after the policy
