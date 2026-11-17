@@ -146,8 +146,9 @@ benchmark with seven controllers and a simulator calibrated against 72 testbed r
   an alert and says so in `get_status`; it hands back after 3 good seconds.
 - **Threat model** ([docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)): who can reach what, what each could do
   at worst, the test that shows it can't, and the risks that are stated rather than defended.
-- **Next:** a runtime monitor that hands an intent to the formula when RL misses its target (M11b),
-  and demand from the base station's own PDCP counter (M10d).
+- **Demand measured by the base station** (M10d): on the testbed, the controller can run on the
+  gNB's own PDCP volume instead of the traffic script's rate, and meets S1's goal as well.
+- **Next:** a runtime monitor that hands an intent to the formula when RL misses its target (M11b).
 
 ## What this project demonstrates
 
@@ -283,7 +284,7 @@ core, gNB, nrUE), **FlexRIC**, C xApps, **Docker**, on WSL2 with an RTX 5070 lap
 | M10a | Harder simulated cell: a radio channel per slice, so Mb/s per PRB is unknown and moves | Done: earlier runs replay identically; a formula sized on the told capacity drops 0.96 → 0.62 on F1a (dev) |
 | M10b | Fair non-learned executors on the varying cell; pre-registered go/stop checks | Done: gate failed twice (oracle ≥ 0.9 on 62 % of intents, rule 80 %; F4 at 16 %); estimating the rate lifts the formula +0.05, the oracle's lead is all foresight |
 | M10c′ | RL trained on the varying cell vs the estimating formula, F1-F3/F5, pre-registered | Done: formula better, −0.046 [−0.072, −0.022]; RL wins steady loads (F2, F5), loses F3 (−0.25) |
-| M10d | Testbed demand from the gNB's PDCP volume instead of the traffic script | Planned |
+| M10d | Testbed demand from the gNB's PDCP volume instead of the traffic script | Done: calibration passed (rev. 1); S1 LLM + RL measured − oracle +0.003 (H-d, margin 0.05); the oracle was wrong for 15–35 s after segment changes on saturated slices |
 | M11a | Runner safe state: stale KPIs, dead actuator or an error → equal split, alert, status; xApp restart | Done: enters at once, hands back after 3 clean ticks; simulator runs unchanged (replay byte-identical) |
 | M11b | Runtime monitor with formula fallback | Planned |
 | M11c | Threat model: who can reach what, each threat with its tests, residual risks stated | Done: [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md), 21 threats / 9 residual risks; a corrupt policy row no longer ends the runner |

@@ -228,3 +228,22 @@ def test_calibration_data_from_before_revision_1_is_refused(tmp_path) -> None:
     (tmp_path / "calib_kpm.jsonl").write_text("")
     with pytest.raises(SystemExit, match="before revision 1"):
         m10d.score_calibration(tmp_path)
+
+
+def test_the_demand_series_uses_when_iperf3_really_sent(tmp_path) -> None:
+    """A session that starts late (its handshake waited in the slice's queue) is 'sent' only from its start."""
+    t0 = 1000.0
+    (tmp_path / "run.json").write_text(json.dumps({"t0": t0}))
+    events = [{"ts_wall": t0, "ts_backend": 0.0, "source": "scenario", "event": "segment_start", "intent_id": None,
+               "data": {"segment": 0, "rates_mbps": {"embb": 40.0}, "seconds": 10}}]
+    (tmp_path / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
+    (tmp_path / "seg0_embb.json").write_text(json.dumps({"start": {"timestamp": {"timesecs": t0 + 4}}}))
+    database = tmp_path / "ric.db"
+    conn = sqlite3.connect(database)
+    conn.execute("CREATE TABLE kpi (ts REAL, slice TEXT, dl_thr_mbps REAL, offered_load_mbps REAL, measured_load_mbps REAL)")
+    conn.executemany("INSERT INTO kpi VALUES (?, 'embb', 0, 40, 0)", [(t0 + t,) for t in (-1, 2, 5, 13, 15, 400)])
+    conn.commit()
+    out = tmp_path / "series.csv"
+    assert m10d.export_demand_series(tmp_path, database, out) == 4  # -1 s and 400 s are outside S1's 360 s
+    sent = {float(r.split(",")[0]): float(r.split(",")[-1]) for r in out.read_text().splitlines()[1:]}
+    assert sent == {2.0: 0.0, 5.0: 40.0, 13.0: 40.0, 15.0: 0.0}  # sent over [4, 14), not the segment's [0, 10)

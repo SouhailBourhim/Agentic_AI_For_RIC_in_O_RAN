@@ -56,6 +56,7 @@ One note per checkpoint, in the order they were built. Each one has the same sev
 - [M10a](M10a-varying-channel.md): a radio channel per slice, so Mb/s per PRB is unknown and moves.
 - [M10b](M10b-fair-executors.md): fair non-learned executors and a difficulty gate that failed twice.
 - [M10c′](M10c-rl-vs-formula.md): RL trained on that cell against the estimating formula, pre-registered.
+- [M10d](M10d-pdcp-demand.md): on the testbed, the demand the gNB measures (PDCP volume) instead of the traffic script's rate.
 
 **M11: safety of the fast loop**
 - [M11a](M11a-safe-state.md): the runner's safe state on stale KPIs, a dead actuator or an error.

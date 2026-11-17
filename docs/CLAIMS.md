@@ -52,11 +52,12 @@ Every claim the project makes, with the experiment behind it, the kind of eviden
 | C21 | The PRB split can be set over E2 | M07b, gNB patch + slice-control xApp | Descriptive | throughput follows the PRBs at 0.654 Mb/s per PRB; bad commands refused with a reason | holds | [M07b](learn/M07b-slice-control.md) |
 | C22 | Where a goal needs RL on the real cell, LLM + RL serves it | M08d S1, median of 3 | Descriptive | S1 goal met: LLM + RL 0.96 against 0.34 (static, LLM only) and 0.21 (RL only) | holds, on one scenario | [M08d](learn/M08d-eval-testbed-rerun.md) |
 | C23 | A simulator calibrated on the testbed reproduces it | M09a, 72 testbed runs replayed, rule written first | Pre-registered | first attempt failed; the one allowed retry passed (controller order right in 8/8 panels); LLM only can't be reproduced | holds, after one retry | [M09a](learn/M09a-sim-calibration.md) |
+| C24 | On the testbed, the controller can run on the demand the gNB measures | M10d: calibration (rules first), then S1 × {offered, measured, throughput} × {LLM + RL, LLM + formula} × 3 | Testbed check | PDCP read 31 Mb/s offered while 4 were served; S1 intent met LLM + RL 0.956 measured vs 0.953 oracle (H-d margin 0.05), formula 0.960 vs 0.960; reaction 1–3 s slower | holds, on one scenario, after one calibration revision | [M10d](learn/M10d-pdcp-demand.md) |
 
 ## What is not claimed
 
 - **Generality beyond one cell.** One cell, RF simulation (a clean channel on the testbed, a simulated channel in M10), one UE per slice.
 - **End-to-end delay.** Latency is the RLC delay reported by the gNB.
 - **Intent coverage.** The intents were written and annotated by one author; 20 held-out texts give a wide interval (C1).
-- **Demand measured by the base station on the testbed.** There the controller is told each slice's offered rate by the traffic script (planned: M10d).
+- **Demand beyond arrivals.** The measured demand is what arrives at PDCP, not what is queued: a slice with a backlog and no new arrivals reads 0 (M10d). Only S1 was run on it.
 - **That RL is needed.** Every comparison of RL with a hand-written executor behind the same chain went to the formula (C14, C16, C19).

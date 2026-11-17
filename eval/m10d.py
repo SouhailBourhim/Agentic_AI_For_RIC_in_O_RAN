@@ -3,6 +3,7 @@
   uv run python -m eval.m10d --calibration   score testbed/pdcp_check_m10d.py's run against the frozen rules
   uv run python -m eval.m10d --final         the S1 matrix on the testbed: 18 runs, about 2.2 hours, resumes if stopped
   uv run python -m eval.m10d --score         the S1 table and the medians per executor and demand source
+  uv run python -m eval.m10d --demand-series RUN_DIR DB_COPY   one S1 run's demand sources over time, for the note
 
 The calibration rules (docs/DECISIONS.md, 2026-11-16, written before the first calibration run):
 - steady: per slice, the median |PDCP - target| over the settled reports is within max(1 Mb/s, 5 % of target);
@@ -26,6 +27,7 @@ offered rate, in S1 goal met (median of 3). "throughput" is M07b's blind run, ex
 import argparse
 import csv
 import json
+import sqlite3
 import subprocess
 from pathlib import Path
 
@@ -50,6 +52,7 @@ CALIB_OUT = Path("docs/learn/data/M10d-calibration.json")
 RESULTS = Path("eval/results/m10d")
 TABLE = Path("docs/learn/data/M10d-s1-runs.csv")
 SUMMARY = Path("docs/learn/data/M10d-s1.json")
+DEMAND_SERIES = Path("docs/learn/data/M10d-s1-measured-demand.csv")
 EXECUTORS = ("rl", "formula")
 CELLS = [(executor, demand) for executor in EXECUTORS for demand in DEMANDS]
 
@@ -211,13 +214,53 @@ def summarise(rows: list[dict]) -> dict:
                                         "holds": None if gap is None else abs(gap) <= H_D_MARGIN}}
 
 
+def sent_windows(work: Path) -> dict[str, list[tuple[float, float, float]]]:
+    """Per slice, when its iperf3 sessions really sent, in run seconds: (start, end, Mb/s). A session starts when
+    iperf3's control handshake completes ("start.timestamp"), which on a slice with a long DL queue is seconds
+    after the segment's clock (the handshake waits in that queue), then sends for the segment's length."""
+    t0 = json.loads((work / "run.json").read_text())["t0"]
+    segments = [e["data"] for e in read_events(work / "events.jsonl") if e["event"] == "segment_start"]
+    out: dict[str, list] = {}
+    for seg in segments:
+        for s, rate in seg["rates_mbps"].items():
+            start = json.loads((work / f"seg{seg['segment']}_{s}.json").read_text())["start"]["timestamp"]["timesecs"] - t0
+            out.setdefault(s, []).append((start, start + seg["seconds"], rate))
+    return out
+
+
+def export_demand_series(work: Path, db: Path, out: Path = DEMAND_SERIES) -> int:
+    """The S1 run's three demand sources and what iperf3 really sent, from its run directory and a copy of the
+    testbed database taken right after it (the kpi table holds only the last run, and kpi.csv leaves the measured
+    column out so earlier runs' files stay byte-identical). Returns the rows written."""
+    t0 = json.loads((work / "run.json").read_text())["t0"]
+    windows = sent_windows(work)
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    rows = conn.execute("SELECT ts, slice, dl_thr_mbps, offered_load_mbps, measured_load_mbps FROM kpi ORDER BY ts, slice")
+    n = 0
+    with out.open("w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["t_s", "slice", "dl_thr_mbps", "offered_load_mbps", "measured_load_mbps", "sent_mbps"])
+        for ts, s, thr, offered, measured in rows:
+            t = ts - t0
+            if 0 <= t <= T.SCENARIOS["s1"].seconds:
+                sent = sum(rate for start, end, rate in windows.get(s, []) if start <= t < end)
+                writer.writerow([f"{t:.3f}", s, thr, offered, measured, sent])
+                n += 1
+    return n
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--calibration", action="store_true")
     mode.add_argument("--final", action="store_true")
     mode.add_argument("--score", action="store_true")
+    mode.add_argument("--demand-series", nargs=2, metavar=("RUN_DIR", "DB_COPY"),
+                      help=f"write {DEMAND_SERIES} from one S1 run and the testbed database copied right after it")
     args = parser.parse_args()
+    if args.demand_series:
+        print(export_demand_series(Path(args.demand_series[0]), Path(args.demand_series[1])), "rows ->", DEMAND_SERIES)
+        return
     if args.calibration:
         result = score_calibration()
         for c in result["checks"]:

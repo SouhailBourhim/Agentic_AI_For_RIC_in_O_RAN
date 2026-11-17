@@ -1,0 +1,33 @@
+{
+ "medians": {
+  "rl/offered": {
+   "median": 0.9531772575250836,
+   "n": 3
+  },
+  "rl/measured": {
+   "median": 0.9563758389261745,
+   "n": 3
+  },
+  "rl/throughput": {
+   "median": 0.9530201342281879,
+   "n": 3
+  },
+  "formula/offered": {
+   "median": 0.959866220735786,
+   "n": 3
+  },
+  "formula/measured": {
+   "median": 0.959866220735786,
+   "n": 3
+  },
+  "formula/throughput": {
+   "median": 0.9664429530201343,
+   "n": 3
+  }
+ },
+ "h_d": {
+  "rl_measured_minus_offered": 0.003198581401090861,
+  "margin": 0.05,
+  "holds": true
+ }
+}
