@@ -402,3 +402,11 @@ def test_the_export_keeps_kpi_csv_and_writes_the_measured_demand_beside_it(tmp_p
     T.export(conn, tmp_path, 0.0, 1000.0, 360.0)
     assert (tmp_path / "kpi.csv").read_text().splitlines()[0] == "ts,slice,dl_thr_mbps,offered_load_mbps,latency_ms,prb_share_alloc,policy_id"
     assert (tmp_path / "kpi_measured.csv").read_text().splitlines() == ["ts,slice,measured_load_mbps", "1.0,embb,0.0"]
+
+
+def test_dev_stops_with_a_clear_message_when_the_testbed_is_down(monkeypatch) -> None:
+    monkeypatch.setattr(T, "restart_counts", lambda: {"rfsim5g-oai-gnb": T.NOT_RUNNING, "nearRT-RIC": 0})
+    with pytest.raises(SystemExit, match="testbed is down .*rfsim5g-oai-gnb.*testbed/up.sh"):
+        T.require_testbed_up()
+    monkeypatch.setattr(T, "restart_counts", lambda: {"rfsim5g-oai-gnb": 0, "nearRT-RIC": 2})
+    T.require_testbed_up()  # restarted earlier but running: up

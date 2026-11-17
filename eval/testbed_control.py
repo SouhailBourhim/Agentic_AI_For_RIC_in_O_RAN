@@ -474,6 +474,14 @@ def write_table(results: Path = RESULTS, table: Path = TABLE) -> int:
 # ---------------------------------------------------------------- the matrix
 
 
+def require_testbed_up() -> None:
+    """--dev plays on the testbed as it is (--final restarts it): stop with a clear message if it is down, rather than
+    with docker compose's error from deep inside play() (2026-11-17: the network the core creates was missing)."""
+    down = [name for name, count in restart_counts().items() if count == NOT_RUNNING]
+    if down:
+        raise SystemExit(f"the testbed is down ({', '.join(down)} not running): run testbed/up.sh")
+
+
 def check_image() -> None:
     """The container must run this code: the right capacity, the baseline and the served filter."""
     code = ("from xapps.kpm_monitor import cell_info; from rl.baselines import EqualSplitPolicy; from rl.runner import SERVED_SMOOTHING_ALPHA as a; "
@@ -542,6 +550,7 @@ def main() -> None:
         guard_final(commit())
     check_image()
     if args.dev:
+        require_testbed_up()
         for scenario in args.scenarios:
             for controller in args.controllers:
                 work = play(TestbedRun("what_if_dev" if args.what_if else "dev", scenario, controller, 1), args.scale)

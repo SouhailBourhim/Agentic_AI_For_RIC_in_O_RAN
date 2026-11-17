@@ -143,7 +143,10 @@ Earlier in the same window, while the 30 s peak still held the surge, the same a
   - The `seg*_*.json` files are rebuilt from the events (`traffic.assemble`) and read exactly as before.
   - Each run also writes `kpi_measured.csv` beside an unchanged `kpi.csv`.
   - The sessions still start late on a saturated slice (that is iperf3's handshake). What changes is that the record says so.
-  - Not yet checked on the testbed. The check: `uv run python -m eval.testbed_control --dev --scale 1 --scenarios s1 --controllers static` (~7 min), then compare the run's `session_start` events with the first non-zero rows of `kpi_measured.csv`.
+  - **Checked on the testbed** with a static S1 run (`uv run python -m eval.testbed_control --dev --scale 1 --scenarios s1 --controllers static`, valid, 2026-11-17):
+    - The offered rate is now within tolerance of the measured demand, 2 reports later, on 98.9 % (eMBB), 99.7 % (URLLC) and 99.4 % (BE) of ticks. The M10d run above had 90.7 % and 91.5 % on eMBB and BE.
+    - eMBB's surge session started at 136.6 s and stopped at 316.7 s, and the next one started at 332.1 s.
+    - Under the static split URLLC saturated too, and its last session started at 317.0 s. Its 16 zero readings now match an offered rate of 0.
 - **The measured series of the S1 runs wasn't kept.** `kpi.csv` lists its columns so earlier files stay byte-identical, and the testbed database holds only the last run. So only one run's series exists, saved right after the matrix (`--demand-series`). Next time, the player should write the measured column to its own file per run. We didn't change the player after the runs, because the matrix was frozen with it.
 - **Descriptive, one scenario.** S1 only, 3 repeats per cell, as registered. The 0.003 gap is well inside run-to-run spread (RL on the oracle: 0.943–0.963).
 - **Upstream.** The per-UE fix for the PDCP counters and the remainder carry could go to OAI as a follow-up to the M07a pull request (duranta-project/openairinterface5g#1124). Whether to propose it is your call.
