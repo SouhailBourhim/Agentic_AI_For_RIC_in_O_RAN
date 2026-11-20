@@ -37,13 +37,14 @@ from eval.sim_profiles import KPI_DELAY_TICKS, channel_of, noise_std
 from eval.spent import mark_spent
 from eval.validate_sim import CLOCK_OFFSET_S, served_policy
 from rl import m09
-from rl.monitor import M11B_PRIME_STATED, Trigger
+from rl.monitor import M11B_PRIME_K5, Trigger
 from rl.runner import SERVED_SMOOTHING_ALPHA
 
 # 0 = M11b, 20 s in a row; 1 = M11b, 10 s in a row (both failed rule A, DECISIONS 2026-11-20); 2 = M11b′ (A and B
-# failed on all of dev); 3 = M11b′ watching the stated targets only (tuned on the even half from here on).
-REVISION = 3
-TRIGGER: Trigger = M11B_PRIME_STATED  # the trigger of this revision, and the one the test split plays
+# failed on all of dev); 3 = M11b′ watching the stated targets only (tuned on the even half from here on); 4 = the same,
+# k = 5 of 20 s.
+REVISION = 4
+TRIGGER: Trigger = M11B_PRIME_K5  # the trigger of this revision, and the one the test split plays
 HALVES = {"even": 0, "odd": 1}
 ROOT = Path("eval/results/m11b")
 RESULTS = ROOT / f"r{REVISION}"

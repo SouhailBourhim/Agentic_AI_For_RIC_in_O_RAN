@@ -66,7 +66,11 @@ M11B_PRIME = Trigger("m11b_prime", window_s=20.0, missed_s=10.0, tolerance_mbps=
 # alone beat the formula, and rule B failed.
 M11B_PRIME_STATED = Trigger("m11b_prime_stated", window_s=20.0, missed_s=10.0, tolerance_mbps=EXACT_TOLERANCE_MBPS,
                             tolerance_fraction=0.0, stated_only=True)
-TRIGGERS = {t.name: t for t in (M11B, M11B_PRIME, M11B_PRIME_STATED)}
+# M11b′ revision 4: stated targets only, 5 of the last 20 s. r3 fixed B (m10 F2: rl_mon = rl) but A still failed where
+# the policy is far below the formula (m10 F3; m09 F2, F3, F4): the cost left is the time before the handoff.
+M11B_PRIME_K5 = Trigger("m11b_prime_k5", window_s=20.0, missed_s=5.0, tolerance_mbps=EXACT_TOLERANCE_MBPS,
+                        tolerance_fraction=0.0, stated_only=True)
+TRIGGERS = {t.name: t for t in (M11B, M11B_PRIME, M11B_PRIME_STATED, M11B_PRIME_K5)}
 # What the served runner uses (demo, testbed). M11b's until M11b′ is scored on its test split (DECISIONS 2026-11-20).
 SERVED_TRIGGER = M11B
 

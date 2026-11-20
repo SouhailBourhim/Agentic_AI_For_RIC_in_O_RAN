@@ -97,7 +97,7 @@ def test_m11b_is_n_in_a_row_with_m10ds_tolerance() -> None:
     """M11b's trigger as one case of the window: k = W = N, so one met tick in the window is enough to wait again."""
     assert M11B.window_s == M11B.missed_s == 10.0 and SERVED_TRIGGER is M11B
     assert (M11B.tolerance_mbps, M11B.tolerance_fraction) == (1.0, 0.05)
-    assert set(TRIGGERS) == {"m11b", "m11b_prime", "m11b_prime_stated"}
+    assert set(TRIGGERS) == {"m11b", "m11b_prime", "m11b_prime_stated", "m11b_prime_k5"}
 
 
 def test_m11b_prime_fires_at_k_of_w_with_gaps() -> None:
