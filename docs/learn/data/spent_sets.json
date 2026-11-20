@@ -66,6 +66,12 @@
    "commit": "548834b",
    "result_file": "docs/learn/data/M10c-result.json",
    "note": "H1: formula better"
+  },
+  "m11b/test": {
+   "date": "2026-11-20",
+   "commit": "2ea6c81",
+   "result_file": "docs/learn/data/M11b-test.json",
+   "note": "rule A/B per family: {\"m10\": {\"f1\": {\"A\": true, \"B\": null}, \"f2\": {\"A\": true, \"B\": true}, \"f3\": {\"A\": true, \"B\": null}, \"f5\": {\"A\": true, \"B\": true}}, \"m09\": {\"f1\": {\"A\": true, \"B\": null}, \"f2\": {\"A\": true, \"B\": null}, \"f3\": {\"A\": true, \"B\": null}, \"f4\": {\"A\": true, \"B\": null}, \"f5\": {\"A\": true, \"B\": null}}}"
   }
  }
 }

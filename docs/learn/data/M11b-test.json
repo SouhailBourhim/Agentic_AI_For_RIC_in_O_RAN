@@ -1,0 +1,157 @@
+{
+ "m10": {
+  "policy": "models/m10c/td3_m10c_seed72.zip",
+  "means": {
+   "f1": {
+    "rl": 0.7497425178036928,
+    "rl_mon": 0.8243987416280473,
+    "formula_est": 0.7881894627062132,
+    "intents": 60
+   },
+   "f2": {
+    "rl": 0.8500205536912752,
+    "rl_mon": 0.8588617170022372,
+    "formula_est": 0.8125404823003027,
+    "intents": 40
+   },
+   "f3": {
+    "rl": 0.562956096196868,
+    "rl_mon": 0.832397231543624,
+    "formula_est": 0.8548503914988814,
+    "intents": 40
+   },
+   "f5": {
+    "rl": 0.8424732730340458,
+    "rl_mon": 0.8575681433647284,
+    "formula_est": 0.8172935043144776,
+    "intents": 40
+   },
+   "all": {
+    "rl": 0.7511252665839395,
+    "rl_mon": 0.8412056009672579,
+    "formula_est": 0.814881904927329,
+    "intents": 180
+   }
+  },
+  "verdicts": {
+   "f1": {
+    "A": true,
+    "B": null
+   },
+   "f2": {
+    "A": true,
+    "B": true
+   },
+   "f3": {
+    "A": true,
+    "B": null
+   },
+   "f5": {
+    "A": true,
+    "B": true
+   }
+  },
+  "runs_with_fallback": 96,
+  "runs": 160,
+  "intents_over_detection_bound": 6,
+  "worst_deficit": 0.15999999999999992
+ },
+ "m09": {
+  "policy": "var/policy_cache/td3_noreward_floor_seed20_best.zip",
+  "means": {
+   "f1": {
+    "rl": 0.9168249130002486,
+    "rl_mon": 0.981979710415113,
+    "formula_est": 0.9872233300852034,
+    "intents": 60
+   },
+   "f2": {
+    "rl": 0.8633626957494407,
+    "rl_mon": 0.9903452181208054,
+    "formula_est": 1.0,
+    "intents": 40
+   },
+   "f3": {
+    "rl": 0.5830205536912751,
+    "rl_mon": 0.9320041946308726,
+    "formula_est": 0.9588914988814317,
+    "intents": 40
+   },
+   "f4": {
+    "rl": 0.6357368272622206,
+    "rl_mon": 0.8295533612753013,
+    "formula_est": 0.8369996894262485,
+    "intents": 75
+   },
+   "f5": {
+    "rl": 0.9961441554809843,
+    "rl_mon": 0.9961441554809843,
+    "formula_est": 1.0,
+    "intents": 40
+   },
+   "all": {
+    "rl": 0.7858464824374489,
+    "rl_mon": 0.9328432449014152,
+    "formula_est": 0.9426040645777966,
+    "intents": 255
+   }
+  },
+  "verdicts": {
+   "f1": {
+    "A": true,
+    "B": null
+   },
+   "f2": {
+    "A": true,
+    "B": null
+   },
+   "f3": {
+    "A": true,
+    "B": null
+   },
+   "f4": {
+    "A": true,
+    "B": null
+   },
+   "f5": {
+    "A": true,
+    "B": null
+   }
+  },
+  "runs_with_fallback": 102,
+  "runs": 200,
+  "intents_over_detection_bound": 1,
+  "worst_deficit": 0.08333333333333337
+ },
+ "rule": {
+  "trigger": {
+   "name": "m11b_prime_meets",
+   "window_s": 20.0,
+   "missed_s": 5.0,
+   "tolerance_mbps": 1e-09,
+   "tolerance_fraction": 0.0,
+   "stated_only": true,
+   "per_intent": true,
+   "need_margin": 0.15
+  },
+  "promise_margin": 0.05,
+  "no_harm_margin": 0.02,
+  "revision": 6,
+  "half": null
+ },
+ "played": {
+  "trigger": {
+   "name": "m11b_prime_meets",
+   "window_s": 20.0,
+   "missed_s": 5.0,
+   "tolerance_mbps": 1e-09,
+   "tolerance_fraction": 0.0,
+   "stated_only": true,
+   "per_intent": true,
+   "need_margin": 0.15
+  },
+  "revision": 6,
+  "commit": "2ea6c81"
+ },
+ "commit": "2ea6c81"
+}
