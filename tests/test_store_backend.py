@@ -1,5 +1,7 @@
 """M04a: the store tables and the SimBackend (same cell as training, same observation)."""
 
+import sqlite3
+
 import numpy as np
 import pytest
 
@@ -7,7 +9,7 @@ from backends.sim import SimBackend, scenario_traffic
 from rl.runner import observation_from_records
 from sim.cell import CellConfig
 from sim.env import SlicingEnv
-from store import a1_policy, intents, kpi
+from store import a1_policy, db, intents, kpi
 from store.kpi import KpiRecord
 from verifier.objective import DEFAULT_OBJECTIVE, SLICES, RLObjective, SliceValues
 
@@ -114,3 +116,22 @@ def test_intent_records_keep_their_history(ric_db) -> None:
     with pytest.raises(ValueError):
         intents.set_state(ric_db, "i0001", "done", 103.0)
     assert [r.intent_id for r in intents.in_states(ric_db, ("received",))] == ["i0002"]
+
+
+def test_migrate_accepts_a_column_another_process_just_added(tmp_path, monkeypatch) -> None:
+    """Two processes opening a new database at once: both see the column missing, the second ALTER fails with
+    "duplicate column". That is the other process's work, accepted; any other failure still raises."""
+    conn = db.connect(tmp_path / "race.db")
+    real = db.columns
+    calls = {"n": 0}
+
+    def stale_first_look(c, table):  # the first look happens before the other process's ALTER
+        calls["n"] += 1
+        return set() if calls["n"] == 1 else real(c, table)
+
+    monkeypatch.setattr(db, "columns", stale_first_look)
+    db.migrate(conn)  # the ALTER of the first added column fails as a duplicate, and is accepted
+    assert calls["n"] >= 2
+    monkeypatch.setattr(db, "columns", lambda c, table: set())  # the column really is missing: the error stands
+    with pytest.raises(sqlite3.OperationalError):
+        db.migrate(conn)

@@ -139,8 +139,19 @@ ADDED_COLUMNS = [
 ]
 
 
+def columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+
+
 def migrate(conn: sqlite3.Connection) -> None:
+    """Add the missing columns. Two processes opening a new database at once can both see a column missing and
+    both add it (seen once in CI, tests/test_eval_interface.py's real processes): the second one's "duplicate
+    column" means the other process has just done it, so it is checked again and accepted."""
     for table, column, sql_type in ADDED_COLUMNS:
-        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
-        if column not in existing:
+        if column in columns(conn, table):
+            continue
+        try:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}")
+        except sqlite3.OperationalError:
+            if column not in columns(conn, table):
+                raise
