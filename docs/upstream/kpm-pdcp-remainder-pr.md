@@ -1,14 +1,12 @@
 # Upstream pull request: carry the remainder of DRB.PdcpSduVolumeDL/UL (draft)
 
-Status on 2026-11-17: **not opened.** The change is written, uncommitted, on branch `kpm-pdcp-volume-remainder` in `var/build/oai-upstream` (git-ignored clone), stacked on `kpm-per-ue-prev-values` (PR duranta-project/openairinterface5g#1124), which this change needs: it uses #1124's per-UE table.
+Status on 2026-11-20: **committed, not pushed, not opened.** Commit `c4ce9f62` (signed, `Signed-off-by` and `Assisted-by: Claude:claude-opus-5-5`, as OAI's CONTRIBUTING.md asks; Souhail approved the trailer for OAI commits on 2026-11-20) on branch `kpm-pdcp-volume-remainder` in `var/build/oai-upstream` (git-ignored clone), stacked on `kpm-per-ue-prev-values` (PR duranta-project/openairinterface5g#1124), which this change needs: it uses #1124's per-UE table.
 
 ## What is left before opening
 
-1. **Your decision on the trailer.** OAI's CONTRIBUTING.md asks AI-assisted commits to carry `Assisted-by: <agent>:<model>`. The project's CLAUDE.md forbids Claude attribution lines in commits, so Claude can't write this commit until you say which rule applies upstream. #1124's commits carry `Assisted-by: Claude:claude-fable-5-2`.
-2. **Commit, push and open the PR:**
-   - `git commit -s` in `var/build/oai-upstream`, with the message below and the trailer you choose;
-   - `git push fork kpm-pdcp-volume-remainder`;
-   - open the PR against `develop`, saying it depends on #1124. GitHub will show #1124's two commits too until #1124 merges.
+Wait until #1124 gets a maintainer review (Souhail's choice, 2026-11-20). Then:
+- `git push fork kpm-pdcp-volume-remainder` (rebase on #1124's branch first if it changed during review);
+- open the PR against `develop`, saying it depends on #1124. GitHub will show #1124's two commits too until #1124 merges.
 
 ## Commit message
 
