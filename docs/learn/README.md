@@ -61,6 +61,7 @@ One note per checkpoint, in the order they were built. Each one has the same sev
 **M11: safety of the fast loop**
 - [M11a](M11a-safe-state.md): the runner's safe state on stale KPIs, a dead actuator or an error.
 - [M11b](M11b-runtime-monitor.md): the runtime monitor: the formula takes over an intent RL keeps missing.
+- [M11d](M11d-shielded-rl.md): the shielded RL executor: URLLC floored at the formula's share; reported, not served.
 - [M11c](M11c-threat-model.md): the threat model, each threat with the test that covers it.
 
 **M12: presentable**
