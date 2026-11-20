@@ -36,6 +36,7 @@ from rl.baselines import EqualSplitPolicy, FormulaEstPolicy, FormulaPolicy, Smoo
 from rl.policy import SMOOTHING_ALPHA, SlicePolicy
 from rl.monitor import TRIGGERS, FallbackMonitor
 from rl.runner import Runner
+from rl.shield import ShieldedPolicy
 from sim.cell import CellConfig
 from sim.channel import ChannelTrace
 from store import db, intents, kpi
@@ -49,7 +50,7 @@ USES_RL = ("rl_only", "proposed", "scripted")  # scripted: the over-serving side
 # split. Only "v7" among them needs a policy file; "oracle" reads the cell itself, with no KPI delay (its caller's job).
 EXECUTORS = ("static", "v7", "rev4", "formula_est", "mpc_est", "formula_told", "oracle")
 # M10c': the policy trained on the m10 cell, as one more executor (its file is the run's policy_file).
-LEARNED_EXECUTORS = ("m10_rl",)
+LEARNED_EXECUTORS = ("m10_rl", "shielded_rl")  # M11d: the run's policy file behind the URLLC shield (rl/shield.py)
 # M09b's references: "formula" is LLM + formula (the proposed agent, rl.baselines.FormulaPolicy instead of RL);
 # "llm_only_v2" is the fairer LLM only (its revised prompt); "oracle" is the ceiling (eval/oracle.py), no agent.
 # M09g's diagnostic: "formula_a10" is LLM + formula behind the served RL policy's filter (spec.alpha).
@@ -148,6 +149,8 @@ def needs_policy_file(spec: RunSpec) -> bool:
 def make_policy(spec: RunSpec, backend, scenario: Scenario, cfg: CellConfig, policy_file: Path | None):
     """What stands where the RL policy stands in the Runner, for this run. The Runner applies its splits."""
     controller = spec.executor if spec.executor is not None else spec.controller
+    if controller == "shielded_rl":  # M11d: before the learned-executor branch, which would load the policy bare
+        return ShieldedPolicy(SlicePolicy.load(policy_file, spec.alpha), FormulaEstPolicy(cfg.told_urllc_base_latency_ms))
     if controller in ("v7", *LEARNED_EXECUTORS) or (spec.executor is None and spec.controller in USES_RL):
         return SlicePolicy.load(policy_file, spec.alpha)
     if controller in ("formula", "rev4"):

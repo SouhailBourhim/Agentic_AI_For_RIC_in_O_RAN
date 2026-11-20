@@ -340,7 +340,7 @@ class Runner:
                   data={"reason": self.reason, "safe_s": round(now - self.since, 3)})
         self.mode, self.reason, self.since, self.clean_ticks = "normal", None, now, 0
         self.queue_state()
-        if isinstance(self.policy, SlicePolicy):
+        if hasattr(self.policy, "restart_from"):  # SlicePolicy, or a policy wrapping one (rl.shield, M11d)
             # The filter restarts from the split in force, not from its last output before the outage:
             # otherwise the first resumed split jumps straight back to a decision made on old data.
             self.policy.restart_from(self.applied)
@@ -381,7 +381,7 @@ class Runner:
         self.executor, self.fallback_reason = "rl", None
         if self.mode != "safe":
             self.since = now
-        if isinstance(self.policy, SlicePolicy):
+        if hasattr(self.policy, "restart_from"):  # SlicePolicy, or a policy wrapping one (rl.shield, M11d)
             self.policy.restart_from(self.applied)
         self.queue_state()
 
