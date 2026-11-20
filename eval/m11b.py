@@ -1,8 +1,10 @@
-"""M11b: the runtime monitor with formula fallback, on the dev instances of two cells. Development evidence only.
+"""M11b and M11b′: the runtime monitor with formula fallback, on the dev instances of two cells, then M11b′'s test split.
 
-  uv run python -m eval.m11b --probe        one instance per cell and label, timed: the cost of the whole run
-  uv run python -m eval.m11b --dev          every run (a finished run is not played again)
-  uv run python -m eval.m11b --score        the frozen rule (DECISIONS 2026-11-20) -> docs/learn/data/M11b-*
+  uv run python -m eval.m11b --probe          one instance per cell and label, timed: the cost of the whole run
+  uv run python -m eval.m11b --dev            every dev run (a finished run is not played again)
+  uv run python -m eval.m11b --score          the frozen rule on dev (DECISIONS 2026-11-20) -> docs/learn/data/M11b-*
+  uv run python -m eval.m11b --play           M11b′'s test split, once (guard: committed code and DECISIONS)
+  uv run python -m eval.m11b --score --final  the rule on the test split, once; marks m11b/test spent
 
 Same mode as M10b/M10c′: no LLM; each intent's stated facts go through the real verifier and apply step with the
 default weights, and only who turns the objective into a split differs. Three labels per instance:
@@ -10,8 +12,9 @@ default weights, and only who turns the objective into a split differs. Three la
   rl_mon        the same policy with the runtime monitor (rl/monitor.py): formula_est takes over a missed segment;
   formula_est   the formula alone (M10b's frozen executor), the reference the review's promise is about.
 Cells: m10 (M10c′'s 160 dev instances, F1-F3 and F5, its median-seed model) and m09 (M09b's 200 dev instances,
-F1-F5, v7, the champion). No test split is touched.
-Raw runs: eval/results/m11b/r<revision>/ (git-ignored).
+F1-F5, v7, the champion). Revisions 0-1 are M11b's trigger (dev only, failed as registered); 2 (and 3, if its one
+revision is needed) is M11b′'s, which alone is played on the fresh m11b_test split.
+Raw runs: eval/results/m11b/r<revision>/ and eval/results/m11b/test/ (git-ignored).
 """
 
 import argparse
@@ -24,18 +27,23 @@ from pathlib import Path
 import numpy as np
 
 from eval import benchmark, m10b
-from eval.generator import FAMILIES, M10C_FAMILIES, Instance, dev_instances
+from eval.generator import FAMILIES, M10C_FAMILIES, Instance, dev_instances, m11b_test_instances
 from eval.harness import RunSpec, run_once
+from eval.m09d import guard
 from eval.metrics import load_run, measure_run
 from eval.sim_profiles import KPI_DELAY_TICKS, channel_of, noise_std
+from eval.spent import mark_spent
 from eval.validate_sim import CLOCK_OFFSET_S, served_policy
 from rl import m09
-from rl.monitor import FALLBACK_AFTER_S
+from rl.monitor import M11B_PRIME, Trigger
 from rl.runner import SERVED_SMOOTHING_ALPHA
 
-# Revision of the frozen rule's one allowed revision: 0 = N 20 s (rule A failed), 1 = N 10 s (DECISIONS 2026-11-20).
-REVISION = 1
-RESULTS = Path(f"eval/results/m11b/r{REVISION}")
+# 0 = M11b, 20 s in a row; 1 = M11b, 10 s in a row (both failed rule A, DECISIONS 2026-11-20); 2 = M11b′.
+REVISION = 2
+TRIGGER: Trigger = M11B_PRIME  # the trigger of this revision, and the one the test split plays
+ROOT = Path("eval/results/m11b")
+RESULTS = ROOT / f"r{REVISION}"
+SPENT_NAME = "m11b/test"
 DATA = Path("docs/learn/data")
 LABELS = ("rl", "rl_mon", "formula_est")
 WORKERS = 8
@@ -52,34 +60,40 @@ def cells() -> dict[str, dict]:
                     "alpha": SERVED_SMOOTHING_ALPHA}}
 
 
-def spec_of(cell: dict, inst: Instance, label: str) -> RunSpec:
+def spec_of(cell: dict, inst: Instance, label: str, study: str = "dev") -> RunSpec:
     executor = "formula_est" if label == "formula_est" else cell["executor"]
     alpha = cell["alpha"] if label != "formula_est" else SERVED_SMOOTHING_ALPHA
-    return RunSpec("dev", inst.name, "scripted", inst.seed, alpha=alpha, delay_ticks=KPI_DELAY_TICKS,
-                   executor=executor, monitor=label == "rl_mon")
+    return RunSpec(study, inst.name, "scripted", inst.seed, alpha=alpha, delay_ticks=KPI_DELAY_TICKS,
+                   executor=executor, monitor=TRIGGER.name if label == "rl_mon" else None)
 
 
-def work_of(name: str, cell: dict, inst: Instance, label: str) -> Path:
-    return RESULTS / name / spec_of(cell, inst, label).run_id
+def results_of(study: str) -> Path:
+    return RESULTS if study == "dev" else ROOT / "test"
 
 
-def play(job: tuple[str, dict, Instance, str]) -> Path:
+def work_of(name: str, cell: dict, inst: Instance, label: str, study: str = "dev") -> Path:
+    return results_of(study) / name / spec_of(cell, inst, label, study).run_id
+
+
+def instances_of(cell: dict, study: str) -> list[Instance]:
+    return dev_instances(cell["families"]) if study == "dev" else m11b_test_instances(cell["families"])
+
+
+def play(job: tuple[str, dict, Instance, str, str]) -> Path:
     """One label on one instance of one cell. A finished run is not played again."""
-    name, cell, inst, label = job
-    work = work_of(name, cell, inst, label)
+    name, cell, inst, label, study = job
+    work = work_of(name, cell, inst, label, study)
     if (work / "run.json").exists():
         return work
     file = Path(cell["policy"]) if label != "formula_est" else None
-    return run_once(spec_of(cell, inst, label), inst.scenario(), work, file, cfg=benchmark.profile_cell(inst, name),
-                    traffic=inst.traffic(noise_std()), clock_offset_s=CLOCK_OFFSET_S, channel=channel_of(name, inst.seed))
+    return run_once(spec_of(cell, inst, label, study), inst.scenario(), work, file,
+                    cfg=benchmark.profile_cell(inst, name), traffic=inst.traffic(noise_std()),
+                    clock_offset_s=CLOCK_OFFSET_S, channel=channel_of(name, inst.seed))
 
 
-def jobs(per_family: int | None = None) -> list[tuple[str, dict, Instance, str]]:
-    out = []
-    for name, cell in cells().items():
-        instances = dev_instances(cell["families"]) if per_family is None else dev_instances(cell["families"], per_family)
-        out += [(name, cell, inst, label) for inst in instances for label in LABELS]
-    return out
+def jobs(study: str = "dev") -> list[tuple[str, dict, Instance, str, str]]:
+    return [(name, cell, inst, label, study) for name, cell in cells().items()
+            for inst in instances_of(cell, study) for label in LABELS]
 
 
 def play_all(todo: list) -> None:
@@ -98,7 +112,7 @@ def probe() -> None:
             for old in work.glob("run.json"):
                 old.unlink()
             started = time.monotonic()
-            play((name, cell, inst, label))
+            play((name, cell, inst, label, "dev"))
             seconds = time.monotonic() - started
             total = len(dev_instances(cell["families"]))
             print(f"{name} {label}: {seconds:.1f} s per run; {total} runs ~ {seconds * total / WORKERS / 60:.1f} min "
@@ -112,14 +126,14 @@ def fallbacks(events: list[dict]) -> list[dict]:
     return [e for e in events if e["event"] == "executor_fallback"]
 
 
-def score(name: str, cell: dict) -> list[dict]:
+def score(name: str, cell: dict, study: str = "dev") -> list[dict]:
     """One row per instance, intent and label; the verifier must answer the same in every label's run (checked)."""
     rows = []
-    for inst in dev_instances(cell["families"]):
+    for inst in instances_of(cell, study):
         flags = None
         scenario = inst.scenario()
         for label in LABELS:
-            work = work_of(name, cell, inst, label)
+            work = work_of(name, cell, inst, label, study)
             measured = measure_run(work, scenario)["intents"]
             events = load_run(work)[1]
             mine = m10b.accepted_flags(events)
@@ -161,14 +175,14 @@ def verdicts(means: dict[str, dict[str, float]]) -> dict[str, dict]:
 
 def deficits(rows: list[dict]) -> list[dict]:
     """Reported, not gating: each accepted intent's shortfall of rl_mon against formula_est, next to the detection
-    bound (N + KPI delay + 1 s) / window: the seconds before the formula can act, as a fraction of the window."""
+    bound (W + KPI delay + 1 s) / window: at most the seconds before the formula can act, as a fraction of the window."""
     by = {(r["instance"], r["intent"], r["label"]): r for r in rows if r["accepted"]}
     out = []
     for (inst, k, label), r in by.items():
         if label != "rl_mon":
             continue
         gap = by[(inst, k, "formula_est")]["intent_met"] - r["intent_met"]
-        bound = (FALLBACK_AFTER_S + KPI_DELAY_TICKS + 1) / r["window_s"] if r["window_s"] > 0 else float("nan")
+        bound = (TRIGGER.window_s + KPI_DELAY_TICKS + 1) / r["window_s"] if r["window_s"] > 0 else float("nan")
         out.append({"cell": r["cell"], "family": r["family"], "instance": inst, "intent": k, "deficit": gap,
                     "detection_bound": bound, "fallbacks_in_run": r["fallbacks_in_run"],
                     "first_fallback_s": r["first_fallback_s"]})
@@ -182,10 +196,10 @@ def write_csv(path: Path, rows: list[dict]) -> None:
         writer.writerows(rows)
 
 
-def score_all() -> dict:
+def score_all(study: str = "dev") -> dict:
     out, all_rows, all_deficits = {}, [], []
     for name, cell in cells().items():
-        rows = score(name, cell)
+        rows = score(name, cell, study)
         means = family_means(rows, cell["families"])
         gaps = deficits(rows)
         runs = {(r["instance"], r["label"]): r["fallbacks_in_run"] for r in rows}
@@ -197,12 +211,41 @@ def score_all() -> dict:
                      "worst_deficit": max((g["deficit"] for g in gaps), default=float("nan"))}
         all_rows += rows
         all_deficits += gaps
-    out["rule"] = {"fallback_after_s": FALLBACK_AFTER_S, "promise_margin": PROMISE_MARGIN,
-                   "no_harm_margin": NO_HARM_MARGIN}
-    out["rule"]["revision"] = REVISION
-    write_csv(DATA / f"M11b-dev-runs-r{REVISION}.csv", all_rows)
-    write_csv(DATA / f"M11b-deficits-r{REVISION}.csv", all_deficits)
-    (DATA / f"M11b-dev-r{REVISION}.json").write_text(json.dumps(out, indent=1))
+    out["rule"] = {"trigger": TRIGGER.__dict__, "promise_margin": PROMISE_MARGIN, "no_harm_margin": NO_HARM_MARGIN,
+                   "revision": REVISION}
+    tag = f"dev-r{REVISION}" if study == "dev" else "test"
+    write_csv(DATA / f"M11b-{tag}-runs.csv", all_rows)
+    write_csv(DATA / f"M11b-{tag}-deficits.csv", all_deficits)
+    (DATA / f"M11b-{tag}.json").write_text(json.dumps(out, indent=1))
+    return out
+
+
+def missing_runs() -> list[str]:
+    return [str(work_of(n, c, i, label, "test")) for n, c, i, label, _ in jobs("test")
+            if not (work_of(n, c, i, label, "test") / "run.json").exists()]
+
+
+def play_test() -> None:
+    revision = guard(name=SPENT_NAME)
+    (ROOT / "test").mkdir(parents=True, exist_ok=True)
+    (ROOT / "test" / "trigger.json").write_text(json.dumps({"trigger": TRIGGER.__dict__, "revision": REVISION,
+                                                            "commit": revision}))
+    play_all(jobs("test"))
+
+
+def score_test(final: bool) -> dict:
+    if not final:
+        raise SystemExit("the test split is scored once: add --final")
+    revision = guard(name=SPENT_NAME)
+    if missing := missing_runs():
+        raise SystemExit(f"{len(missing)} runs missing, e.g. {missing[0]}: run --play first")
+    out = score_all("test")
+    out["played"] = json.loads((ROOT / "test" / "trigger.json").read_text())
+    out["commit"] = revision
+    result = DATA / "M11b-test.json"
+    result.write_text(json.dumps(out, indent=1))
+    verdict = {c: out[c]["verdicts"] for c in cells()}
+    mark_spent(SPENT_NAME, result, note=f"rule A/B per family: {json.dumps(verdict)}")
     return out
 
 
@@ -211,14 +254,20 @@ def main() -> None:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--probe", action="store_true")
     group.add_argument("--dev", action="store_true")
+    group.add_argument("--play", action="store_true")
     group.add_argument("--score", action="store_true")
+    parser.add_argument("--final", action="store_true", help="with --score: the test split, once")
     args = parser.parse_args()
     if args.probe:
         probe()
     elif args.dev:
-        play_all(jobs())
+        play_all(jobs("dev"))
+    elif args.play:
+        play_test()
+    elif args.final:
+        print(json.dumps(score_test(final=True), indent=1, default=float))
     else:
-        print(json.dumps(score_all(), indent=1, default=float))
+        print(json.dumps(score_all("dev"), indent=1, default=float))
 
 
 if __name__ == "__main__":

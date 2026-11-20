@@ -1,5 +1,6 @@
-"""M11b: the runtime monitor. A target in force missed for FALLBACK_AFTER_S while the formula would meet it hands
-the segment to the formula, logged and shown; the next segment gives the policy back. The safe state still wins.
+"""M11b and M11b′: the runtime monitor. A target in force missed long enough (the Trigger) while the formula would meet
+it hands the segment to the formula, logged and shown; the next segment gives the policy back. The safe state wins.
+M11b's trigger is N in a row (the served one, SERVED_TRIGGER); M11b′'s is k of the last W with the scorer's met rule.
 
 Unit tests drive rl.monitor.FallbackMonitor with a stand-in formula (fixed split and need); the end-to-end tests
 run the Runner on the simulated cell with a policy that starves URLLC.
@@ -17,7 +18,8 @@ from agent.service import app
 from backends.faults import FaultyBackend
 from monitoring.exporter import RicCollector
 from rl.baselines import FormulaEstPolicy, FormulaPolicy
-from rl.monitor import FALLBACK_AFTER_S, FallbackMonitor, missed_slices
+from eval.generator import generate
+from rl.monitor import M11B, M11B_PRIME, SERVED_TRIGGER, TRIGGERS, FallbackMonitor, missed_slices
 from rl.runner import RESUME_AFTER_TICKS, Runner
 from sim.cell import CellConfig
 from store import a1_policy, db, kpi
@@ -25,7 +27,8 @@ from store.events import read_events
 from store.kpi import KpiRecord
 from verifier.objective import DEFAULT_OBJECTIVE, SLICES, RLObjective, SliceValues
 
-N = int(FALLBACK_AFTER_S)  # ticks of 1 s
+N = int(M11B.missed_s)  # M11b: N in a row, ticks of 1 s
+W, K = int(M11B_PRIME.window_s), int(M11B_PRIME.missed_s)  # M11b′: K of the last W
 STARVE_URLLC = [0.85, 0.05, 0.10]
 OBS = np.zeros(34, dtype=np.float32)  # the stand-in formula doesn't read it
 URLLC_10 = RLObjective(weights=SliceValues(embb=0.3, urllc=0.4, be=0.3), min_thr_mbps=SliceValues(urllc=10.0),
@@ -53,8 +56,8 @@ class StandInFormula:
         return self.split
 
 
-def monitor(formula=None) -> FallbackMonitor:
-    m = FallbackMonitor(formula or StandInFormula(), n_prb=106)
+def monitor(formula=None, trigger=M11B) -> FallbackMonitor:
+    m = FallbackMonitor(formula or StandInFormula(), n_prb=106, trigger=trigger)
     m.segment(1)
     return m
 
@@ -86,8 +89,58 @@ def test_fires_after_exactly_n_qualifying_ticks() -> None:
     m = monitor()
     out = steps(m, URLLC_STARVED, N)
     assert all(x is None for x in out[:-1]) and out[-1] is not None
-    assert m.fired is not None and m.fired.slice == "urllc" and m.fired.missed_s == FALLBACK_AFTER_S
+    assert m.fired is not None and m.fired.slice == "urllc" and m.fired.missed_s == M11B.missed_s
     assert m.fired.rl_share == 0.05 and m.fired.formula_share == 0.3
+
+
+def test_m11b_is_n_in_a_row_with_m10ds_tolerance() -> None:
+    """M11b's trigger as one case of the window: k = W = N, so one met tick in the window is enough to wait again."""
+    assert M11B.window_s == M11B.missed_s == 10.0 and SERVED_TRIGGER is M11B
+    assert (M11B.tolerance_mbps, M11B.tolerance_fraction) == (1.0, 0.05)
+    assert set(TRIGGERS) == {"m11b", "m11b_prime"}
+
+
+def test_m11b_prime_fires_at_k_of_w_with_gaps() -> None:
+    """Missed every other second: N in a row never fires, K of the last W does, at the K-th qualifying second."""
+    m, row = monitor(trigger=M11B_PRIME), monitor()
+    out, out_row = [], []
+    for t in range(2 * K):
+        recs = URLLC_STARVED if t % 2 == 0 else ALL_MET
+        out.append(steps(m, recs, 1, objective=URLLC_10)[0])
+        out_row.append(steps(row, recs, 1)[0])
+    assert all(x is None for x in out_row)
+    fired = [t for t, x in enumerate(out) if x is not None]
+    assert fired and fired[0] == 2 * (K - 1)  # the K-th miss, on even seconds
+    assert m.fired is None and m.active  # fired earlier; the formula keeps executing
+
+
+def test_m11b_prime_does_not_fire_at_k_minus_one_in_the_window() -> None:
+    m = monitor(trigger=M11B_PRIME)
+    for t in range(3 * W):  # K - 1 misses in every W seconds: never K
+        recs = URLLC_STARVED if t % W < K - 1 else ALL_MET
+        assert steps(m, recs, 1)[0] is None
+
+
+def test_m11b_prime_window_is_cleared_by_hold_and_segment() -> None:
+    m = monitor(trigger=M11B_PRIME)
+    steps(m, URLLC_STARVED, K - 1)
+    m.hold()
+    assert m.count == 0 and all(x is None for x in steps(m, URLLC_STARVED, K - 1))
+    m.segment(2)
+    assert m.count == 0 and steps(m, URLLC_STARVED, 1)[0] is None
+
+
+def test_m11b_prime_uses_the_scorers_met_rule() -> None:
+    """A 0.5 Mb/s shortfall: inside M11b's tolerance, a miss for M11b′ (and for intent_met)."""
+    short = records({**LOAD, "urllc": 9.5}, LOAD)
+    assert missed_slices(short, URLLC_10, LOAD, M11B) == {}
+    assert missed_slices(short, URLLC_10, LOAD, M11B_PRIME) == {"urllc": "throughput"}
+    assert missed_slices(records({**LOAD, "urllc": 10.0}, LOAD), URLLC_10, LOAD, M11B_PRIME) == {}
+
+
+def test_generate_refuses_the_m11b_test_split() -> None:
+    with pytest.raises(SystemExit, match="M11b"):
+        generate("f1", 0, "m11b_test")
 
 
 def test_a_met_tick_resets_the_count() -> None:
@@ -151,7 +204,7 @@ def test_the_monitor_module_is_pure() -> None:
             imported |= {a.name.split(".")[0] for a in node.names}
         elif isinstance(node, ast.ImportFrom):
             imported.add(node.module.split(".")[0])
-    assert imported <= {"dataclasses", "numpy", "rl", "verifier"}
+    assert imported <= {"collections", "dataclasses", "numpy", "rl", "verifier"}
     rl_modules = {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module.startswith("rl")}
     assert rl_modules == {"rl.baselines"}
 
@@ -200,7 +253,7 @@ def test_the_runner_hands_a_missed_intent_to_the_formula(ric_db) -> None:
     assert all(x.mode == "fallback" and x.shares[1] > 0.1 for x in results[fired_at:])
     event = next(e for e in read_events() if e["event"] == "executor_fallback")
     assert event["data"]["slice"] == "urllc" and event["data"]["policy_id"] == 1
-    assert event["data"]["intent_ids"] == ["i0001"] and event["data"]["missed_s"] == FALLBACK_AFTER_S
+    assert event["data"]["intent_ids"] == ["i0001"] and event["data"]["missed_s"] == SERVED_TRIGGER.missed_s
     assert kpi.read_runner_state(ric_db) == {"mode": "fallback", "reason": "target_missed:urllc",
                                              "since_backend": float(fired_at)}
     # the formula's split gets URLLC its load back

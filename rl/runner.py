@@ -21,8 +21,8 @@ RESUME_AFTER_TICKS clean ticks in a row. On the simulator the backend is always 
 never happens there and every earlier run replays unchanged.
 
 Runtime monitor (M11b, rl/monitor.py). With a FallbackMonitor (on in the served runner, off in eval.harness unless a
-run asks for it), the formula executor runs in shadow; if a target in force is missed for FALLBACK_AFTER_S while the
-formula would meet it, the formula's split is applied until the a1_policy segment ends. Logged (executor_fallback,
+run asks for it), the formula executor runs in shadow; if a target in force is missed long enough while the formula
+would meet it (its Trigger), the formula's split is applied until the a1_policy segment ends. Logged (executor_fallback,
 executor_resume) and shown as runner_state mode 'fallback'. The safe state still wins over it.
 
 Run (the simulated cell lives inside this process):
@@ -477,7 +477,7 @@ def main() -> None:
     conn = db.connect(timeout_s=0.0)
     log_event("runner", "run_start", ts_backend=backend.now(),
               data={"model_version": model_version, "scenario": args.scenario, "speed": args.speed, "alpha": alpha,
-                    "demand": args.demand, "monitor": monitor is not None})
+                    "demand": args.demand, "monitor": monitor.trigger.name if monitor is not None else None})
     print(f"RL runner: {model_version}, scenario {args.scenario}, speed {args.speed}, db {db.db_path()}")
     try:
         Runner(backend, policy, conn, cfg.dt_s, demand=args.demand, monitor=monitor).run(args.ticks)

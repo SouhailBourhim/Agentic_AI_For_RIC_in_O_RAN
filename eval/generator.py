@@ -28,7 +28,8 @@ C = 79.0
 SECONDS = 360
 FAMILIES = ("f1", "f2", "f3", "f4", "f5")
 PER_FAMILY = 40
-SPLITS = {"dev": 100_000, "test": 200_000, "m10c_test": 300_000}  # m10c_test: M10c' (DECISIONS 2026-11-14)
+# m10c_test: M10c' (DECISIONS 2026-11-14); m11b_test: M11b′ (DECISIONS 2026-11-20)
+SPLITS = {"dev": 100_000, "test": 200_000, "m10c_test": 300_000, "m11b_test": 400_000}
 BOUNDS = (5, 8, 10, 15, 20)
 EASY_BOUNDS = (10, 15, 20, 30, 50)
 BASE = {"embb": (0.42, 0.52), "urllc": (0.06, 0.12), "be": (0.22, 0.32)}
@@ -181,6 +182,8 @@ def generate(family: str, index: int, split: str = "dev") -> Instance:
         raise SystemExit("the test seeds belong to M09d and are refused before it (docs/DECISIONS.md)")
     if split == "m10c_test":
         raise SystemExit("the m10c_test seeds belong to M10c' and are played only by eval.m10c (docs/DECISIONS.md)")
+    if split == "m11b_test":
+        raise SystemExit("the m11b_test seeds belong to M11b′ and are played only by eval.m11b (docs/DECISIONS.md)")
     return draw(family, index, split)
 
 
@@ -212,6 +215,12 @@ M10C_FAMILIES = ("f1", "f2", "f3", "f5")  # F4 left out after M10b (DECISIONS 20
 def m10c_test_instances(families=M10C_FAMILIES, per_family: int = PER_FAMILY) -> list[Instance]:
     """M10c''s 160 test instances, on fresh seeds; generate() refuses them, eval.m10c guards the play."""
     return [draw(f, i, "m10c_test") for f in families for i in range(per_family)]
+
+
+def m11b_test_instances(families=FAMILIES, per_family: int = PER_FAMILY) -> list[Instance]:
+    """M11b′'s test instances, on fresh seeds; generate() refuses them, eval.m11b guards the play. The m10 cell's
+    families are F1-F3 and F5, the m09 cell's all five: the same seed for the same family and index on both."""
+    return [draw(f, i, "m11b_test") for f in families for i in range(per_family)]
 
 
 def main() -> None:
