@@ -20,6 +20,11 @@ runner_state row that get_status and Prometheus show, and goes back to the polic
 RESUME_AFTER_TICKS clean ticks in a row. On the simulator the backend is always healthy, so this
 never happens there and every earlier run replays unchanged.
 
+Runtime monitor (M11b, rl/monitor.py). With a FallbackMonitor (on in the served runner, off in eval.harness unless a
+run asks for it), the formula executor runs in shadow; if a target in force is missed for FALLBACK_AFTER_S while the
+formula would meet it, the formula's split is applied until the a1_policy segment ends. Logged (executor_fallback,
+executor_resume) and shown as runner_state mode 'fallback'. The safe state still wins over it.
+
 Run (the simulated cell lives inside this process):
   uv run python -m rl.runner --scenario demo --speed 1          live demo, one tick per second
   uv run python -m rl.runner --scenario urllc_spike --speed 0 --ticks 60
@@ -41,7 +46,8 @@ import numpy as np
 from backends.base import Backend, BackendHealth, KpiRecord
 from backends.flexric import FlexRICBackend
 from backends.sim import SimBackend, scenario_traffic
-from rl.baselines import EqualSplitPolicy, FormulaPolicy
+from rl.baselines import EqualSplitPolicy, FormulaEstPolicy, FormulaPolicy
+from rl.monitor import FallbackMonitor
 from rl.policy import SMOOTHING_ALPHA, SlicePolicy
 from sim.cell import CellConfig, apply_min_share
 from sim.env import EfficiencyTracker, LoadHistory, applied_features, build_observation
@@ -177,17 +183,18 @@ class TickResult:
     policy_id: int | None  # a1_policy row in force (None = default objective)
     shares: tuple[float, ...]
     db_ok: bool  # False if the policy read or the KPI write had to be skipped this tick
-    mode: str  # 'normal' or 'safe' (M11a)
+    mode: str  # 'normal', 'safe' (M11a) or 'fallback' (M11b: the formula executes the segment)
 
 
 class Runner:
     """The control loop, separate from the CLI so tests can drive it tick by tick."""
 
     def __init__(self, backend: Backend, policy: SlicePolicy, conn: sqlite3.Connection, dt_s: float = 1.0,
-                 on_error: str = "safe", demand: str = "offered") -> None:
+                 on_error: str = "safe", demand: str = "offered", monitor: FallbackMonitor | None = None) -> None:
         """on_error: 'safe' (served runner) turns an exception into the safe state; 'raise' (evaluation runs,
         eval.harness) lets it propagate, so a bug ends the run instead of quietly playing the equal split.
-        demand: where the controller's loads come from (seen_loads, M10d)."""
+        demand: where the controller's loads come from (seen_loads, M10d).
+        monitor: the runtime monitor with formula fallback (M11b); None = the policy alone, as before M11b."""
         if on_error not in ("safe", "raise"):
             raise ValueError(f"on_error is 'safe' or 'raise', got {on_error!r}")
         if demand not in DEMANDS:
@@ -215,6 +222,10 @@ class Runner:
         self.clean_ticks = 0  # clean ticks in a row while safe
         self.apply_error: Exception | None = None  # the last apply_prb_split failed: next tick is an error
         self.pending_state: tuple[str, str | None, float] | None = ("normal", None, self.since)  # written at flush
+        self.monitor = monitor
+        self.executor = "rl"  # M11b: 'rl' (the policy decides) or 'formula' (the monitor's fallback, this segment)
+        self.fallback_reason: str | None = None
+        self.fallback_since = self.since
 
     def read_policy(self, now: float) -> bool:
         """Refresh the segment in force. On any database error keep the previous one.
@@ -243,6 +254,9 @@ class Runner:
         if row is not None and row.expires_at is not None and now >= row.expires_at:
             row = None  # the database was unreadable past the segment's end: back to the default
         objective = row.objective if row is not None else DEFAULT_OBJECTIVE
+        policy_id = row.policy_id if row is not None else None
+        if self.monitor is not None and self.monitor.segment(policy_id):
+            self.end_fallback(now, policy_id)  # a new segment: the policy decides again
 
         shares = SAFE_SPLIT
         try:
@@ -253,10 +267,20 @@ class Runner:
             if self.update_mode(problem, now, self.apply_error) == "normal":
                 if row is not None and row.mode == "direct_share" and row.shares is not None:
                     shares = np.asarray(row.shares, dtype=np.float64)
+                    if self.monitor is not None:
+                        self.monitor.hold()  # LLM only's own split: not the policy's, not monitored
                 else:
                     obs = observation_from_records(records, objective, self.cfg, self.history, self.applied,
                                                    self.efficiency, self.demand)
                     shares = self.policy.shares(obs)
+                    if self.monitor is not None:
+                        formula = self.monitor.step(obs, objective, records, seen_loads(records, self.demand), shares)
+                        if formula is not None:
+                            if self.monitor.fired is not None:
+                                self.start_fallback(now, row)
+                            shares = formula
+            elif self.monitor is not None:
+                self.monitor.hold()  # the safe split: the policy isn't deciding
         except Exception as err:  # the policy or the backend failed: the safe split, never a dead loop
             if self.on_error == "raise":
                 raise
@@ -273,7 +297,6 @@ class Runner:
         self.applied = np.asarray(shares, dtype=np.float64)
         self.backend.sleep(self.dt_s)
 
-        policy_id = row.policy_id if row is not None else None
         if policy_id != self.last_policy_id:  # every change is logged, including expiries
             log_event("runner", "policy_switch", ts_backend=now,
                       data={"from": self.last_policy_id, "to": policy_id,
@@ -287,7 +310,7 @@ class Runner:
             # Nothing to record for this tick. The next tick's read meets the same failure and enters the safe state.
         write_ok = self.flush()
         return TickResult(self.backend.now(), policy_id, tuple(float(x) for x in shares), read_ok and write_ok,
-                          self.mode)
+                          self.shown_mode())
 
     def update_mode(self, problem: str | None, now: float, error: Exception | None = None) -> str:
         """Enter the safe state at once on a problem; leave it after RESUME_AFTER_TICKS clean ticks in a row.
@@ -304,7 +327,7 @@ class Runner:
             if self.mode == "normal":
                 self.since = now
             self.mode, self.reason = "safe", problem
-            self.pending_state = (self.mode, self.reason, self.since)
+            self.queue_state()
             return self.mode
         if self.mode == "normal":
             return self.mode
@@ -314,12 +337,51 @@ class Runner:
         log_event("runner", "safe_mode_exit", ts_backend=now,
                   data={"reason": self.reason, "safe_s": round(now - self.since, 3)})
         self.mode, self.reason, self.since, self.clean_ticks = "normal", None, now, 0
-        self.pending_state = (self.mode, None, now)
+        self.queue_state()
         if isinstance(self.policy, SlicePolicy):
             # The filter restarts from the split in force, not from its last output before the outage:
             # otherwise the first resumed split jumps straight back to a decision made on old data.
             self.policy.restart_from(self.applied)
         return self.mode
+
+    def shown_mode(self) -> str:
+        """What get_status and Prometheus show: the safe state first, then the formula's fallback, else normal."""
+        if self.mode == "safe":
+            return "safe"
+        return "fallback" if self.executor == "formula" else "normal"
+
+    def queue_state(self) -> None:
+        """Queue the runner_state row for the next flush, from the shown mode."""
+        if self.mode == "safe":
+            self.pending_state = ("safe", self.reason, self.since)
+        elif self.executor == "formula":
+            self.pending_state = ("fallback", self.fallback_reason, self.fallback_since)
+        else:
+            self.pending_state = ("normal", None, self.since)
+
+    def start_fallback(self, now: float, row: a1_policy.PolicyRow | None) -> None:
+        """M11b: the monitor has just handed this segment to the formula. Logged with why, and shown."""
+        fired = self.monitor.fired
+        self.executor, self.fallback_since = "formula", now
+        self.fallback_reason = f"target_missed:{fired.slice}"
+        log_event("runner", "executor_fallback", ts_backend=now,
+                  data={"policy_id": row.policy_id if row is not None else None,
+                        "intent_ids": list(row.intent_ids) if row is not None else [],
+                        "slice": fired.slice, "reason": fired.reason, "missed_s": fired.missed_s,
+                        "rl_share": round(fired.rl_share, 4), "formula_share": round(fired.formula_share, 4)})
+        self.queue_state()
+
+    def end_fallback(self, now: float, policy_id: int | None) -> None:
+        """M11b: the segment the formula executed has ended; the policy decides again. Its filter restarts from the
+        split in force, as after the safe state (M11a), so its first split doesn't jump back to an old decision."""
+        log_event("runner", "executor_resume", ts_backend=now,
+                  data={"policy_id": policy_id, "fallback_s": round(now - self.fallback_since, 3)})
+        self.executor, self.fallback_reason = "rl", None
+        if self.mode != "safe":
+            self.since = now
+        if isinstance(self.policy, SlicePolicy):
+            self.policy.restart_from(self.applied)
+        self.queue_state()
 
     def flush(self) -> bool:
         """Write every pending KPI tick, and the runner state if it changed, in one transaction;
@@ -380,6 +442,8 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--policy-file", type=Path, default=None, help="serve this SB3 file instead of the champion")
     parser.add_argument("--keep-db", action="store_true", help="do not empty var/ric.db at startup")
+    parser.add_argument("--no-monitor", action="store_true",
+                        help="no runtime monitor (M11b): the policy's split always stands, even on a target it keeps missing")
     args = parser.parse_args()
 
     alpha = args.smoothing_alpha
@@ -402,6 +466,9 @@ def main() -> None:
         policy, model_version = load_policy(args.policy_file, alpha)
     if args.model_label is not None and args.baseline is None:  # a baseline serves no model
         model_version = args.model_label
+    monitor = None
+    if args.baseline is None and not args.no_monitor:  # the same base latency the verifier is told, as for --baseline
+        monitor = FallbackMonitor(FormulaEstPolicy(backend.info().urllc_base_latency_ms), backend.info().n_prb, cfg.dt_s)
     setup = db.connect()  # startup may wait for other processes; the loop below never does
     if not args.keep_db:
         clear_run_state(setup)
@@ -410,10 +477,10 @@ def main() -> None:
     conn = db.connect(timeout_s=0.0)
     log_event("runner", "run_start", ts_backend=backend.now(),
               data={"model_version": model_version, "scenario": args.scenario, "speed": args.speed, "alpha": alpha,
-                    "demand": args.demand})
+                    "demand": args.demand, "monitor": monitor is not None})
     print(f"RL runner: {model_version}, scenario {args.scenario}, speed {args.speed}, db {db.db_path()}")
     try:
-        Runner(backend, policy, conn, cfg.dt_s, demand=args.demand).run(args.ticks)
+        Runner(backend, policy, conn, cfg.dt_s, demand=args.demand, monitor=monitor).run(args.ticks)
     except KeyboardInterrupt:
         pass
     if isinstance(backend, FlexRICBackend):

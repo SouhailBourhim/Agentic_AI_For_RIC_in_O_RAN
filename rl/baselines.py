@@ -98,13 +98,20 @@ class FormulaPolicy:
         need = np.minimum(targets, loads) / rate
         urllc = SLICES.index("urllc")
         self.recent_urllc.append(float(loads[urllc]))
+        sized_urllc = None  # URLLC's sized need, kept when step 4 asks for all the slack on top of it
         if bound_ms > 0:
             peak = max(self.recent_urllc) if PEAK_WINDOW_S > 0 else float(loads[urllc])
             need[urllc] = peak / max(1.0 - self.base_ms / bound_ms, 1e-3) / rate[urllc]
             latency_ms = float(obs[urllc * KPI_FEATURES_PER_SLICE + 2]) * LATENCY_SCALE_MS
             if latency_ms > bound_ms:
+                sized_urllc = need[urllc]
                 need[urllc] = max(need[urllc], 1.0 - (need.sum() - need[urllc]))  # all the slack: drain the queue
         need = np.minimum(need, 1.0)
+        # M11b: what each slice needs to meet its target, for the runtime monitor (rl/monitor.py). Without step 4's
+        # drain: all the slack is a request, not a need, and the split can never grant it in full (the floor).
+        self.last_need = need.copy()
+        if sized_urllc is not None:
+            self.last_need[urllc] = min(sized_urllc, 1.0)
         if need.sum() >= 1.0:
             if bound_ms <= 0:
                 return need / need.sum()

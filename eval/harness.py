@@ -34,6 +34,7 @@ from eval.scenarios import Scenario, ScenarioIntent
 from eval.oracle import FormulaToldPolicy, MpcEstPolicy, OraclePolicy
 from rl.baselines import EqualSplitPolicy, FormulaEstPolicy, FormulaPolicy, SmoothedPolicy
 from rl.policy import SMOOTHING_ALPHA, SlicePolicy
+from rl.monitor import FallbackMonitor
 from rl.runner import Runner
 from sim.cell import CellConfig
 from sim.channel import ChannelTrace
@@ -91,12 +92,14 @@ class RunSpec:
     delay_ticks: int = 0
     importance: float | None = None  # scripted runs only: the favoured slice's importance
     executor: str | None = None  # scripted runs only (M10b): who turns the objective into a split; None = the RL policy
+    monitor: bool = False  # M11b: the runtime monitor with formula fallback (off: every earlier run replays unchanged)
 
     @property
     def run_id(self) -> str:
         variant = f"_a{self.alpha:g}_d{self.delay_ticks}" if self.study == "bridge" else ""
         variant += f"_i{self.importance:g}" if self.importance is not None else ""
         variant += f"_{self.executor}" if self.executor is not None else ""
+        variant += "_mon" if self.monitor else ""
         return f"{self.study}/{self.scenario}/{self.controller}{variant}/seed{self.seed}"
 
 
@@ -195,7 +198,9 @@ def run_once(spec: RunSpec, scenario: Scenario, work: Path, policy_file: Path | 
         policy = make_policy(spec, backend, scenario, cfg, policy_file)
         kpi.write_backend_info(conn, backend.info(), spec.run_id)
         # on_error="raise": a bug ends the evaluation run instead of quietly playing the safe split (M11a)
-        runner = Runner(backend, policy, db.connect(work / "ric.db", timeout_s=0.0), cfg.dt_s, on_error="raise")
+        monitor = FallbackMonitor(FormulaEstPolicy(cfg.told_urllc_base_latency_ms), cfg.n_prb, cfg.dt_s) if spec.monitor else None
+        runner = Runner(backend, policy, db.connect(work / "ric.db", timeout_s=0.0), cfg.dt_s, on_error="raise",
+                        monitor=monitor)
         waiting = list(scenario.intents)
 
         def advance(ticks: int) -> None:

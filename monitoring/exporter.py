@@ -154,8 +154,16 @@ class RicCollector(Collector):
                 safe = GaugeMetricFamily("ric_runner_safe_mode", "1 while the RL runner applies its safe split"
                                          " (reason: kpi_stale, actuator_down, error), 0 while the policy decides",
                                          labels=["reason"])
-                safe.add_metric([state["reason"] or "none"], 1 if state["mode"] == "safe" else 0)
+                is_safe = state["mode"] == "safe"
+                safe.add_metric([state["reason"] if is_safe and state["reason"] else "none"], 1 if is_safe else 0)
                 yield safe
+                # M11b: the runtime monitor handed the segment to the formula (reason: target_missed:<slice>)
+                fallback = GaugeMetricFamily("ric_runner_formula_fallback", "1 while the formula executes the segment "
+                                             "the policy kept missing (M11b), 0 otherwise", labels=["reason"])
+                is_fallback = state["mode"] == "fallback"
+                fallback.add_metric([state["reason"] if is_fallback and state["reason"] else "none"],
+                                    1 if is_fallback else 0)
+                yield fallback
 
     def intent_metrics(self, conn: sqlite3.Connection) -> Iterator[GaugeMetricFamily]:
         states = Counter(r["state"] for r in conn.execute("SELECT state FROM intents"))
