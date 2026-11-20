@@ -26,7 +26,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from rl.baselines import FormulaPolicy
+from rl.baselines import FORMULA_EST_MARGIN, FormulaPolicy
 from verifier.objective import SLICES, RLObjective
 
 NEED_TOLERANCE = 1e-9  # float slack on "the formula grants the whole need"
@@ -44,7 +44,10 @@ class Trigger:
     stated_only: watch only the throughput targets an intent stated (the a1_policy row's stated_slices), not the ones
     the verifier implied for the other slices. The latency bound is always stated (nothing implies one).
     per_intent: the formula keeps executing while any intent it took over is still in force, across segments (another
-    intent starting or ending makes a new segment); False = until the segment ends."""
+    intent starting or ending makes a new segment); False = until the segment ends.
+    need_margin: the share of its sized need the formula may leave out and still "meet" the target: its own sizing
+    margin (rl.baselines.FORMULA_EST_MARGIN), so the question becomes "would its split meet the target at the measured
+    rate". 0 = the whole sized need."""
 
     name: str
     window_s: float
@@ -53,6 +56,7 @@ class Trigger:
     tolerance_fraction: float
     stated_only: bool = False
     per_intent: bool = False
+    need_margin: float = 0.0
 
 
 # M11b, revision 1: 10 s in a row, M10d's tolerance on a measured rate (max(1 Mb/s, 5 %)). Revision 0 was 20 s in a
@@ -78,7 +82,14 @@ M11B_PRIME_K5 = Trigger("m11b_prime_k5", window_s=20.0, missed_s=5.0, tolerance_
 # policy back, it missed the first intent's BE target again, and the formula couldn't qualify in the merged segment.
 M11B_PRIME_INTENT = Trigger("m11b_prime_intent", window_s=20.0, missed_s=5.0, tolerance_mbps=EXACT_TOLERANCE_MBPS,
                             tolerance_fraction=0.0, stated_only=True, per_intent=True)
-TRIGGERS = {t.name: t for t in (M11B, M11B_PRIME, M11B_PRIME_STATED, M11B_PRIME_K5, M11B_PRIME_INTENT)}
+# M11b′ revision 6: r5, and the formula qualifies when its split covers its need less its own sizing margin. r5 failed
+# A only on m09 F4, where 3 of 15 intents never handed over: with an implied URLLC target the formula's needs added up
+# to just over the cell, its overload branch scaled every slice down a hair (BE 0.3257 of a 0.326 need), so it never
+# "granted the whole need", yet formula_est alone met those intents (its 0.15 margin).
+M11B_PRIME_MEETS = Trigger("m11b_prime_meets", window_s=20.0, missed_s=5.0, tolerance_mbps=EXACT_TOLERANCE_MBPS,
+                           tolerance_fraction=0.0, stated_only=True, per_intent=True, need_margin=FORMULA_EST_MARGIN)
+TRIGGERS = {t.name: t for t in (M11B, M11B_PRIME, M11B_PRIME_STATED, M11B_PRIME_K5, M11B_PRIME_INTENT,
+                                M11B_PRIME_MEETS)}
 # What the served runner uses (demo, testbed). M11b's until M11b′ is scored on its test split (DECISIONS 2026-11-20).
 SERVED_TRIGGER = M11B
 
@@ -172,7 +183,8 @@ class FallbackMonitor:
         need = self.formula.last_need
         missed = missed_slices(records, objective, loads, self.trigger, stated_slices)
         qualifying = [(s, why) for s, why in missed.items()
-                      if formula_shares[SLICES.index(s)] >= need[SLICES.index(s)] - NEED_TOLERANCE
+                      if formula_shares[SLICES.index(s)] >= need[SLICES.index(s)] * (1.0 - self.trigger.need_margin)
+                      - NEED_TOLERANCE
                       and formula_shares[SLICES.index(s)] >= rl_shares[SLICES.index(s)] + self.min_gain]
         self.window.append(bool(qualifying))
         if not qualifying or self.count < self.missed_ticks:

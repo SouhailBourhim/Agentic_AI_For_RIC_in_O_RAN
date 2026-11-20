@@ -97,7 +97,8 @@ def test_m11b_is_n_in_a_row_with_m10ds_tolerance() -> None:
     """M11b's trigger as one case of the window: k = W = N, so one met tick in the window is enough to wait again."""
     assert M11B.window_s == M11B.missed_s == 10.0 and SERVED_TRIGGER is M11B
     assert (M11B.tolerance_mbps, M11B.tolerance_fraction) == (1.0, 0.05)
-    assert set(TRIGGERS) == {"m11b", "m11b_prime", "m11b_prime_stated", "m11b_prime_k5", "m11b_prime_intent"}
+    assert set(TRIGGERS) == {"m11b", "m11b_prime", "m11b_prime_stated", "m11b_prime_k5", "m11b_prime_intent",
+                             "m11b_prime_meets"}
 
 
 def test_m11b_prime_fires_at_k_of_w_with_gaps() -> None:
@@ -187,6 +188,24 @@ def test_no_fallback_when_the_formula_cannot_meet_it_either() -> None:
     """Overload: the formula cuts URLLC below its own sized need, so switching wouldn't fix the miss."""
     m = monitor(StandInFormula(shares=(0.4, 0.3, 0.3), need=(0.2, 0.5, 0.1)))
     assert all(x is None for x in steps(m, URLLC_STARVED, 3 * N))
+
+
+def test_need_margin_lets_a_formula_split_cut_by_a_hair_qualify() -> None:
+    """r6: the formula gives URLLC 0.3 of a 0.32 need (an overload cut it). Its margin covers that; the whole need not."""
+    from rl.monitor import M11B_PRIME_MEETS
+
+    cut = StandInFormula(shares=(0.4, 0.3, 0.3), need=(0.2, 0.32, 0.1))
+    strict = FallbackMonitor(cut, n_prb=106, trigger=M11B_PRIME)
+    strict.segment(1)
+    assert all(x is None for x in steps(strict, URLLC_STARVED, 3 * N))
+    meets = FallbackMonitor(StandInFormula(shares=(0.4, 0.3, 0.3), need=(0.2, 0.32, 0.1)), n_prb=106,
+                            trigger=M11B_PRIME_MEETS)
+    meets.segment(1)
+    assert any(x is not None for x in steps(meets, URLLC_STARVED, int(M11B_PRIME_MEETS.missed_s)))
+    too_short = FallbackMonitor(StandInFormula(shares=(0.4, 0.2, 0.4), need=(0.2, 0.32, 0.1)), n_prb=106,
+                                trigger=M11B_PRIME_MEETS)  # 0.2 < 0.32 x 0.85: the formula can't meet it either
+    too_short.segment(1)
+    assert all(x is None for x in steps(too_short, URLLC_STARVED, 3 * N))
 
 
 def test_no_fallback_when_the_policy_already_gives_the_slice_as_much() -> None:
