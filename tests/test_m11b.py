@@ -97,7 +97,7 @@ def test_m11b_is_n_in_a_row_with_m10ds_tolerance() -> None:
     """M11b's trigger as one case of the window: k = W = N, so one met tick in the window is enough to wait again."""
     assert M11B.window_s == M11B.missed_s == 10.0 and SERVED_TRIGGER is M11B
     assert (M11B.tolerance_mbps, M11B.tolerance_fraction) == (1.0, 0.05)
-    assert set(TRIGGERS) == {"m11b", "m11b_prime", "m11b_prime_stated", "m11b_prime_k5"}
+    assert set(TRIGGERS) == {"m11b", "m11b_prime", "m11b_prime_stated", "m11b_prime_k5", "m11b_prime_intent"}
 
 
 def test_m11b_prime_fires_at_k_of_w_with_gaps() -> None:
@@ -204,6 +204,22 @@ def test_sticky_for_the_segment_then_back_to_the_policy() -> None:
     assert m.segment(1) is False
     assert m.segment(2) is True  # a new segment: the policy decides again
     assert steps(m, URLLC_STARVED, 1)[0] is None and m.count == 1
+
+
+def test_a_per_intent_handoff_lasts_across_segments_while_its_intent_is_in_force() -> None:
+    from rl.monitor import M11B_PRIME_INTENT
+
+    m = FallbackMonitor(StandInFormula(), n_prb=106, trigger=M11B_PRIME_INTENT)
+    m.segment(1, ("i0001",))
+    for _ in range(int(M11B_PRIME_INTENT.missed_s)):
+        m.step(OBS, URLLC_10, URLLC_STARVED, LOAD, np.array(STARVE_URLLC), None, ("i0001",))
+    assert m.active
+    assert m.segment(2, ("i0001", "i0002")) is False and m.active  # i0002 joins: the formula keeps the segment
+    assert m.segment(3, ("i0002",)) is False and m.active  # i0001 ended; i0002 was taken over with segment 2
+    assert m.segment(None, ()) is True and not m.active  # nothing left: back to the policy
+    per_segment = monitor()  # M11b's trigger: a new segment always gives the policy back
+    steps(per_segment, URLLC_STARVED, N)
+    assert per_segment.segment(2) is True
 
 
 def test_hold_resets_the_count() -> None:

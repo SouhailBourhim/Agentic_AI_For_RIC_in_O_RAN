@@ -42,7 +42,9 @@ class Trigger:
     tolerance_mbps, tolerance_fraction: a throughput counts as missed below min(target, load) minus
     max(tolerance_mbps, tolerance_fraction x that need).
     stated_only: watch only the throughput targets an intent stated (the a1_policy row's stated_slices), not the ones
-    the verifier implied for the other slices. The latency bound is always stated (nothing implies one)."""
+    the verifier implied for the other slices. The latency bound is always stated (nothing implies one).
+    per_intent: the formula keeps executing while any intent it took over is still in force, across segments (another
+    intent starting or ending makes a new segment); False = until the segment ends."""
 
     name: str
     window_s: float
@@ -50,6 +52,7 @@ class Trigger:
     tolerance_mbps: float
     tolerance_fraction: float
     stated_only: bool = False
+    per_intent: bool = False
 
 
 # M11b, revision 1: 10 s in a row, M10d's tolerance on a measured rate (max(1 Mb/s, 5 %)). Revision 0 was 20 s in a
@@ -70,7 +73,12 @@ M11B_PRIME_STATED = Trigger("m11b_prime_stated", window_s=20.0, missed_s=10.0, t
 # the policy is far below the formula (m10 F3; m09 F2, F3, F4): the cost left is the time before the handoff.
 M11B_PRIME_K5 = Trigger("m11b_prime_k5", window_s=20.0, missed_s=5.0, tolerance_mbps=EXACT_TOLERANCE_MBPS,
                         tolerance_fraction=0.0, stated_only=True)
-TRIGGERS = {t.name: t for t in (M11B, M11B_PRIME, M11B_PRIME_STATED, M11B_PRIME_K5)}
+# M11b′ revision 5: r4, and the handoff lasts for the intent, as the review words it ("the formula executes that
+# intent"). r4 failed A only on m09 F4, whose two intents overlap: when the second one started, the new segment gave the
+# policy back, it missed the first intent's BE target again, and the formula couldn't qualify in the merged segment.
+M11B_PRIME_INTENT = Trigger("m11b_prime_intent", window_s=20.0, missed_s=5.0, tolerance_mbps=EXACT_TOLERANCE_MBPS,
+                            tolerance_fraction=0.0, stated_only=True, per_intent=True)
+TRIGGERS = {t.name: t for t in (M11B, M11B_PRIME, M11B_PRIME_STATED, M11B_PRIME_K5, M11B_PRIME_INTENT)}
 # What the served runner uses (demo, testbed). M11b's until M11b′ is scored on its test split (DECISIONS 2026-11-20).
 SERVED_TRIGGER = M11B
 
@@ -126,6 +134,7 @@ class FallbackMonitor:
         self.window: deque[bool] = deque(maxlen=max(1, round(trigger.window_s / dt_s)))  # qualifying, per tick
         self.active = False  # the formula executes the current segment
         self.policy_id: int | None = None  # the segment seen last tick
+        self.taken_over: frozenset[str] = frozenset()  # the intents the formula executes (per_intent triggers)
         self.fired: Fallback | None = None  # set on the tick the fallback starts, for the runner to log
 
     @property
@@ -133,13 +142,19 @@ class FallbackMonitor:
         """Qualifying ticks in the window."""
         return sum(self.window)
 
-    def segment(self, policy_id: int | None) -> bool:
-        """Note the segment in force. True if a fallback was active and has just ended because the segment changed."""
+    def segment(self, policy_id: int | None, intent_ids: tuple[str, ...] = ()) -> bool:
+        """Note the segment in force. True if a fallback was active and has just ended because the segment changed.
+
+        With a per_intent trigger, a new segment that still holds an intent the formula took over keeps the formula,
+        and the intents of the new segment join the takeover (the formula executes the segment, so all of it)."""
         if policy_id == self.policy_id:
             return False
         self.policy_id = policy_id
         self.window.clear()
-        ended, self.active = self.active, False
+        if self.active and self.trigger.per_intent and self.taken_over & set(intent_ids):
+            self.taken_over = frozenset(intent_ids)
+            return False
+        ended, self.active, self.taken_over = self.active, False, frozenset()
         return ended
 
     def hold(self) -> None:
@@ -147,7 +162,8 @@ class FallbackMonitor:
         self.window.clear()
 
     def step(self, obs: np.ndarray, objective: RLObjective, records: list, loads: dict[str, float],
-             rl_shares: np.ndarray, stated_slices: tuple[str, ...] | None = None) -> np.ndarray | None:
+             rl_shares: np.ndarray, stated_slices: tuple[str, ...] | None = None,
+             intent_ids: tuple[str, ...] = ()) -> np.ndarray | None:
         """The formula's split if the formula executes this tick, else None (the policy's split stands)."""
         self.fired = None
         formula_shares = np.asarray(self.formula.shares(obs), dtype=np.float64)  # in shadow, every tick
@@ -163,6 +179,6 @@ class FallbackMonitor:
             return None
         s, why = qualifying[0]
         i = SLICES.index(s)
-        self.active = True
+        self.active, self.taken_over = True, frozenset(intent_ids)
         self.fired = Fallback(s, why, self.count * self.dt_s, float(rl_shares[i]), float(formula_shares[i]))
         return formula_shares

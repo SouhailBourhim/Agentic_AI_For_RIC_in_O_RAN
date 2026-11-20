@@ -255,7 +255,7 @@ class Runner:
             row = None  # the database was unreadable past the segment's end: back to the default
         objective = row.objective if row is not None else DEFAULT_OBJECTIVE
         policy_id = row.policy_id if row is not None else None
-        if self.monitor is not None and self.monitor.segment(policy_id):
+        if self.monitor is not None and self.monitor.segment(policy_id, row.intent_ids if row is not None else ()):
             self.end_fallback(now, policy_id)  # a new segment: the policy decides again
 
         shares = SAFE_SPLIT
@@ -275,7 +275,8 @@ class Runner:
                     shares = self.policy.shares(obs)
                     if self.monitor is not None:
                         formula = self.monitor.step(obs, objective, records, seen_loads(records, self.demand), shares,
-                                                    row.stated_slices if row is not None else None)
+                                                    row.stated_slices if row is not None else None,
+                                                    row.intent_ids if row is not None else ())
                         if formula is not None:
                             if self.monitor.fired is not None:
                                 self.start_fallback(now, row)

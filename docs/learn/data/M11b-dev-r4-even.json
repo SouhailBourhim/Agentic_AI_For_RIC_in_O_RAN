@@ -1,0 +1,140 @@
+{
+ "m10": {
+  "policy": "models/m10c/td3_m10c_seed72.zip",
+  "means": {
+   "f1": {
+    "rl": 0.724715675830362,
+    "rl_mon": 0.8181693038139938,
+    "formula_est": 0.8230743774765686,
+    "intents": 30
+   },
+   "f2": {
+    "rl": 0.8917444071588367,
+    "rl_mon": 0.8993694071588367,
+    "formula_est": 0.7946915548098434,
+    "intents": 20
+   },
+   "f3": {
+    "rl": 0.5669130313199104,
+    "rl_mon": 0.801709731543624,
+    "formula_est": 0.8342376957494407,
+    "intents": 20
+   },
+   "f5": {
+    "rl": 0.888745100389149,
+    "rl_mon": 0.8944523245539827,
+    "formula_est": 0.8437592963359842,
+    "intents": 20
+   },
+   "all": {
+    "rl": 0.7632169005807643,
+    "rl_mon": 0.8495078708838742,
+    "formula_est": 0.8238444695800269,
+    "intents": 90
+   }
+  },
+  "verdicts": {
+   "f1": {
+    "A": true,
+    "B": null
+   },
+   "f2": {
+    "A": true,
+    "B": true
+   },
+   "f3": {
+    "A": true,
+    "B": null
+   },
+   "f5": {
+    "A": true,
+    "B": true
+   }
+  },
+  "runs_with_fallback": 41,
+  "runs": 80,
+  "intents_over_detection_bound": 2,
+  "worst_deficit": 0.2533333333333333
+ },
+ "m09": {
+  "policy": "var/policy_cache/td3_noreward_floor_seed20_best.zip",
+  "means": {
+   "f1": {
+    "rl": 0.9447608801910027,
+    "rl_mon": 0.9735965477913762,
+    "formula_est": 0.9864999999999999,
+    "intents": 30
+   },
+   "f2": {
+    "rl": 0.907,
+    "rl_mon": 0.9877500000000001,
+    "formula_est": 1.0,
+    "intents": 20
+   },
+   "f3": {
+    "rl": 0.5779141498881433,
+    "rl_mon": 0.9371784116331098,
+    "formula_est": 0.9639314876957494,
+    "intents": 20
+   },
+   "f4": {
+    "rl": 0.6499124524530171,
+    "rl_mon": 0.845212712303415,
+    "formula_est": 0.9980833333333333,
+    "intents": 30
+   },
+   "f5": {
+    "rl": 0.9951943277310924,
+    "rl_mon": 0.9951943277310924,
+    "formula_est": 1.0,
+    "intents": 20
+   },
+   "all": {
+    "rl": 0.8120197460975442,
+    "rl_mon": 0.9413894382510648,
+    "formula_est": 0.9901344146159583,
+    "intents": 120
+   }
+  },
+  "verdicts": {
+   "f1": {
+    "A": true,
+    "B": null
+   },
+   "f2": {
+    "A": true,
+    "B": null
+   },
+   "f3": {
+    "A": true,
+    "B": null
+   },
+   "f4": {
+    "A": false,
+    "B": null
+   },
+   "f5": {
+    "A": true,
+    "B": null
+   }
+  },
+  "runs_with_fallback": 44,
+  "runs": 100,
+  "intents_over_detection_bound": 9,
+  "worst_deficit": 0.8666666666666667
+ },
+ "rule": {
+  "trigger": {
+   "name": "m11b_prime_k5",
+   "window_s": 20.0,
+   "missed_s": 5.0,
+   "tolerance_mbps": 1e-09,
+   "tolerance_fraction": 0.0,
+   "stated_only": true
+  },
+  "promise_margin": 0.05,
+  "no_harm_margin": 0.02,
+  "revision": 4,
+  "half": "even"
+ }
+}
