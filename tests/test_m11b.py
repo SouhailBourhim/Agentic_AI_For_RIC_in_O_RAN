@@ -70,9 +70,9 @@ def steps(m: FallbackMonitor, recs: list[KpiRecord], n: int, rl=STARVE_URLLC, ob
 
 
 def test_missed_uses_min_of_target_and_load_with_m10d_tolerance() -> None:
-    assert missed_slices(URLLC_STARVED, URLLC_10, LOAD) == {"urllc": "throughput"}
-    # 10 Mb/s target, 9.2 served: within max(1 Mb/s, 5 %) of it, not a miss
-    assert missed_slices(records({**LOAD, "urllc": 9.2}, LOAD), URLLC_10, LOAD) == {}
+    assert missed_slices(URLLC_STARVED, URLLC_10, LOAD, M11B) == {"urllc": "throughput"}
+    # 10 Mb/s target, 9.2 served: within max(1 Mb/s, 5 %) of it, not a miss for M11b's trigger
+    assert missed_slices(records({**LOAD, "urllc": 9.2}, LOAD), URLLC_10, LOAD, M11B) == {}
     # an idle slice is never missed: it needs only its load
     idle = {**LOAD, "urllc": 0.5}
     assert missed_slices(records({**LOAD, "urllc": 0.5}, idle), URLLC_10, idle) == {}
@@ -95,7 +95,7 @@ def test_fires_after_exactly_n_qualifying_ticks() -> None:
 
 def test_m11b_is_n_in_a_row_with_m10ds_tolerance() -> None:
     """M11b's trigger as one case of the window: k = W = N, so one met tick in the window is enough to wait again."""
-    assert M11B.window_s == M11B.missed_s == 10.0 and SERVED_TRIGGER is M11B
+    assert M11B.window_s == M11B.missed_s == 10.0
     assert (M11B.tolerance_mbps, M11B.tolerance_fraction) == (1.0, 0.05)
     assert set(TRIGGERS) == {"m11b", "m11b_prime", "m11b_prime_stated", "m11b_prime_k5", "m11b_prime_intent",
                              "m11b_prime_meets"}
@@ -303,11 +303,13 @@ def protect_urllc(conn, intent_id: str = "i0001", start: float = 0.0, end: float
                                                       start, end)], "test", start)
 
 
-def served_runner(backend=None) -> Runner:
+def served_runner(backend=None, trigger=M11B) -> Runner:
+    """M11b's trigger by default: these tests count N in a row; test_the_served_trigger_* runs the served one."""
     backend = backend or FaultyBackend()
     cfg = CellConfig()
     return Runner(backend, StarveUrllc(), db.connect(timeout_s=0.0),
-                  monitor=FallbackMonitor(FormulaEstPolicy(backend.info().urllc_base_latency_ms), cfg.n_prb))
+                  monitor=FallbackMonitor(FormulaEstPolicy(backend.info().urllc_base_latency_ms), cfg.n_prb,
+                                          trigger=trigger))
 
 
 def test_the_runner_hands_a_missed_intent_to_the_formula(ric_db) -> None:
@@ -320,11 +322,26 @@ def test_the_runner_hands_a_missed_intent_to_the_formula(ric_db) -> None:
     assert all(x.mode == "fallback" and x.shares[1] > 0.1 for x in results[fired_at:])
     event = next(e for e in read_events() if e["event"] == "executor_fallback")
     assert event["data"]["slice"] == "urllc" and event["data"]["policy_id"] == 1
-    assert event["data"]["intent_ids"] == ["i0001"] and event["data"]["missed_s"] == SERVED_TRIGGER.missed_s
+    assert event["data"]["intent_ids"] == ["i0001"] and event["data"]["missed_s"] == M11B.missed_s
     assert kpi.read_runner_state(ric_db) == {"mode": "fallback", "reason": "target_missed:urllc",
                                              "since_backend": float(fired_at)}
     # the formula's split gets URLLC its load back
     assert r.backend.read_kpis()[1].dl_thr_mbps > 7.0 - 1.0
+
+
+def test_the_served_trigger_is_m11b_primes_r6_and_fires_on_the_cell(ric_db) -> None:
+    """The served runner's default (rl.runner.main builds the monitor without a trigger): M11b′ r6."""
+    from rl.monitor import M11B_PRIME_MEETS
+
+    assert SERVED_TRIGGER is M11B_PRIME_MEETS
+    protect_urllc(ric_db)
+    backend = FaultyBackend()
+    r = Runner(backend, StarveUrllc(), db.connect(timeout_s=0.0),
+               monitor=FallbackMonitor(FormulaEstPolicy(backend.info().urllc_base_latency_ms), CellConfig().n_prb))
+    results = [r.tick() for _ in range(3 * W)]
+    fired_at = next(i for i, x in enumerate(results) if x.mode == "fallback")
+    assert int(M11B_PRIME_MEETS.missed_s) - 1 <= fired_at < W
+    assert kpi.read_runner_state(ric_db)["reason"] == "target_missed:urllc"
 
 
 def test_the_next_segment_gives_the_policy_back(ric_db) -> None:

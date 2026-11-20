@@ -90,12 +90,13 @@ M11B_PRIME_MEETS = Trigger("m11b_prime_meets", window_s=20.0, missed_s=5.0, tole
                            tolerance_fraction=0.0, stated_only=True, per_intent=True, need_margin=FORMULA_EST_MARGIN)
 TRIGGERS = {t.name: t for t in (M11B, M11B_PRIME, M11B_PRIME_STATED, M11B_PRIME_K5, M11B_PRIME_INTENT,
                                 M11B_PRIME_MEETS)}
-# What the served runner uses (demo, testbed). M11b's until M11b′ is scored on its test split (DECISIONS 2026-11-20).
-SERVED_TRIGGER = M11B
+# What the served runner uses (demo, testbed): M11b′'s r6, the trigger that passed rules A and B on the fresh m11b_test
+# split (DECISIONS 2026-11-20, served-default rule: B held on every family of the test split).
+SERVED_TRIGGER = M11B_PRIME_MEETS
 
 
 def missed_slices(records: list, objective: RLObjective, loads: dict[str, float],
-                  trigger: Trigger = SERVED_TRIGGER, stated_slices: tuple[str, ...] | None = None) -> dict[str, str]:
+                  trigger: Trigger | None = None, stated_slices: tuple[str, ...] | None = None) -> dict[str, str]:
     """{slice: 'throughput' | 'latency'} for each watched target in force that this tick's KPI records miss.
 
     records: the tick's KpiRecord list (store.kpi, not imported here: the monitor stays free of the store).
@@ -103,6 +104,7 @@ def missed_slices(records: list, objective: RLObjective, loads: dict[str, float]
     stated_slices: the segment's stated throughput targets; with a stated_only trigger only those are watched
     (None = unknown: every target is).
     """
+    trigger = trigger or SERVED_TRIGGER
     by_slice = {r.slice: r for r in records}
     watched = stated_slices if trigger.stated_only and stated_slices is not None else SLICES
     missed = {}
@@ -136,9 +138,9 @@ class FallbackMonitor:
     then `step` while the policy decides, or `hold` on a tick where neither does (safe state, LLM only's rows)."""
 
     def __init__(self, formula: FormulaPolicy, n_prb: int, dt_s: float = 1.0,
-                 trigger: Trigger = SERVED_TRIGGER) -> None:
+                 trigger: Trigger | None = None) -> None:
         self.formula = formula
-        self.trigger = trigger
+        self.trigger = trigger = trigger or SERVED_TRIGGER
         self.min_gain = 1.0 / n_prb  # "more" means at least one PRB more
         self.dt_s = dt_s
         self.missed_ticks = max(1, round(trigger.missed_s / dt_s))
