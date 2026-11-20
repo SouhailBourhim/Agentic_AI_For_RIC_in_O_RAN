@@ -1,0 +1,191 @@
+{
+ "m10": {
+  "policy": "models/m10c/td3_m10c_seed72.zip",
+  "means": {
+   "f1": {
+    "rl": 0.750772764586819,
+    "shield": 0.8292187936695931,
+    "formula_est": 0.8156443848605811,
+    "rl_mon": 0.8336974283374796,
+    "shield_mon": 0.8369117273680539,
+    "rl_over_bound": 0.49263730425055935,
+    "shield_over_bound": 0.2571325503355705,
+    "formula_est_over_bound": 0.2934700782997763,
+    "rl_mon_over_bound": 0.26694211409395974,
+    "shield_mon_over_bound": 0.2571325503355705,
+    "intents": 60
+   },
+   "f2": {
+    "rl": 0.8511127262985732,
+    "shield": 0.8511127262985732,
+    "formula_est": 0.7879393047487453,
+    "rl_mon": 0.8658385372605419,
+    "shield_mon": 0.8658385372605419,
+    "rl_over_bound": null,
+    "shield_over_bound": null,
+    "formula_est_over_bound": null,
+    "rl_mon_over_bound": null,
+    "shield_mon_over_bound": null,
+    "intents": 40
+   },
+   "f3": {
+    "rl": 0.5890966163310962,
+    "shield": 0.8656719798657718,
+    "formula_est": 0.8588027125279641,
+    "rl_mon": 0.8467813199105146,
+    "shield_mon": 0.8656719798657718,
+    "rl_over_bound": 0.4107992170022371,
+    "shield_over_bound": 0.13432802013422818,
+    "formula_est_over_bound": 0.1411972874720358,
+    "rl_mon_over_bound": 0.15321868008948547,
+    "shield_mon_over_bound": 0.13432802013422818,
+    "intents": 40
+   },
+   "f5": {
+    "rl": 0.8822475501945746,
+    "shield": 0.8954051284943507,
+    "formula_est": 0.848442148167992,
+    "rl_mon": 0.8919605810444983,
+    "shield_mon": 0.9003309669505384,
+    "rl_over_bound": 0.10268770973154362,
+    "shield_over_bound": 0.06979376398210291,
+    "formula_est_over_bound": 0.1546619826621924,
+    "rl_mon_over_bound": 0.09071972874720358,
+    "shield_mon_over_bound": 0.06979376398210291,
+    "intents": 40
+   },
+   "all": {
+    "rl": 0.7663591199343271,
+    "shield": 0.8568928944806856,
+    "formula_est": 0.8263668317190164,
+    "rl_mon": 0.8566947957159498,
+    "shield_mon": 0.8638242389175408,
+    "rl_over_bound": 0.36746997527375486,
+    "shield_over_bound": 0.15305884257623925,
+    "formula_est_over_bound": 0.18410374720357942,
+    "rl_mon_over_bound": 0.16998822559755092,
+    "shield_mon_over_bound": 0.15305884257623925,
+    "intents": 180
+   }
+  },
+  "runs_with_fallback": {
+   "rl_mon": 91,
+   "shield_mon": 26
+  },
+  "runs": 160
+ },
+ "m09": {
+  "policy": "var/policy_cache/td3_noreward_floor_seed20_best.zip",
+  "means": {
+   "f1": {
+    "rl": 0.9172822546617454,
+    "shield": 0.9655615238638334,
+    "formula_est": 0.9865203206562266,
+    "rl_mon": 0.9756422957699112,
+    "shield_mon": 0.981743246552909,
+    "rl_over_bound": 0.17160011185682325,
+    "shield_over_bound": 0.026762304250559282,
+    "formula_est_over_bound": 0.040439038031319915,
+    "rl_mon_over_bound": 0.04506515659955257,
+    "shield_mon_over_bound": 0.026762304250559282,
+    "intents": 60
+   },
+   "f2": {
+    "rl": 0.8410763904555111,
+    "shield": 0.8410763904555111,
+    "formula_est": 1.0,
+    "rl_mon": 0.9813796328934258,
+    "shield_mon": 0.9813796328934258,
+    "rl_over_bound": null,
+    "shield_over_bound": null,
+    "formula_est_over_bound": null,
+    "rl_mon_over_bound": null,
+    "shield_mon_over_bound": null,
+    "intents": 40
+   },
+   "f3": {
+    "rl": 0.5776869407158836,
+    "shield": 0.9762168624161074,
+    "formula_est": 0.9628425615212528,
+    "rl_mon": 0.9378337527964206,
+    "shield_mon": 0.9762168624161074,
+    "rl_over_bound": 0.4223130592841164,
+    "shield_over_bound": 0.023783137583892618,
+    "formula_est_over_bound": 0.03715743847874721,
+    "rl_mon_over_bound": 0.06216624720357942,
+    "shield_mon_over_bound": 0.023783137583892618,
+    "intents": 40
+   },
+   "f4": {
+    "rl": 0.6447968957246658,
+    "shield": 0.6446682806419036,
+    "formula_est": 0.7954851354710416,
+    "rl_mon": 0.7880967437235894,
+    "shield_mon": 0.7880967437235894,
+    "rl_over_bound": 0.013303376906318084,
+    "shield_over_bound": 0.012191098661686895,
+    "formula_est_over_bound": 0.002638888888888889,
+    "rl_mon_over_bound": 0.0007407407407407408,
+    "shield_mon_over_bound": 0.0007407407407407408,
+    "intents": 75
+   },
+   "f5": {
+    "rl": 0.9963471638655463,
+    "shield": 0.9963471638655463,
+    "formula_est": 1.0,
+    "rl_mon": 0.9963471638655463,
+    "shield_mon": 0.9963471638655463,
+    "rl_over_bound": 0.0,
+    "shield_over_bound": 0.0,
+    "formula_est_over_bound": 0.0,
+    "rl_mon_over_bound": 0.0,
+    "shield_mon_over_bound": 0.0,
+    "intents": 40
+   },
+   "all": {
+    "rl": 0.7843181265118914,
+    "shield": 0.8581546241155269,
+    "formula_est": 0.9308482621982426,
+    "rl_mon": 0.9186988843438416,
+    "shield_mon": 0.9261552821154782,
+    "rl_over_bound": 0.19550590486500624,
+    "shield_over_bound": 0.01747457120959903,
+    "formula_est_over_bound": 0.022398537419273144,
+    "rl_mon_over_bound": 0.032171464550532554,
+    "shield_mon_over_bound": 0.014233903873482194,
+    "intents": 255
+   }
+  },
+  "runs_with_fallback": {
+   "rl_mon": 99,
+   "shield_mon": 48
+  },
+  "runs": 200
+ },
+ "rules": {
+  "S1": true,
+  "S2": true,
+  "S3": true,
+  "D": false,
+  "D_no_harm": {
+   "m10": {
+    "f1": true,
+    "f2": true,
+    "f3": true,
+    "f5": true
+   },
+   "m09": {
+    "f1": true,
+    "f2": true,
+    "f3": true,
+    "f4": true,
+    "f5": true
+   }
+  },
+  "D_gain": {
+   "m10": false,
+   "m09": false
+  }
+ },
+ "monitor_trigger": "m11b_prime_meets"
+}
