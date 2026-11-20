@@ -1,8 +1,10 @@
 """M11b and M11b′: the runtime monitor with formula fallback, on the dev instances of two cells, then M11b′'s test split.
 
   uv run python -m eval.m11b --probe          one instance per cell and label, timed: the cost of the whole run
-  uv run python -m eval.m11b --dev            every dev run (a finished run is not played again)
-  uv run python -m eval.m11b --score          the frozen rule on dev (DECISIONS 2026-11-20) -> docs/learn/data/M11b-*
+  uv run python -m eval.m11b --dev [--half even|odd]    dev runs (a finished run is not played again)
+  uv run python -m eval.m11b --score [--half even|odd]  the frozen rule on dev (DECISIONS 2026-11-20) -> docs/learn/data/M11b-*
+From revision 3 on, triggers are tuned on the even dev indices only and the chosen one is checked once on the odd
+indices before the test split (DECISIONS 2026-11-20: Souhail lifted the one-revision limit).
   uv run python -m eval.m11b --play           M11b′'s test split, once (guard: committed code and DECISIONS)
   uv run python -m eval.m11b --score --final  the rule on the test split, once; marks m11b/test spent
 
@@ -35,12 +37,14 @@ from eval.sim_profiles import KPI_DELAY_TICKS, channel_of, noise_std
 from eval.spent import mark_spent
 from eval.validate_sim import CLOCK_OFFSET_S, served_policy
 from rl import m09
-from rl.monitor import M11B_PRIME, Trigger
+from rl.monitor import M11B_PRIME_STATED, Trigger
 from rl.runner import SERVED_SMOOTHING_ALPHA
 
-# 0 = M11b, 20 s in a row; 1 = M11b, 10 s in a row (both failed rule A, DECISIONS 2026-11-20); 2 = M11b′.
-REVISION = 2
-TRIGGER: Trigger = M11B_PRIME  # the trigger of this revision, and the one the test split plays
+# 0 = M11b, 20 s in a row; 1 = M11b, 10 s in a row (both failed rule A, DECISIONS 2026-11-20); 2 = M11b′ (A and B
+# failed on all of dev); 3 = M11b′ watching the stated targets only (tuned on the even half from here on).
+REVISION = 3
+TRIGGER: Trigger = M11B_PRIME_STATED  # the trigger of this revision, and the one the test split plays
+HALVES = {"even": 0, "odd": 1}
 ROOT = Path("eval/results/m11b")
 RESULTS = ROOT / f"r{REVISION}"
 SPENT_NAME = "m11b/test"
@@ -75,8 +79,12 @@ def work_of(name: str, cell: dict, inst: Instance, label: str, study: str = "dev
     return results_of(study) / name / spec_of(cell, inst, label, study).run_id
 
 
-def instances_of(cell: dict, study: str) -> list[Instance]:
-    return dev_instances(cell["families"]) if study == "dev" else m11b_test_instances(cell["families"])
+def instances_of(cell: dict, study: str, half: str | None = None) -> list[Instance]:
+    """The dev instances (all, or the even or odd indices of each family) or the test split's."""
+    if study != "dev":
+        return m11b_test_instances(cell["families"])
+    every = dev_instances(cell["families"])
+    return every if half is None else [i for i in every if int(i.name.rsplit("_", 1)[1]) % 2 == HALVES[half]]
 
 
 def play(job: tuple[str, dict, Instance, str, str]) -> Path:
@@ -91,9 +99,9 @@ def play(job: tuple[str, dict, Instance, str, str]) -> Path:
                     clock_offset_s=CLOCK_OFFSET_S, channel=channel_of(name, inst.seed))
 
 
-def jobs(study: str = "dev") -> list[tuple[str, dict, Instance, str, str]]:
+def jobs(study: str = "dev", half: str | None = None) -> list[tuple[str, dict, Instance, str, str]]:
     return [(name, cell, inst, label, study) for name, cell in cells().items()
-            for inst in instances_of(cell, study) for label in LABELS]
+            for inst in instances_of(cell, study, half) for label in LABELS]
 
 
 def play_all(todo: list) -> None:
@@ -126,10 +134,10 @@ def fallbacks(events: list[dict]) -> list[dict]:
     return [e for e in events if e["event"] == "executor_fallback"]
 
 
-def score(name: str, cell: dict, study: str = "dev") -> list[dict]:
+def score(name: str, cell: dict, study: str = "dev", half: str | None = None) -> list[dict]:
     """One row per instance, intent and label; the verifier must answer the same in every label's run (checked)."""
     rows = []
-    for inst in instances_of(cell, study):
+    for inst in instances_of(cell, study, half):
         flags = None
         scenario = inst.scenario()
         for label in LABELS:
@@ -146,7 +154,8 @@ def score(name: str, cell: dict, study: str = "dev") -> list[dict]:
                 rows.append({"cell": name, "family": inst.family, "variant": inst.variant, "instance": inst.name,
                              "intent": k, "label": label, "accepted": flags[k], "intent_met": row["intent_met"],
                              "window_s": end - start, "fallbacks_in_run": len(fired),
-                             "first_fallback_s": "" if not fired else fired[0]["ts_backend"] - CLOCK_OFFSET_S})
+                             # the event file is already on the scenario's clock (eval.harness.rebase_event_file)
+                             "first_fallback_s": "" if not fired else fired[0]["ts_backend"]})
     return rows
 
 
@@ -196,10 +205,10 @@ def write_csv(path: Path, rows: list[dict]) -> None:
         writer.writerows(rows)
 
 
-def score_all(study: str = "dev") -> dict:
+def score_all(study: str = "dev", half: str | None = None) -> dict:
     out, all_rows, all_deficits = {}, [], []
     for name, cell in cells().items():
-        rows = score(name, cell, study)
+        rows = score(name, cell, study, half)
         means = family_means(rows, cell["families"])
         gaps = deficits(rows)
         runs = {(r["instance"], r["label"]): r["fallbacks_in_run"] for r in rows}
@@ -212,8 +221,8 @@ def score_all(study: str = "dev") -> dict:
         all_rows += rows
         all_deficits += gaps
     out["rule"] = {"trigger": TRIGGER.__dict__, "promise_margin": PROMISE_MARGIN, "no_harm_margin": NO_HARM_MARGIN,
-                   "revision": REVISION}
-    tag = f"dev-r{REVISION}" if study == "dev" else "test"
+                   "revision": REVISION, "half": half}
+    tag = "test" if study != "dev" else f"dev-r{REVISION}" + (f"-{half}" if half is not None else "")
     write_csv(DATA / f"M11b-{tag}-runs.csv", all_rows)
     write_csv(DATA / f"M11b-{tag}-deficits.csv", all_deficits)
     (DATA / f"M11b-{tag}.json").write_text(json.dumps(out, indent=1))
@@ -257,17 +266,18 @@ def main() -> None:
     group.add_argument("--play", action="store_true")
     group.add_argument("--score", action="store_true")
     parser.add_argument("--final", action="store_true", help="with --score: the test split, once")
+    parser.add_argument("--half", choices=sorted(HALVES), default=None, help="dev: the even or odd indices only")
     args = parser.parse_args()
     if args.probe:
         probe()
     elif args.dev:
-        play_all(jobs("dev"))
+        play_all(jobs("dev", args.half))
     elif args.play:
         play_test()
     elif args.final:
         print(json.dumps(score_test(final=True), indent=1, default=float))
     else:
-        print(json.dumps(score_all("dev"), indent=1, default=float))
+        print(json.dumps(score_all("dev", args.half), indent=1, default=float))
 
 
 if __name__ == "__main__":

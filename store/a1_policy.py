@@ -34,6 +34,9 @@ class Segment:
     expires_at: float | None
     mode: str = "rl"  # 'rl' | 'direct_share' (LLM-only baseline, M04b)
     shares: tuple[float, ...] | None = None  # only in direct_share mode
+    # M11b′: the slices whose throughput target was stated by an intent; the others' are implied (verifier
+    # with_fair_shares). None = unknown: the runtime monitor then watches every target.
+    stated_slices: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -48,6 +51,7 @@ class PolicyRow:
     intent_ids: tuple[str, ...]
     valid_from: float
     expires_at: float | None
+    stated_slices: tuple[str, ...] | None = None  # M11b′, see Segment
 
 
 def write_schedule(conn: sqlite3.Connection, segments: list[Segment], reason: str, now_backend: float) -> int:
@@ -68,12 +72,13 @@ def write_schedule(conn: sqlite3.Connection, segments: list[Segment], reason: st
         schedule_id = cursor.lastrowid
         conn.executemany(
             "INSERT INTO a1_policy (schedule_id, objective, mode, shares, intent_ids, verifier_decision,"
-            " confirmed_by, issued_at, valid_from, expires_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            " confirmed_by, issued_at, valid_from, expires_at, stated_slices) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             [
                 (schedule_id, s.objective.model_dump_json(), s.mode,
                  json.dumps(list(s.shares)) if s.shares is not None else None,
                  json.dumps(list(s.intent_ids)), json.dumps(s.verifier_decision), s.confirmed_by,
-                 now_backend, s.valid_from, s.expires_at)
+                 now_backend, s.valid_from, s.expires_at,
+                 json.dumps(list(s.stated_slices)) if s.stated_slices is not None else None)
                 for s in segments
             ],
         )
@@ -96,6 +101,7 @@ def _row(row: sqlite3.Row) -> PolicyRow:
         intent_ids=tuple(json.loads(row["intent_ids"])),
         valid_from=row["valid_from"],
         expires_at=row["expires_at"],
+        stated_slices=tuple(json.loads(row["stated_slices"])) if row["stated_slices"] is not None else None,
     )
 
 

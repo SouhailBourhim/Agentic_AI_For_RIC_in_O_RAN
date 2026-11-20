@@ -19,7 +19,7 @@ from backends.faults import FaultyBackend
 from monitoring.exporter import RicCollector
 from rl.baselines import FormulaEstPolicy, FormulaPolicy
 from eval.generator import generate
-from rl.monitor import M11B, M11B_PRIME, SERVED_TRIGGER, TRIGGERS, FallbackMonitor, missed_slices
+from rl.monitor import M11B, M11B_PRIME, M11B_PRIME_STATED, SERVED_TRIGGER, TRIGGERS, FallbackMonitor, missed_slices
 from rl.runner import RESUME_AFTER_TICKS, Runner
 from sim.cell import CellConfig
 from store import a1_policy, db, kpi
@@ -97,7 +97,7 @@ def test_m11b_is_n_in_a_row_with_m10ds_tolerance() -> None:
     """M11b's trigger as one case of the window: k = W = N, so one met tick in the window is enough to wait again."""
     assert M11B.window_s == M11B.missed_s == 10.0 and SERVED_TRIGGER is M11B
     assert (M11B.tolerance_mbps, M11B.tolerance_fraction) == (1.0, 0.05)
-    assert set(TRIGGERS) == {"m11b", "m11b_prime"}
+    assert set(TRIGGERS) == {"m11b", "m11b_prime", "m11b_prime_stated"}
 
 
 def test_m11b_prime_fires_at_k_of_w_with_gaps() -> None:
@@ -136,6 +136,38 @@ def test_m11b_prime_uses_the_scorers_met_rule() -> None:
     assert missed_slices(short, URLLC_10, LOAD, M11B) == {}
     assert missed_slices(short, URLLC_10, LOAD, M11B_PRIME) == {"urllc": "throughput"}
     assert missed_slices(records({**LOAD, "urllc": 10.0}, LOAD), URLLC_10, LOAD, M11B_PRIME) == {}
+
+
+def test_a_stated_only_trigger_ignores_implied_targets() -> None:
+    """r3: the stated target is eMBB's; URLLC's target is implied (with_fair_shares), so its miss is not watched."""
+    both = URLLC_10.model_copy(update={"min_thr_mbps": SliceValues(embb=25.0, urllc=10.0)})
+    assert missed_slices(URLLC_STARVED, both, LOAD, M11B_PRIME_STATED, ("embb",)) == {}
+    assert missed_slices(URLLC_STARVED, both, LOAD, M11B_PRIME_STATED, ("urllc",)) == {"urllc": "throughput"}
+    assert missed_slices(URLLC_STARVED, both, LOAD, M11B_PRIME_STATED, None) == {"urllc": "throughput"}  # unknown
+    assert missed_slices(URLLC_STARVED, both, LOAD, M11B_PRIME, ("embb",)) == {"urllc": "throughput"}  # not stated_only
+    bounded = both.model_copy(update={"max_latency_ms": 20.0})  # a bound is always stated: always watched
+    assert missed_slices(records(LOAD, LOAD, urllc_latency_ms=35.0), bounded, LOAD, M11B_PRIME_STATED, ("embb",)) == {
+        "urllc": "latency"}
+
+
+def test_the_timetable_records_the_stated_slices(ric_db, tiny_policy_file) -> None:
+    """The apply step stores which slices an intent stated a target for, before the implied ones are added."""
+    from conftest import run_agent, start_cell
+
+    runner = start_cell(ric_db, tiny_policy_file)
+    runner.run(10)
+    run_agent(ric_db, "garantir 10 Mb/s au slice URLLC pendant 2 minutes", "eval", 0.0)
+    runner.run(10)
+    run_agent(ric_db, "garantir 20 Mb/s au best effort pendant 1 min", "eval", 0.0)
+    rows = a1_policy.current_schedule(ric_db)
+    assert [r.stated_slices for r in rows] == [("urllc", "be"), ("urllc",)]
+    assert rows[0].objective.min_thr_mbps.embb > 0  # eMBB's target is there, implied, and not stated
+    assert a1_policy.in_force(ric_db, 25.0).stated_slices == ("urllc", "be")
+
+
+def test_a_row_written_without_stated_slices_reads_as_unknown(ric_db) -> None:
+    protect_urllc(ric_db)
+    assert a1_policy.in_force(ric_db, 1.0).stated_slices is None
 
 
 def test_generate_refuses_the_m11b_test_split() -> None:

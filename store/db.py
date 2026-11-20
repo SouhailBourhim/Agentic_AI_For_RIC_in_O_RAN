@@ -68,7 +68,9 @@ CREATE TABLE IF NOT EXISTS a1_policy (     -- the segments of each timetable (ap
     confirmed_by TEXT NOT NULL,            -- 'console' | 'auto-eval'
     issued_at REAL NOT NULL,               -- backend clock when written
     valid_from REAL NOT NULL,              -- backend clock
-    expires_at REAL                        -- backend clock, NULL = no end
+    expires_at REAL,                       -- backend clock, NULL = no end
+    stated_slices TEXT                     -- M11b′: JSON list of the slices with a stated throughput target
+                                           -- (the others' targets are implied, verifier.with_fair_shares); NULL = unknown
 );
 
 CREATE TABLE IF NOT EXISTS kpm_latest (   -- testbed only (M07b): newest KPM values per slice
@@ -132,6 +134,8 @@ ADDED_COLUMNS = [
     # M10d: the demand the gNB measured (DRB.PdcpSduVolumeDL), Mb/s; kpi.offered_load_mbps stays the iperf3 truth
     ("kpi", "measured_load_mbps", "REAL"),
     ("kpm_latest", "measured_load_mbps", "REAL"),
+    # M11b′: which slices' throughput targets were stated, so the runtime monitor watches only those
+    ("a1_policy", "stated_slices", "TEXT"),
 ]
 
 

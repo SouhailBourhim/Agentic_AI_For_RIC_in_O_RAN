@@ -40,13 +40,16 @@ class Trigger:
 
     window_s, missed_s: fire when at least missed_s of the last window_s seconds had a qualifying miss.
     tolerance_mbps, tolerance_fraction: a throughput counts as missed below min(target, load) minus
-    max(tolerance_mbps, tolerance_fraction x that need)."""
+    max(tolerance_mbps, tolerance_fraction x that need).
+    stated_only: watch only the throughput targets an intent stated (the a1_policy row's stated_slices), not the ones
+    the verifier implied for the other slices. The latency bound is always stated (nothing implies one)."""
 
     name: str
     window_s: float
     missed_s: float
     tolerance_mbps: float
     tolerance_fraction: float
+    stated_only: bool = False
 
 
 # M11b, revision 1: 10 s in a row, M10d's tolerance on a measured rate (max(1 Mb/s, 5 %)). Revision 0 was 20 s in a
@@ -58,22 +61,30 @@ M11B = Trigger("m11b", window_s=10.0, missed_s=10.0, tolerance_mbps=1.0, toleran
 # better on dev: it costs little, and rule B measures it.
 M11B_PRIME = Trigger("m11b_prime", window_s=20.0, missed_s=10.0, tolerance_mbps=EXACT_TOLERANCE_MBPS,
                      tolerance_fraction=0.0)
-TRIGGERS = {t.name: t for t in (M11B, M11B_PRIME)}
+# M11b′ revision 3: the same, watching only the stated throughput targets. On m10 F2 (stated target on eMBB or BE),
+# 28 of r2's 33 fallbacks fired on URLLC's implied target, which nobody stated and nothing scores; there the policy
+# alone beat the formula, and rule B failed.
+M11B_PRIME_STATED = Trigger("m11b_prime_stated", window_s=20.0, missed_s=10.0, tolerance_mbps=EXACT_TOLERANCE_MBPS,
+                            tolerance_fraction=0.0, stated_only=True)
+TRIGGERS = {t.name: t for t in (M11B, M11B_PRIME, M11B_PRIME_STATED)}
 # What the served runner uses (demo, testbed). M11b's until M11b′ is scored on its test split (DECISIONS 2026-11-20).
 SERVED_TRIGGER = M11B
 
 
 def missed_slices(records: list, objective: RLObjective, loads: dict[str, float],
-                  trigger: Trigger = SERVED_TRIGGER) -> dict[str, str]:
-    """{slice: 'throughput' | 'latency'} for each target in force that this tick's KPI records miss.
+                  trigger: Trigger = SERVED_TRIGGER, stated_slices: tuple[str, ...] | None = None) -> dict[str, str]:
+    """{slice: 'throughput' | 'latency'} for each watched target in force that this tick's KPI records miss.
 
     records: the tick's KpiRecord list (store.kpi, not imported here: the monitor stays free of the store).
     loads: the loads the controller sees (rl.runner.seen_loads). An idle slice is never missed: met = min(target, load).
+    stated_slices: the segment's stated throughput targets; with a stated_only trigger only those are watched
+    (None = unknown: every target is).
     """
     by_slice = {r.slice: r for r in records}
+    watched = stated_slices if trigger.stated_only and stated_slices is not None else SLICES
     missed = {}
     for s, target in zip(SLICES, objective.min_thr_mbps.as_list()):
-        if target <= 0.0:
+        if target <= 0.0 or s not in watched:
             continue
         need = min(target, loads[s])
         tolerance = max(trigger.tolerance_mbps, trigger.tolerance_fraction * need)
@@ -132,14 +143,15 @@ class FallbackMonitor:
         self.window.clear()
 
     def step(self, obs: np.ndarray, objective: RLObjective, records: list, loads: dict[str, float],
-             rl_shares: np.ndarray) -> np.ndarray | None:
+             rl_shares: np.ndarray, stated_slices: tuple[str, ...] | None = None) -> np.ndarray | None:
         """The formula's split if the formula executes this tick, else None (the policy's split stands)."""
         self.fired = None
         formula_shares = np.asarray(self.formula.shares(obs), dtype=np.float64)  # in shadow, every tick
         if self.active:
             return formula_shares
         need = self.formula.last_need
-        qualifying = [(s, why) for s, why in missed_slices(records, objective, loads, self.trigger).items()
+        missed = missed_slices(records, objective, loads, self.trigger, stated_slices)
+        qualifying = [(s, why) for s, why in missed.items()
                       if formula_shares[SLICES.index(s)] >= need[SLICES.index(s)] - NEED_TOLERANCE
                       and formula_shares[SLICES.index(s)] >= rl_shares[SLICES.index(s)] + self.min_gain]
         self.window.append(bool(qualifying))

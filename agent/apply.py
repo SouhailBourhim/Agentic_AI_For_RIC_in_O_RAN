@@ -70,12 +70,15 @@ def decision_dict(decision: Decision) -> dict:
     return {"accepted": decision.accepted, "check": decision.check, "reason": decision.reason}
 
 
-def build_timetable(active: list[ActiveIntent], state: VerifierState) -> list[tuple[float, float | None, RLObjective, tuple[str, ...]]]:
-    """(valid_from, expires_at, objective that runs, intent_ids) for every segment from now on.
+def build_timetable(active: list[ActiveIntent], state: VerifierState) -> list[
+        tuple[float, float | None, RLObjective, tuple[str, ...], tuple[str, ...]]]:
+    """(valid_from, expires_at, objective that runs, intent_ids, stated slices) for every segment from now on.
 
     Cut points: now, and every start or end of an intent that is still ahead. Between two cut
     points the set of active intents does not change, so neither does the merge. Each segment is the
-    merge plus the implied targets of the slices with none (verifier with_fair_shares).
+    merge plus the implied targets of the slices with none (verifier with_fair_shares). The stated slices are the
+    merge's slices with a throughput target, before the implied ones are added: the runtime monitor watches only
+    those (M11b′), as the operator's compliance and the evaluation do.
     """
     now = state.now_s
     cuts = {now}
@@ -91,7 +94,8 @@ def build_timetable(active: list[ActiveIntent], state: VerifierState) -> list[tu
             continue  # nothing active: no row, the runner falls back to the default objective
         runs = with_fair_shares(merged, state, DEFAULT_CONFIG)
         objective = RLObjective(**{**runs.model_dump(), "valid_from": start, "valid_until": end})
-        segments.append((start, end, objective, merged.intent_ids))
+        stated = tuple(s for s in SLICES if getattr(merged.objective.min_thr_mbps, s) > 0.0)
+        segments.append((start, end, objective, merged.intent_ids, stated))
     return segments
 
 
@@ -102,8 +106,8 @@ def write_timetable(
     decision = reverify_after_removal(state.model_copy(update={"active": tuple(active)}))
     segments = [
         a1_policy.Segment(objective=obj, intent_ids=ids, verifier_decision=decision_dict(decision),
-                          confirmed_by=confirmed_by, valid_from=start, expires_at=end)
-        for start, end, obj, ids in build_timetable(active, state)
+                          confirmed_by=confirmed_by, valid_from=start, expires_at=end, stated_slices=stated)
+        for start, end, obj, ids, stated in build_timetable(active, state)
     ]
     schedule_id = a1_policy.write_schedule(conn, segments, reason, state.now_s)
     log_event("agent", "timetable_written", ts_backend=state.now_s,
