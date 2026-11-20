@@ -25,9 +25,10 @@ import numpy as np
 from rl.baselines import FormulaPolicy
 from verifier.objective import SLICES, RLObjective
 
-# About the time the served filter (alpha 0.10, rl.runner.SERVED_SMOOTHING_ALPHA) takes to cover 90 % of a step:
-# 0.9^22 = 0.098. A policy ramping towards the right split at the filter's pace doesn't trigger the fallback.
-FALLBACK_AFTER_S = 20.0
+# Revision 1 of M11b's one allowed revision (DECISIONS 2026-11-20): rule A failed at 20 s, the time the served filter
+# (alpha 0.10) takes to cover 90 % of a step. The misses come in short runs (longest qualifying run 9 s on m09 F2), so
+# 20 in a row was rarely reached: the fallback fired in 13 of 160 and 18 of 200 dev runs.
+FALLBACK_AFTER_S = 10.0
 MISS_TOLERANCE_MBPS = 1.0  # M10d's tolerance on a measured rate: max(1 Mb/s, 5 %)
 MISS_TOLERANCE_FRACTION = 0.05
 NEED_TOLERANCE = 1e-9  # float slack on "the formula grants the whole need"

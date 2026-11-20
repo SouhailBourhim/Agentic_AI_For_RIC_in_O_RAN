@@ -11,7 +11,7 @@ default weights, and only who turns the objective into a split differs. Three la
   formula_est   the formula alone (M10b's frozen executor), the reference the review's promise is about.
 Cells: m10 (M10c′'s 160 dev instances, F1-F3 and F5, its median-seed model) and m09 (M09b's 200 dev instances,
 F1-F5, v7, the champion). No test split is touched.
-Raw runs: eval/results/m11b/ (git-ignored).
+Raw runs: eval/results/m11b/r<revision>/ (git-ignored).
 """
 
 import argparse
@@ -33,7 +33,9 @@ from rl import m09
 from rl.monitor import FALLBACK_AFTER_S
 from rl.runner import SERVED_SMOOTHING_ALPHA
 
-RESULTS = Path("eval/results/m11b")
+# Revision of the frozen rule's one allowed revision: 0 = N 20 s (rule A failed), 1 = N 10 s (DECISIONS 2026-11-20).
+REVISION = 1
+RESULTS = Path(f"eval/results/m11b/r{REVISION}")
 DATA = Path("docs/learn/data")
 LABELS = ("rl", "rl_mon", "formula_est")
 WORKERS = 8
@@ -197,9 +199,10 @@ def score_all() -> dict:
         all_deficits += gaps
     out["rule"] = {"fallback_after_s": FALLBACK_AFTER_S, "promise_margin": PROMISE_MARGIN,
                    "no_harm_margin": NO_HARM_MARGIN}
-    write_csv(DATA / "M11b-dev-runs.csv", all_rows)
-    write_csv(DATA / "M11b-deficits.csv", all_deficits)
-    (DATA / "M11b-dev.json").write_text(json.dumps(out, indent=1))
+    out["rule"]["revision"] = REVISION
+    write_csv(DATA / f"M11b-dev-runs-r{REVISION}.csv", all_rows)
+    write_csv(DATA / f"M11b-deficits-r{REVISION}.csv", all_deficits)
+    (DATA / f"M11b-dev-r{REVISION}.json").write_text(json.dumps(out, indent=1))
     return out
 
 
