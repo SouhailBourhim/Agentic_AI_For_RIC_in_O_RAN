@@ -1,0 +1,36 @@
+{
+ "instances": 50,
+ "differ": [
+  {
+   "instance": "f6_02",
+   "explained": true,
+   "before": [
+    "conflict",
+    "{\"embb\": 23.0, \"be\": 25.0}"
+   ],
+   "now": [
+    "conflict",
+    {
+     "embb": 23.0,
+     "be": 25.0
+    }
+   ]
+  },
+  {
+   "instance": "f6_28",
+   "explained": true,
+   "before": [
+    "conflict",
+    "{\"embb\": 22.0, \"be\": 25.0}"
+   ],
+   "now": [
+    "conflict",
+    {
+     "embb": 22.0,
+     "be": 25.0
+    }
+   ]
+  }
+ ],
+ "holds": true
+}

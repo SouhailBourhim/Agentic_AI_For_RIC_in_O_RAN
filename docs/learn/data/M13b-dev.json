@@ -1,0 +1,66 @@
+{
+ "study": "dev",
+ "summary": {
+  "instances": 40,
+  "aware_offered": 11,
+  "reject": {
+   "with_offer": 40,
+   "applied": 0,
+   "delivered": 0.2667142273576097,
+   "met": 0.2667142273576097,
+   "kept": NaN,
+   "in_force_met": 0.9662824384787472,
+   "fallbacks": 40,
+   "aware_offered": {
+    "delivered": 0.9683547661488838,
+    "in_force_met": 0.9644844417327639
+   },
+   "no_aware_offer": {
+    "delivered": 0.0005747126436781609,
+    "in_force_met": 0.9669644372444649
+   }
+  },
+  "blind_offer": {
+   "with_offer": 40,
+   "applied": 40,
+   "delivered": 0.9626345121381886,
+   "met": 0.9626345121381886,
+   "kept": 0.9626345121381886,
+   "in_force_met": 0.41829250559284115,
+   "fallbacks": 35,
+   "aware_offered": {
+    "delivered": 0.9943086325439267,
+    "in_force_met": 0.8314622737441528
+   },
+   "no_aware_offer": {
+    "delivered": 0.9506201906049775,
+    "in_force_met": 0.2615729383630332
+   }
+  },
+  "aware_offer": {
+   "with_offer": 11,
+   "applied": 11,
+   "delivered": 0.2738515406162465,
+   "met": 0.2738515406162465,
+   "kept": 0.9943086325439267,
+   "in_force_met": 0.9297013422818793,
+   "fallbacks": 39,
+   "aware_offered": {
+    "delivered": 0.9943086325439267,
+    "in_force_met": 0.8314622737441528
+   },
+   "no_aware_offer": {
+    "delivered": 0.0005747126436781609,
+    "in_force_met": 0.9669644372444649
+   }
+  }
+ },
+ "verdict": {
+  "H_in_force_change": -0.03658109619686789,
+  "H": false,
+  "G_gain_where_offered": 0.025953866395042824,
+  "G": false,
+  "both": false,
+  "reported_blind_offer_in_force_change": -0.547989932885906
+ }
+}
