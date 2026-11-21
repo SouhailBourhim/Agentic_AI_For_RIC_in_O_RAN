@@ -165,6 +165,16 @@ def call(urllc: float):
 TEXT = "garantir 60 Mb/s au slice URLLC pendant 10 minutes"
 
 
+def test_offers_are_off_by_default(monkeypatch) -> None:
+    """The testbed S3 check (DECISIONS 2026-11-21) found the offer starving the guarantee in force: off until M13b."""
+    from agent.tools import Settings
+    from agent.worker import settings_from_env
+
+    monkeypatch.delenv("RIC_OFFERS", raising=False)
+    assert Settings().offers is False
+    assert settings_from_env().offers is False
+
+
 @pytest.mark.parametrize("offers", [False, True])
 def test_eval_mode_shows_the_offer_to_the_model_only_when_on(ric_db, cell, offers) -> None:
     llm = FakeLLM([parse(60), call(60.0), call(60.0)])  # the same proposal again: the intent ends

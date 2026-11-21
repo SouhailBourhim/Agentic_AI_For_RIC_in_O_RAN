@@ -50,7 +50,8 @@ class Settings:
     poll_s: float = 0.5  # wall seconds between two reads while waiting for the console
     llm_only_prompt: str = "v1"  # M09b: the fairer LLM only baseline uses "v2" (agent/prompts.py LLM_ONLY_PLAN)
     llm_only_joins: bool = False  # M09b, fairer LLM only: intents submitted while one runs join it (agent/graph.py)
-    offers: bool = True  # M13: show the verifier's offer after a rejection (eval: to the LLM; demo: in the reason)
+    offers: bool = False  # M13: show the verifier's offer after a rejection (eval: to the LLM; demo: in the reason).
+    # Off by default since the testbed S3 check (DECISIONS 2026-11-21): the offer ignores load, see M13b.
 
 
 @dataclass

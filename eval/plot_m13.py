@@ -94,8 +94,63 @@ def plot_f6(instance: str | None = None) -> Figure:
     return fig
 
 
+TESTBED_ARMS = {"nooffer": "reject", "offer": "offer"}  # testbed arm -> the colour/marker/label key above
+
+
+def plot_testbed() -> Figure:
+    """Left: S3 intent 2 delivered and intent 1 met, one marker per repeat (committed score).
+    Right: throughput per slice over time in the median repeat, both arms, with the monitor's fallback marked."""
+    result = json.loads((DATA / "M13-testbed.json").read_text())
+    repeats = [k for k in result if k.startswith("repeat")]
+    median_repeat = sorted(repeats, key=lambda r: result[r]["offer"]["met_1"] - result[r]["nooffer"]["met_1"])[1]
+    fig = Figure(figsize=(12.5, 6.2), facecolor=SURFACE, layout="constrained")
+    axes = fig.subplot_mosaic([["sum", "urllc"], ["sum", "embb"], ["sum", "be"]], width_ratios=(1, 2.4))
+    ax = axes["sum"]
+    measures = (("delivered_2", "intent 2 (URLLC)\ndelivered"), ("met_1", "intent 1 (eMBB, BE)\nmet"))
+    for k, (arm, key) in enumerate(TESTBED_ARMS.items()):
+        for m, (measure, _) in enumerate(measures):
+            values = [result[r][arm][measure] for r in repeats]
+            ax.scatter(m + (k - 0.5) * 0.3 + np.linspace(-0.04, 0.04, len(values)), values, s=40, zorder=3,
+                       color=COLOURS[key], marker=MARKERS[key], edgecolors=SURFACE, linewidths=1.2,
+                       label=LABELS[key] if m == 0 else None)
+    ax.set_xticks(range(len(measures)), [m[1] for m in measures], fontsize=8)
+    ax.set_xlim(-0.6, len(measures) - 0.4)
+    ax.set_ylim(-0.03, 1.05)
+    ax.set_ylabel("share of the window, 3 repeats", color=TEXT_MUTED, fontsize=8.5)
+    v = result["verdict"]
+    titled(ax, f"medians: gain {v['median_gain']:+.2f}, intent 1 {v['median_harm']:+.2f} (rule ≥ −0.05)")
+    ax.legend(frameon=False, fontsize=8, loc="center left")
+    repeat = int(median_repeat.removeprefix("repeat"))
+    from eval import m13_testbed  # here, not at the top: it pulls in the testbed control code
+    runs = {arm: load_run(m13_testbed.RESULTS / m13_testbed.run_of(arm, repeat).run_id) for arm in TESTBED_ARMS}
+    names = {"urllc": "URLLC", "embb": "eMBB", "be": "best effort"}
+    targets = {"urllc": "asked 23 under 5 ms, offer 16", "embb": "intent 1: 23", "be": "intent 1: 23"}
+    for s in names:
+        ax = axes[s]
+        for arm, key in TESTBED_ARMS.items():
+            k = runs[arm][0][s]
+            if arm == "nooffer":
+                ax.fill_between(k["t"], 0, k["load"], color=GRID, alpha=0.6, linewidth=0, zorder=0,
+                                label="offered load")
+            ax.plot(k["t"], k["thr"], color=COLOURS[key], linewidth=1.6 if arm == "offer" else 1.2,
+                    label=LABELS[key], zorder=3 if arm == "offer" else 2)
+        for e in runs["offer"][1]:
+            if e["event"] == "executor_fallback":
+                ax.axvspan(e["ts_backend"], 360, color=ACCENT, alpha=0.08, zorder=0,
+                           label="offer arm: monitor's fallback\n(URLLC latency)")
+        ax.hlines(23 if s != "urllc" else 16, 60 if s != "urllc" else 120, 360, color=TEXT, linewidth=1.0,
+                  linestyles=(0, (4, 3)), label=f"target ({targets[s]})")
+        ax.set_ylabel("Mb/s", color=TEXT_MUTED, fontsize=8.5)
+        titled(ax, f"testbed S3, repeat {repeat} (median). {names[s]} throughput" if s == "urllc"
+               else f"{names[s]} throughput")
+    axes["embb"].legend(*axes["embb"].get_legend_handles_labels(), frameon=False, fontsize=7, loc="upper right",
+                        ncols=1)
+    axes["be"].set_xlabel("time (s)", color=TEXT_MUTED, fontsize=8.5)
+    return fig
+
+
 def main() -> None:
-    for name, fig in (("M13-sim.png", plot_sim()), ("M13-f6.png", plot_f6())):
+    for name, fig in (("M13-sim.png", plot_sim()), ("M13-f6.png", plot_f6()), ("M13-testbed.png", plot_testbed())):
         fig.savefig(IMG / name, dpi=150, facecolor=SURFACE)
         print(IMG / name)
 

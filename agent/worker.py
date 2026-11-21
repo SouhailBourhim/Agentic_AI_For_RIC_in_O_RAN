@@ -10,7 +10,8 @@ one waits too.
 Environment: RIC_MODE=demo|eval, RIC_CONTROLLER=proposed|llm_only, RIC_AGENT=llm|rules,
 RIC_LLM_PROVIDER (ollama | nim, M09i), RIC_LLM_MODEL (Ollama tag or NIM model id), RIC_OBSERVE_S (20), RIC_CONFIRM_TIMEOUT_S (120), RIC_DB, RIC_EVENTS.
 M09e, the fairer LLM only on the testbed: RIC_LLM_ONLY_PROMPT=v1|v2 and RIC_LLM_ONLY_JOINS=1 (as eval.harness sets them).
-M13: RIC_OFFERS=1 (default since M13's test split, DECISIONS 2026-11-21) shows the verifier's offer after a rejection; 0 hides it.
+M13: RIC_OFFERS=1 shows the verifier's offer after a rejection; 0 (the default since the testbed S3 check, DECISIONS
+2026-11-21: an offer that keeps a latency bound under a load above its target starved the guarantee in force) hides it.
 """
 
 import os
@@ -32,7 +33,7 @@ def settings_from_env() -> Settings:
         observe_s=float(os.environ.get("RIC_OBSERVE_S", "20")),
         llm_only_prompt=os.environ.get("RIC_LLM_ONLY_PROMPT", "v1"),
         llm_only_joins=os.environ.get("RIC_LLM_ONLY_JOINS", "0") == "1",
-        offers=os.environ.get("RIC_OFFERS", "1") == "1",
+        offers=os.environ.get("RIC_OFFERS", "0") == "1",
     )
 
 

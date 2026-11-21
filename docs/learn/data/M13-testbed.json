@@ -1,0 +1,140 @@
+{
+ "repeat1": {
+  "counts": true,
+  "nooffer": {
+   "valid": true,
+   "per_prb": 0.7385336031746033,
+   "delivered_2": 0.0041841004184100415,
+   "met_2": 0.0041841004184100415,
+   "met_1": 0.979933110367893,
+   "first_check": "conflict",
+   "offer": {
+    "min_thr_mbps": {
+     "embb": 0.0,
+     "urllc": 16.0,
+     "be": 0.0
+    },
+    "max_latency_ms": 5.0,
+    "fraction": 0.73
+   },
+   "applied_2": null
+  },
+  "offer": {
+   "valid": true,
+   "per_prb": 0.74312,
+   "delivered_2": 0.9330543933054394,
+   "met_2": 0.9330543933054394,
+   "met_1": 0.23745819397993312,
+   "first_check": "conflict",
+   "offer": {
+    "min_thr_mbps": {
+     "embb": 0.0,
+     "urllc": 16.0,
+     "be": 0.0
+    },
+    "max_latency_ms": 5.0,
+    "fraction": 0.73
+   },
+   "applied_2": {
+    "urllc": 16
+   }
+  }
+ },
+ "repeat2": {
+  "counts": true,
+  "nooffer": {
+   "valid": true,
+   "per_prb": 0.7376049142857144,
+   "delivered_2": 0.005675495724940877,
+   "met_2": 0.0041841004184100415,
+   "met_1": 0.9565217391304348,
+   "first_check": "conflict",
+   "offer": {
+    "min_thr_mbps": {
+     "embb": 0.0,
+     "urllc": 16.0,
+     "be": 0.0
+    },
+    "max_latency_ms": 5.0,
+    "fraction": 0.73
+   },
+   "applied_2": null
+  },
+  "offer": {
+   "valid": true,
+   "per_prb": 0.7434244,
+   "delivered_2": 0.9429157766054211,
+   "met_2": 0.9414225941422594,
+   "met_1": 0.20134228187919462,
+   "first_check": "conflict",
+   "offer": {
+    "min_thr_mbps": {
+     "embb": 0.0,
+     "urllc": 16.0,
+     "be": 0.0
+    },
+    "max_latency_ms": 5.0,
+    "fraction": 0.73
+   },
+   "applied_2": {
+    "urllc": 16
+   }
+  }
+ },
+ "repeat3": {
+  "counts": true,
+  "nooffer": {
+   "valid": true,
+   "per_prb": 0.7357453714285714,
+   "delivered_2": 0.005676953974895397,
+   "met_2": 0.0041841004184100415,
+   "met_1": 0.959866220735786,
+   "first_check": "conflict",
+   "offer": {
+    "min_thr_mbps": {
+     "embb": 0.0,
+     "urllc": 16.0,
+     "be": 0.0
+    },
+    "max_latency_ms": 5.0,
+    "fraction": 0.73
+   },
+   "applied_2": null
+  },
+  "offer": {
+   "valid": true,
+   "per_prb": 0.7434284444444443,
+   "delivered_2": 0.9387345955975986,
+   "met_2": 0.9372384937238494,
+   "met_1": 0.22408026755852842,
+   "first_check": "conflict",
+   "offer": {
+    "min_thr_mbps": {
+     "embb": 0.0,
+     "urllc": 16.0,
+     "be": 0.0
+    },
+    "max_latency_ms": 5.0,
+    "fraction": 0.73
+   },
+   "applied_2": {
+    "urllc": 16
+   }
+  }
+ },
+ "verdict": {
+  "offer_minus_nooffer_delivered_2": [
+   0.9288702928870294,
+   0.9372402808804803,
+   0.9330576416227032
+  ],
+  "offer_minus_nooffer_met_1": [
+   -0.7424749163879598,
+   -0.7551794572512402,
+   -0.7357859531772576
+  ],
+  "median_gain": 0.9330576416227032,
+  "median_harm": -0.7424749163879598,
+  "reading": "helps; harms intent 1"
+ }
+}

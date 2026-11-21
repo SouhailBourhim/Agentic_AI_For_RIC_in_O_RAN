@@ -155,8 +155,10 @@ benchmark with seven controllers and a simulator calibrated against 72 testbed r
   it raised the intent met from 0.61-0.81 to 0.97.
 - **A rejection says what would fit** ([M13](docs/learn/M13-rejection-offer.md)): when a request doesn't fit, the
   verifier offers the largest version that does (same latency bound, 7 % capacity margin); the operator or the
-  model can take it, and it is verified again. Taking it delivered 0.954 of the request instead of 0.848, with
-  the guarantees already in force unchanged.
+  model can take it, and it is verified again. On the simulator, taking it delivered 0.954 of the request instead
+  of 0.848, with the guarantees already in force unchanged. On the testbed it starved them (met 0.96 → 0.22): the
+  offer kept a 5 ms bound on traffic twice its target, and the verifier does not see traffic. Off by default
+  until M13b.
 
 ## What this project demonstrates
 
@@ -298,7 +300,7 @@ core, gNB, nrUE), **FlexRIC**, C xApps, **Docker**, on WSL2 with an RTX 5070 lap
 | M11d | Shielded RL: URLLC floored at the formula's share under a latency bound, RL splits the rest | Done, reported not served: alone it beats both executors on m10 dev (0.857 vs RL 0.766, formula 0.826; F3 fixed), but adds only +0.007 over the served monitor (rule: 0.01); [note](docs/learn/M11d-shielded-rl.md) |
 | M11c | Threat model: who can reach what, each threat with its tests, residual risks stated | Done: [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md), 21 threats / 9 residual risks; a corrupt policy row no longer ends the runner |
 | M12 | Presentable: one-command demo, claims table, notes index, licence | Done: `uv run python -m demo` in ~30 s with no GPU or LLM; [docs/CLAIMS.md](docs/CLAIMS.md), 23 claims |
-| M13 | The verifier answers a rejection with what would fit (an offer) | Done on the simulator: pre-registered, fresh split once: delivered 0.848 → 0.954 when the offer is taken, the guarantee in force unchanged; LLM and testbed checks open; [note](docs/learn/M13-rejection-offer.md) |
+| M13 | The verifier answers a rejection with what would fit (an offer) | Done; sim (scripted, fresh split once, and LLM): delivered 0.848 → 0.954, guarantee in force unchanged; testbed S3: the guarantee in force fell 0.96 → 0.22 (the verifier ignores load), so offers are off by default, M13b next; [note](docs/learn/M13-rejection-offer.md) |
 
 </details>
 
