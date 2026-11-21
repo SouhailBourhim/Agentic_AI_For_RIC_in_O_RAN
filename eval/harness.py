@@ -97,6 +97,9 @@ class RunSpec:
     # M13: the verifier's offer after a rejection. Scripted runs: True = the operator takes it. Agent runs: True = the
     # agent shows it (Settings.offers). None = as before M13 (same run_id); False = the explicit "no offer" arm.
     offers: bool | None = None
+    # M13b: the verifier sizes a bounded URLLC target from its traffic (RIC_BOUND_FROM_LOAD). None = as before M13b
+    # (same run_id, load-blind); False = the explicit load-blind arm.
+    bound_from_load: bool | None = None
 
     @property
     def run_id(self) -> str:
@@ -105,6 +108,7 @@ class RunSpec:
         variant += f"_{self.executor}" if self.executor is not None else ""
         variant += f"_mon-{self.monitor}" if self.monitor is not None else ""
         variant += "" if self.offers is None else "_offer" if self.offers else "_nooffer"
+        variant += "" if self.bound_from_load is None else "_load" if self.bound_from_load else "_blind"
         return f"{self.study}/{self.scenario}/{self.controller}{variant}/seed{self.seed}"
 
 
@@ -202,8 +206,9 @@ def run_once(spec: RunSpec, scenario: Scenario, work: Path, policy_file: Path | 
     work.mkdir(parents=True, exist_ok=True)
     for old in ("events.jsonl", "ric.db", "ric.db-wal", "ric.db-shm", "kpi.csv"):
         (work / old).unlink(missing_ok=True)
-    saved = {k: os.environ.get(k) for k in ("RIC_DB", "RIC_EVENTS")}
+    saved = {k: os.environ.get(k) for k in ("RIC_DB", "RIC_EVENTS", "RIC_BOUND_FROM_LOAD")}
     os.environ["RIC_DB"], os.environ["RIC_EVENTS"] = str(work / "ric.db"), str(work / "events.jsonl")
+    os.environ["RIC_BOUND_FROM_LOAD"] = "1" if spec.bound_from_load else "0"  # explicit: earlier runs replay blind
     started = time.monotonic()
     try:
         conn = db.connect(work / "ric.db")

@@ -95,6 +95,22 @@ def get_kpis(conn: sqlite3.Connection, slice: str | None = None, window_s: float
     return result
 
 
+def peak_load(conn: sqlite3.Connection, slice: str, window_s: float) -> float | None:
+    """M13b: the highest load of a slice over the last window_s of backend time, as the controller sees it.
+
+    Per tick: the offered load, else the measured one, else the throughput, the order of rl.runner.seen_loads with
+    its default demand ("offered"). None before the first record of that slice.
+    """
+    end = latest_ts(conn)
+    if end is None:
+        return None
+    row = conn.execute(
+        "SELECT MAX(COALESCE(offered_load_mbps, measured_load_mbps, dl_thr_mbps)) FROM kpi WHERE slice = ? AND ts > ?",
+        (slice, end - window_s),
+    ).fetchone()
+    return row[0]
+
+
 def write_backend_info(conn: sqlite3.Connection, info: CellInfo, model_version: str) -> None:
     """Replace the single backend_info row (the runner calls this at startup)."""
     conn.execute(

@@ -11,6 +11,8 @@ Only intents with verified extraction are used (H7).
 Each segment is (seconds, Mb/s per slice), played by iperf3 on the scenario's clock.
 """
 
+import dataclasses
+
 from eval.scenarios import Scenario, ScenarioIntent, facts
 
 TESTBED_CAPACITY_MBPS = 79.0  # also in xapps.kpm_monitor.cell_info: a test checks they agree
@@ -37,3 +39,13 @@ SCENARIOS = {
         ScenarioIntent(120.0, "Garantis 23 Mb/s au slice URLLC avec une latence sous 5 ms pendant 4 minutes.",
                        facts(240.0, urllc=23.0, max_latency_ms=5.0), reaction_from_s=120.0),)),
 }
+
+# M13b: S3's two intents with a smaller URLLC surge, 15 Mb/s: under the 16 Mb/s the verifier offers when the
+# 23 Mb/s request is rejected, so the offer can be held without starving intent 1 (M13's S3 had 31.5 Mb/s of traffic).
+# Kept out of SCENARIOS and SEGMENTS, which earlier studies loop over; eval.testbed_control plays it by name.
+SURGE_UNDER_OFFER = {**QUIET, "urllc": 15.0}
+EXTRA_SEGMENTS = {"s3b": [(120, QUIET), (240, SURGE_UNDER_OFFER)]}
+EXTRA_SCENARIOS = {"s3b": dataclasses.replace(SCENARIOS["s3"], name="s3b",
+                                              title="Conflicting intents, URLLC traffic under the offer")}
+PLAYABLE_SCENARIOS = SCENARIOS | EXTRA_SCENARIOS
+PLAYABLE_SEGMENTS = SEGMENTS | EXTRA_SEGMENTS

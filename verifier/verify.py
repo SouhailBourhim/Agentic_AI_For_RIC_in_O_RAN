@@ -70,6 +70,9 @@ class VerifierState(BaseModel):
     capacity_mbps: float = Field(gt=0.0)  # cell capacity with all PRBs (75 Mb/s, M06 spike)
     urllc_base_latency_ms: float = Field(default=2.0, gt=0.0)  # empty URLLC slice (sim/cell.py)
     active: tuple[ActiveIntent, ...] = ()  # accepted intents; expired ones are ignored
+    # M13b: URLLC's peak load over the last 30 s, as the controller sees it (agent.apply.verifier_state, with
+    # RIC_BOUND_FROM_LOAD=1). None = sized from targets alone, as before M13b. See required_shares.
+    urllc_load_mbps: float | None = Field(default=None, ge=0.0)
 
 
 class Offer(BaseModel):
@@ -173,12 +176,24 @@ def required_shares(obj: RLObjective, state: VerifierState) -> dict[str, float]:
     For URLLC with a latency bound B, the cell model gives latency = base / (1 - rho), with
     rho = load / slice capacity. Latency <= B means rho <= 1 - base / B, so carrying T Mb/s
     within the bound needs a capacity of T / (1 - base / B): the share is T / (C (1 - base / B)).
+
+    M13b: a bound is about the whole queue, not about T Mb/s of it. If URLLC's traffic is above its target, holding
+    the bound means serving all of the traffic (the testbed's S3 with M13's offer: 16 Mb/s under 5 ms with 31.5 Mb/s
+    of traffic took 0.76 of the cell). So with a known load (state.urllc_load_mbps) a bounded URLLC target is sized
+    from max(T, load). A bound with no URLLC target keeps the old sizing.
     """
     need = {s: getattr(obj.min_thr_mbps, s) / state.capacity_mbps for s in SLICES}
     if obj.max_latency_ms is not None and need["urllc"] > 0:
+        carried = max(obj.min_thr_mbps.urllc, state.urllc_load_mbps or 0.0)
         max_rho = 1.0 - state.urllc_base_latency_ms / obj.max_latency_ms
-        need["urllc"] = need["urllc"] / max_rho if max_rho > 0 else float("inf")
+        need["urllc"] = carried / state.capacity_mbps / max_rho if max_rho > 0 else float("inf")
     return need
+
+
+def sized_from_load(obj: RLObjective, state: VerifierState) -> bool:
+    """M13b: is the bounded URLLC target sized from the traffic (above the target) rather than from the target?"""
+    return (obj.max_latency_ms is not None and obj.min_thr_mbps.urllc > 0
+            and (state.urllc_load_mbps or 0.0) > obj.min_thr_mbps.urllc)
 
 
 def feasibility_problem(
@@ -193,6 +208,10 @@ def feasibility_problem(
     """
     need = required_shares(obj, state)
     detail = ", ".join(f"{s} {need[s]:.0%}" for s in SLICES if need[s] > 0)
+    if sized_from_load(obj, state):
+        detail += (f"; urllc sized from its traffic, {state.urllc_load_mbps:g} Mb/s, above its "
+                   f"{obj.min_thr_mbps.urllc:g} Mb/s target: a {obj.max_latency_ms:g} ms bound must serve the whole "
+                   "queue")
     total = sum(need.values())
     if total > 1.0 + TOLERANCE:
         return "budget", f"the minimum targets need {total:.0%} of the PRBs ({detail}), more than the cell has"

@@ -15,6 +15,7 @@ or ends, so we cut time at those instants and write one a1_policy row per segmen
 least one intent. Segments with none get no row: the runner uses the default objective.
 """
 
+import os
 import sqlite3
 
 from store import a1_policy, intents, kpi
@@ -51,8 +52,20 @@ def applied_intents(conn: sqlite3.Connection) -> list[ActiveIntent]:
     ]
 
 
+LOAD_WINDOW_S = 30.0  # M13b: the formula's PEAK_WINDOW_S (rl/baselines.py); a test checks they agree
+
+
+def bound_from_load() -> bool:
+    """M13b: RIC_BOUND_FROM_LOAD=1 gives the verifier URLLC's recent peak load (verifier.verify.required_shares).
+
+    Read where the state is built, so the proposal, submit_intent's pre-check and apply_intent's re-verification of
+    one process always see the same rule."""
+    return os.environ.get("RIC_BOUND_FROM_LOAD", "0") == "1"
+
+
 def verifier_state(conn: sqlite3.Connection, active: list[ActiveIntent] | None = None) -> VerifierState:
-    """What the verifier needs: the clock and cell published by the runner, and the applied intents."""
+    """What the verifier needs: the clock and cell published by the runner, and the applied intents.
+    M13b: with bound_from_load(), also URLLC's peak load over the last LOAD_WINDOW_S."""
     found = kpi.read_backend_info(conn)
     if found is None:
         raise ApplyError("no RL runner has published the cell yet: start rl.runner first")
@@ -62,8 +75,10 @@ def verifier_state(conn: sqlite3.Connection, active: list[ActiveIntent] | None =
     still_running = tuple(
         i for i in active if i.objective.valid_until is None or i.objective.valid_until > now
     )
+    load = kpi.peak_load(conn, "urllc", LOAD_WINDOW_S) if bound_from_load() else None
     return VerifierState(now_s=now, capacity_mbps=info.capacity_mbps,
-                         urllc_base_latency_ms=info.urllc_base_latency_ms, active=still_running)
+                         urllc_base_latency_ms=info.urllc_base_latency_ms, active=still_running,
+                         urllc_load_mbps=load)
 
 
 def decision_dict(decision: Decision) -> dict:

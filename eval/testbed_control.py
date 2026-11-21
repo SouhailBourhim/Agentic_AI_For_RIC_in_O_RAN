@@ -45,7 +45,12 @@ from eval.interface import wait_for_service  # noqa: E402
 from eval.metrics import load_run, measure_run, over_bound_after  # noqa: E402
 from eval.realtime_check import start  # noqa: E402
 from eval.scenarios import Scenario  # noqa: E402
-from eval.testbed_scenarios import SCENARIOS, SEGMENTS, TESTBED_CAPACITY_MBPS  # noqa: E402
+from eval.testbed_scenarios import (  # noqa: E402
+    PLAYABLE_SCENARIOS,
+    PLAYABLE_SEGMENTS,
+    SCENARIOS,
+    TESTBED_CAPACITY_MBPS,
+)
 from rl.runner import SERVED_SMOOTHING_ALPHA, clear_run_state  # noqa: E402
 from store import db, kpi, testbed  # noqa: E402
 from store.events import log_event, read_events  # noqa: E402
@@ -190,7 +195,7 @@ def restart_counts() -> dict[str, int]:
 
 
 def segment_seconds(scenario: str, scale: float) -> list[int]:
-    return [max(5, round(seconds * scale)) for seconds, _ in SEGMENTS[scenario]]
+    return [max(5, round(seconds * scale)) for seconds, _ in PLAYABLE_SEGMENTS[scenario]]
 
 
 class SentRates:
@@ -276,7 +281,7 @@ def play_segments(run: TestbedRun, work: Path, scale: float, conn_path: str, err
     sent = SentRates(conn_path, run.run_id)
     procs, readers, results = [], [], []
     at = 0.0
-    for i, ((_, rates), seconds) in enumerate(zip(SEGMENTS[run.scenario], lengths, strict=True)):
+    for i, ((_, rates), seconds) in enumerate(zip(PLAYABLE_SEGMENTS[run.scenario], lengths, strict=True)):
         time.sleep(max(0.0, t0 + at - time.time()))
         log_event("scenario", "segment_start", data={"run": run.run_id, "segment": i, "rates_mbps": rates, "seconds": seconds, "wall": time.time()})
         left = deadline - time.time()
@@ -359,7 +364,7 @@ def play(run: TestbedRun, scale: float = 1.0, extra_args: str = "", results: Pat
     """One run, from a clean store. Writes run.json last: without it the run didn't finish and is played again.
 
     extra_args are added to the runner's arguments and results replaces RESULTS (M10d: the executor and the demand
-    source, eval/m10d.py). agent_env is added to the agent's environment (M13: RIC_OFFERS). All default to M08d's
+    source, eval/m10d.py). agent_env is added to the agent's environment (M13: RIC_OFFERS; M13b: RIC_BOUND_FROM_LOAD). All default to M08d's
     run, unchanged."""
     work = (results or RESULTS) / run.run_id
     if work.exists():
@@ -368,7 +373,8 @@ def play(run: TestbedRun, scale: float = 1.0, extra_args: str = "", results: Pat
     os.environ["RIC_DB"] = TESTBED_DB
     env = {**os.environ, "RIC_MODE": "eval", "RIC_CONTROLLER": "proposed" if run.controller not in USES_AGENT else run.controller,
            "RUNNER_ARGS": f"{runner_args(run.controller)} {extra_args}".strip(),
-           "RIC_OFFERS": "0", **(agent_env or {})}  # studies before M13 replay without the offer
+           "RIC_OFFERS": "0", "RIC_BOUND_FROM_LOAD": "0",  # studies before M13 / M13b replay as they were
+           **(agent_env or {})}
     py = sys.executable
     conn = db.connect(Path(TESTBED_DB))
     clear_run_state(conn)
@@ -380,7 +386,7 @@ def play(run: TestbedRun, scale: float = 1.0, extra_args: str = "", results: Pat
     before = restart_counts()
     processes = [start([py, "-m", "xapps.kpm_monitor", "--for-runner"], env, work / "kpm_monitor.out")]
     errors: list[str] = []
-    scenario = SCENARIOS[run.scenario]
+    scenario = PLAYABLE_SCENARIOS[run.scenario]
     seconds = scenario.seconds * scale
     try:
         time.sleep(3)
@@ -439,7 +445,7 @@ def scenario_as_played(name: str, events: list[dict]) -> Scenario:
     """S1's reaction clock starts when the spike really started, from the log; everything else is as stated."""
     t0 = next((e["data"]["t0"] for e in events if e["event"] == "scenario_start"), None)
     spike = next((e["data"]["wall"] for e in events if e["event"] == "segment_start" and e["data"]["segment"] == 1), None)
-    scenario = SCENARIOS[name]
+    scenario = PLAYABLE_SCENARIOS[name]
     if name != "s1" or t0 is None or spike is None:
         return scenario
     return dataclasses.replace(scenario, intents=(dataclasses.replace(scenario.intents[0], reaction_from_s=spike - t0),))
