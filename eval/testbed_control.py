@@ -367,7 +367,8 @@ def play(run: TestbedRun, scale: float = 1.0, extra_args: str = "", results: Pat
     work.mkdir(parents=True)
     os.environ["RIC_DB"] = TESTBED_DB
     env = {**os.environ, "RIC_MODE": "eval", "RIC_CONTROLLER": "proposed" if run.controller not in USES_AGENT else run.controller,
-           "RUNNER_ARGS": f"{runner_args(run.controller)} {extra_args}".strip(), **(agent_env or {})}
+           "RUNNER_ARGS": f"{runner_args(run.controller)} {extra_args}".strip(),
+           "RIC_OFFERS": "0", **(agent_env or {})}  # studies before M13 replay without the offer
     py = sys.executable
     conn = db.connect(Path(TESTBED_DB))
     clear_run_state(conn)

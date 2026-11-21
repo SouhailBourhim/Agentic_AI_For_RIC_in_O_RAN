@@ -72,6 +72,12 @@
    "commit": "2ea6c81",
    "result_file": "docs/learn/data/M11b-test.json",
    "note": "rule A/B per family: {\"m10\": {\"f1\": {\"A\": true, \"B\": null}, \"f2\": {\"A\": true, \"B\": true}, \"f3\": {\"A\": true, \"B\": null}, \"f5\": {\"A\": true, \"B\": true}}, \"m09\": {\"f1\": {\"A\": true, \"B\": null}, \"f2\": {\"A\": true, \"B\": null}, \"f3\": {\"A\": true, \"B\": null}, \"f4\": {\"A\": true, \"B\": null}, \"f5\": {\"A\": true, \"B\": null}}}"
+  },
+  "m13/test": {
+   "date": "2026-11-21",
+   "commit": "88e009d",
+   "result_file": "docs/learn/data/M13-test.json",
+   "note": "G and H: {\"G_gain\": 0.10606757657413035, \"G\": true, \"H_in_force_change\": 0.0, \"H\": true, \"both\": true}"
   }
  }
 }

@@ -1,0 +1,56 @@
+{
+ "study": "test",
+ "summary": {
+  "reject": {
+   "runs": 50,
+   "first_rejected": 50,
+   "with_offer": 50,
+   "applied": 0,
+   "applied_is_offer": 0,
+   "delivered": {
+    "f4": 0.8065380441623022,
+    "f6": 0.8578911088680752,
+    "all": 0.8476204959269205
+   },
+   "met": {
+    "f4": 0.3479602156298761,
+    "f6": 0.05077293417366946,
+    "all": 0.1102103904649108
+   },
+   "kept": NaN,
+   "in_force_met": 0.9989138702460851,
+   "in_force_over_bound": 0.001086129753914989
+  },
+  "offer": {
+   "runs": 50,
+   "first_rejected": 50,
+   "with_offer": 50,
+   "applied": 50,
+   "applied_is_offer": 50,
+   "delivered": {
+    "f4": 0.9003383776250657,
+    "f6": 0.9670254962200471,
+    "all": 0.9536880725010508
+   },
+   "met": {
+    "f4": 0.38933780760626396,
+    "f6": 0.5604443860877684,
+    "all": 0.5262230703914675
+   },
+   "kept": 0.9419478756603312,
+   "in_force_met": 0.9989138702460851,
+   "in_force_over_bound": 0.001086129753914989
+  }
+ },
+ "verdict": {
+  "G_gain": 0.10606757657413035,
+  "G": true,
+  "H_in_force_change": 0.0,
+  "H": true,
+  "both": true
+ },
+ "played": {
+  "commit": "88e009d"
+ },
+ "commit": "88e009d"
+}
