@@ -1,0 +1,52 @@
+{
+ "study": "dev",
+ "summary": {
+  "reject": {
+   "runs": 50,
+   "first_rejected": 50,
+   "with_offer": 50,
+   "applied": 0,
+   "applied_is_offer": 0,
+   "delivered": {
+    "f4": 0.8444433506983492,
+    "f6": 0.8540241067990999,
+    "all": 0.8521079555789498
+   },
+   "met": {
+    "f4": 0.39699776286353466,
+    "f6": 0.05926587301587301,
+    "all": 0.12681225098540536
+   },
+   "kept": NaN,
+   "in_force_met": 0.9988294183445191,
+   "in_force_over_bound": 0.0011705816554809843
+  },
+  "offer": {
+   "runs": 50,
+   "first_rejected": 50,
+   "with_offer": 50,
+   "applied": 50,
+   "applied_is_offer": 50,
+   "delivered": {
+    "f4": 0.8743692380525147,
+    "f6": 0.9609998754536093,
+    "all": 0.9436737479733905
+   },
+   "met": {
+    "f4": 0.44303187919463083,
+    "f6": 0.533517156862745,
+    "all": 0.5154201013291222
+   },
+   "kept": 0.9399462651727357,
+   "in_force_met": 0.9988294183445191,
+   "in_force_over_bound": 0.0011705816554809843
+  }
+ },
+ "verdict": {
+  "G_gain": 0.09156579239444074,
+  "G": true,
+  "H_in_force_change": 0.0,
+  "H": true,
+  "both": true
+ }
+}
