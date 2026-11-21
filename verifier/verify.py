@@ -72,6 +72,20 @@ class VerifierState(BaseModel):
     active: tuple[ActiveIntent, ...] = ()  # accepted intents; expired ones are ignored
 
 
+class Offer(BaseModel):
+    """M13: the largest version of a rejected proposal that fits (verifier/counter.py).
+
+    Its targets are the proposal's stated ones scaled by `fraction` and rounded down to whole Mb/s; the bound, window
+    and weights are the proposal's. Information only: to be applied it must be proposed and verified like any other.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    min_thr_mbps: SliceValues
+    max_latency_ms: float | None = None
+    fraction: float = Field(gt=0.0, lt=1.0)  # the scale applied to the proposal's targets
+
+
 class Decision(BaseModel):
     """The verifier's answer. `check` names the first failing check, or "ok"."""
 
@@ -81,6 +95,7 @@ class Decision(BaseModel):
     check: CheckName
     reason: str
     merged: MergedObjective | None = None  # what runs now if accepted; None if rejected
+    offer: Offer | None = None  # M13: set by verifier.counter.with_offer on some rejections; verify() leaves it None
 
 
 DEFAULT_CONFIG = VerifierConfig()

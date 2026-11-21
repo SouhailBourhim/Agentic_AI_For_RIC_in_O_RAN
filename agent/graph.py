@@ -31,7 +31,9 @@ from agent.schema import DEFAULT_DURATION_S, NOTHING_TO_DO, SCOPE_HINT, ParsedIn
 from agent.tools import AgentContext
 from store import intents
 from store.events import log_event
+from verifier.counter import offer_text
 from verifier.objective import SLICES, RLObjective
+from verifier.verify import Offer
 
 DEMO_RULE = ("\nDEMO MODE: keep min_thr_mbps, max_latency_ms and duration_s exactly as extracted. "
              "If the verifier rejects them, call finish with its reason; never lower them.")
@@ -113,6 +115,9 @@ def build_graph(ctx: AgentContext):  # noqa: C901 (one closure per node, kept to
         a 'budget' rejection left the verifier column empty and was counted nowhere).
         """
         current = intents.get(conn, state["intent_id"])
+        offer = (state.get("last_verifier") or {}).get("offer")
+        if s.offers and offer:  # M13: the operator learns what would fit, to re-submit it if they want
+            reason = f"{reason}. {offer_text(Offer.model_validate(offer))}"
         if current.state in ("processing", "interpreted"):
             verifier = state.get("last_verifier")
             fields = {"verifier": verifier} if verifier is not None else {}
@@ -287,7 +292,10 @@ def build_graph(ctx: AgentContext):  # noqa: C901 (one closure per node, kept to
             args.get("max_latency_ms"), args.get("duration_s"))
         step(state, "act", tool="set_rl_objective", arguments=args, verifier=decision_dict(decision), **extra)
         if not decision.accepted:
-            update = {**rejected_action(state, decision.reason, decision_dict(decision)),
+            reason = decision.reason
+            if s.offers and s.mode == "eval" and decision.offer is not None:  # M13: the model may propose it
+                reason += f"; the largest that fits: set_rl_objective with {json.dumps(offer_arguments(decision.offer, args))}"
+            update = {**rejected_action(state, reason, decision_dict(decision)),
                       "rejected_calls": [*state["rejected_calls"], key]}
             if s.mode == "demo":  # the values were the operator's own (checked above)
                 update["stated_rejection"] = decision.reason
@@ -419,6 +427,15 @@ def build_graph(ctx: AgentContext):  # noqa: C901 (one closure per node, kept to
     for name in ("parse", "plan", "act", "confirm", "observe", "reflect"):
         graph.add_conditional_edges(name, lambda st: st["route"], routes)
     return graph.compile()
+
+
+def offer_arguments(offer: Offer, args: dict) -> dict:
+    """The set_rl_objective arguments of an offer (M13): its whole-Mb/s targets, the proposal's bound, importance and
+    duration, so a small model can copy them as they are."""
+    out = {"importance": args.get("importance") or {},
+           "min_thr_mbps": {s: int(getattr(offer.min_thr_mbps, s)) for s in SLICES if getattr(offer.min_thr_mbps, s) > 0},
+           "max_latency_ms": offer.max_latency_ms, "duration_s": args.get("duration_s")}
+    return {k: v for k, v in out.items() if v is not None}
 
 
 def finish_record(ctx: AgentContext, state: AgentState) -> None:

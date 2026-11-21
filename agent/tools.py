@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from agent.apply import ApplyError, applied_intents, apply_shares, backend_now, decision_dict, verifier_state
 from agent.schema import objective_from_decision
 from store import kpi
+from verifier.counter import with_offer
 from verifier.objective import SLICES, RLObjective
 from verifier.verify import Decision, verify
 
@@ -49,6 +50,7 @@ class Settings:
     poll_s: float = 0.5  # wall seconds between two reads while waiting for the console
     llm_only_prompt: str = "v1"  # M09b: the fairer LLM only baseline uses "v2" (agent/prompts.py LLM_ONLY_PLAN)
     llm_only_joins: bool = False  # M09b, fairer LLM only: intents submitted while one runs join it (agent/graph.py)
+    offers: bool = False  # M13: show the verifier's offer after a rejection (eval: to the LLM; demo: in the reason)
 
 
 @dataclass
@@ -153,7 +155,9 @@ def propose_objective(ctx: AgentContext, intent_id: str, supersedes: str | None,
         return Decision(accepted=False, check="schema", reason=f"invalid objective: {err}"), None
     label = intent_id if supersedes is None else f"revision of {supersedes}"
     state = verifier_state(ctx.conn, applied_intents(ctx.conn))  # the parent included: the step is from it
-    return verify(objective, state, new_intent_id=label, replacing=supersedes), objective
+    decision = verify(objective, state, new_intent_id=label, replacing=supersedes)
+    # M13: always computed and logged; whether the agent shows it is Settings.offers
+    return with_offer(decision, objective, state, new_intent_id=label, replacing=supersedes), objective
 
 
 def set_slice_share(ctx: AgentContext, intent_id: str, shares: dict, valid_s: float) -> Decision:

@@ -67,7 +67,12 @@ def verifier_state(conn: sqlite3.Connection, active: list[ActiveIntent] | None =
 
 
 def decision_dict(decision: Decision) -> dict:
-    return {"accepted": decision.accepted, "check": decision.check, "reason": decision.reason}
+    """What is stored and logged of a decision. M13: a rejection's offer, when there is one, travels with it, so
+    get_status and the event log carry it."""
+    out = {"accepted": decision.accepted, "check": decision.check, "reason": decision.reason}
+    if decision.offer is not None:
+        out["offer"] = decision.offer.model_dump()
+    return out
 
 
 def build_timetable(active: list[ActiveIntent], state: VerifierState) -> list[

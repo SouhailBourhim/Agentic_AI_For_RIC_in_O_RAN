@@ -21,15 +21,17 @@ from dataclasses import dataclass
 import numpy as np
 
 from eval.scenarios import Scenario, ScenarioIntent, facts
+from eval.sim_profiles import calibration
 from sim.traffic import TrafficPattern
 from verifier.objective import SLICES
 
 C = 79.0
 SECONDS = 360
 FAMILIES = ("f1", "f2", "f3", "f4", "f5")
+EXTRA_FAMILIES = ("f6",)  # M13; kept out of FAMILIES so every earlier set (dev_instances() and the rest) is unchanged
 PER_FAMILY = 40
-# m10c_test: M10c' (DECISIONS 2026-11-14); m11b_test: M11b′ (DECISIONS 2026-11-20)
-SPLITS = {"dev": 100_000, "test": 200_000, "m10c_test": 300_000, "m11b_test": 400_000}
+# m10c_test: M10c' (DECISIONS 2026-11-14); m11b_test: M11b′ (DECISIONS 2026-11-20); m13_test: M13 (2026-11-21)
+SPLITS = {"dev": 100_000, "test": 200_000, "m10c_test": 300_000, "m11b_test": 400_000, "m13_test": 500_000}
 BOUNDS = (5, 8, 10, 15, 20)
 EASY_BOUNDS = (10, 15, 20, 30, 50)
 BASE = {"embb": (0.42, 0.52), "urllc": (0.06, 0.12), "be": (0.22, 0.32)}
@@ -59,7 +61,7 @@ class Instance:
 
 
 def seed_of(family: str, index: int, split: str) -> int:
-    return SPLITS[split] + 1000 * FAMILIES.index(family) + index
+    return SPLITS[split] + 1000 * (FAMILIES + EXTRA_FAMILIES).index(family) + index
 
 
 def half(x: float) -> float:
@@ -177,6 +179,34 @@ def family_f5(rng: np.random.Generator) -> tuple[str, dict, tuple]:
     return "", constant(loads), (intent(rng, tens(rng, 30, 120), {s: target}, bound),)
 
 
+F6_NEED = (1.02, 1.30)  # the pair needs 2-30 % more than the cell (DECISIONS 2026-11-21, M13)
+
+
+def family_f6(rng: np.random.Generator) -> tuple[str, dict, tuple]:
+    """M13, a conflicting pair: a URLLC guarantee under a bound, then eMBB and best effort targets that don't fit
+    beside it, so the second intent is always rejected as a conflict (the verifier's arithmetic, done here apart).
+
+    Why this order (S3's is the other one): with the simulator's URLLC base latency (0.59 ms) the bound costs little
+    headroom, and the step rule keeps a first guarantee at <= 0.3 C per slice, so a URLLC request after two such
+    guarantees conflicts only at 30-31 Mb/s under 5 ms. The testbed's S3 (told base latency 2 ms) covers that order.
+    The loads of the requested slices are drawn around their targets (0.5-1.2 x): an operator asks for a ceiling the
+    traffic may or may not reach. URLLC's load stays under its target, so its guarantee can be kept.
+    """
+    loads = base_loads(rng)
+    base = calibration()["base_latency_ms_urllc"]
+    while True:
+        u, bound = int(rng.integers(15, 24)), int(rng.choice((5, 8, 10)))
+        x, y = int(rng.integers(24, 32)), int(rng.integers(24, 32))
+        need = u / (C * (1.0 - base / bound)) + (x + y) / C
+        if F6_NEED[0] < need <= F6_NEED[1]:
+            break
+    loads["urllc"] = half(rng.uniform(0.8, 1.0) * u)
+    loads["embb"], loads["be"] = half(rng.uniform(0.5, 1.2) * x), half(rng.uniform(0.5, 1.2) * y)
+    at1 = tens(rng, 30, 60)
+    at2 = at1 + tens(rng, 60, 90)
+    return "", constant(loads), (intent(rng, at1, {"urllc": u}, bound), intent(rng, at2, {"embb": x, "be": y}, None))
+
+
 def generate(family: str, index: int, split: str = "dev") -> Instance:
     if split == "test":
         raise SystemExit("the test seeds belong to M09d and are refused before it (docs/DECISIONS.md)")
@@ -184,6 +214,8 @@ def generate(family: str, index: int, split: str = "dev") -> Instance:
         raise SystemExit("the m10c_test seeds belong to M10c' and are played only by eval.m10c (docs/DECISIONS.md)")
     if split == "m11b_test":
         raise SystemExit("the m11b_test seeds belong to M11b′ and are played only by eval.m11b (docs/DECISIONS.md)")
+    if split == "m13_test":
+        raise SystemExit("the m13_test seeds belong to M13 and are played only by eval.m13 (docs/DECISIONS.md)")
     return draw(family, index, split)
 
 
@@ -191,7 +223,7 @@ def draw(family: str, index: int, split: str) -> Instance:
     """No guard: for M09d's own runner (test_instances) and for the tests that check the families' constraints."""
     seed = seed_of(family, index, split)
     rng = np.random.default_rng(seed)
-    builders = {"f2": family_f2, "f3": family_f3, "f5": family_f5}
+    builders = {"f2": family_f2, "f3": family_f3, "f5": family_f5, "f6": family_f6}
     if family in ("f1", "f4"):
         variant, steps, intents = (family_f1 if family == "f1" else family_f4)(rng, index)
     else:
@@ -223,9 +255,19 @@ def m11b_test_instances(families=FAMILIES, per_family: int = PER_FAMILY) -> list
     return [draw(f, i, "m11b_test") for f in families for i in range(per_family)]
 
 
+F4B = range(30, 40)  # F4's indices above the policy's training range: always rejected (family_f4)
+
+
+def m13_instances(split: str = "dev") -> list[Instance]:
+    """M13's set: the first-rejected intents of F4b (10) and F6 (40). Dev through generate(); m13_test only through
+    eval.m13's guard."""
+    get = generate if split == "dev" else lambda f, i, sp: draw(f, i, sp)
+    return [get("f4", i, split) for i in F4B] + [get("f6", i, split) for i in range(PER_FAMILY)]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("family", choices=FAMILIES)
+    parser.add_argument("family", choices=FAMILIES + EXTRA_FAMILIES)
     parser.add_argument("index", type=int)
     args = parser.parse_args()
     inst = generate(args.family, args.index)

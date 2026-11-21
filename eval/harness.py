@@ -94,6 +94,9 @@ class RunSpec:
     importance: float | None = None  # scripted runs only: the favoured slice's importance
     executor: str | None = None  # scripted runs only (M10b): who turns the objective into a split; None = the RL policy
     monitor: str | None = None  # M11b: the runtime monitor's trigger (rl.monitor.TRIGGERS); None = off, as before M11b
+    # M13: the verifier's offer after a rejection. Scripted runs: True = the operator takes it. Agent runs: True = the
+    # agent shows it (Settings.offers). None = as before M13 (same run_id); False = the explicit "no offer" arm.
+    offers: bool | None = None
 
     @property
     def run_id(self) -> str:
@@ -101,14 +104,18 @@ class RunSpec:
         variant += f"_i{self.importance:g}" if self.importance is not None else ""
         variant += f"_{self.executor}" if self.executor is not None else ""
         variant += f"_mon-{self.monitor}" if self.monitor is not None else ""
+        variant += "" if self.offers is None else "_offer" if self.offers else "_nooffer"
         return f"{self.study}/{self.scenario}/{self.controller}{variant}/seed{self.seed}"
 
 
-def apply_scripted(conn: sqlite3.Connection, intent: ScenarioIntent, high: float | None, now_wall: float) -> None:
+def apply_scripted(conn: sqlite3.Connection, intent: ScenarioIntent, high: float | None, now_wall: float,
+                   take_offer: bool = False) -> None:
     """The over-serving side study: the objective a plan step with this importance would propose,
     with no LLM. Verified and applied by the same functions as the agent's.
     With high=None (M10b's executor mode) no importance at all: the default weights, as the agent keeps them for a
-    first objective with no stated priority (agent/graph.py keep_default_weights)."""
+    first objective with no stated priority (agent/graph.py keep_default_weights).
+    take_offer (M13): the operator who, told the request doesn't fit, takes the verifier's offer at once. The offer is
+    proposed and verified again like any objective, then applied by the same path."""
     importance = {} if high is None else {s: high if s in intent.targets else OTHER_IMPORTANCE for s in SLICES}
     record = intents.create(conn, intent.text, now_wall, backend_now(conn), state="interpreted")
     log_event("agent", "received", record.intent_id, backend_now(conn), {"text": intent.text})
@@ -117,6 +124,13 @@ def apply_scripted(conn: sqlite3.Connection, intent: ScenarioIntent, high: float
                                                   intent.max_latency_ms, intent.expected["duration_s"])
     log_event("agent", "agent_step", record.intent_id, backend_now(conn),
               {"node": "act", "tool": "set_rl_objective", "verifier": decision_dict(decision)})
+    if not decision.accepted and take_offer and decision.offer is not None:
+        offer = decision.offer
+        decision, objective = tools.propose_objective(ctx, record.intent_id, None, importance,
+                                                      offer.min_thr_mbps.model_dump(), offer.max_latency_ms,
+                                                      intent.expected["duration_s"])
+        log_event("agent", "offer_taken", record.intent_id, backend_now(conn),
+                  {"offer": offer.model_dump(), "verifier": decision_dict(decision)})
     if decision.accepted:
         intents.set_state(conn, record.intent_id, "interpreted", now_wall, objective=objective,
                           verifier=decision_dict(decision), parsed=intent.expected)
@@ -217,13 +231,14 @@ def run_once(spec: RunSpec, scenario: Scenario, work: Path, policy_file: Path | 
                     if spec.controller in USES_AGENT:
                         submit(conn, intent.text, time.time())
                     elif spec.controller == "scripted":
-                        apply_scripted(conn, intent, spec.importance, time.time())
+                        apply_scripted(conn, intent, spec.importance, time.time(), take_offer=bool(spec.offers))
                     # static and RL only ignore intents; they are still scored against them
 
         ctx = None
         if spec.controller in USES_AGENT:
             settings = Settings(mode="eval", controller=AGENT_CONTROLLER.get(spec.controller, spec.controller), observe_s=OBSERVE_S,
-                                llm_only_prompt=PROMPT_VERSION.get(spec.controller, "v1"), llm_only_joins=spec.controller == "llm_only_v2")
+                                llm_only_prompt=PROMPT_VERSION.get(spec.controller, "v1"), llm_only_joins=spec.controller == "llm_only_v2",
+                                offers=bool(spec.offers))
             ctx = AgentContext(conn=conn, settings=settings, llm=ChargedLLM(llm, advance),
                                wait_backend=lambda s: advance(int(s)))
         try:

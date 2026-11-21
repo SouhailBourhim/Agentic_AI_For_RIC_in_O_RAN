@@ -21,7 +21,7 @@ from verifier.objective import RLObjective
 from verifier.verify import VerifierState, reverify_after_removal, verify
 
 VERIFIER_DIR = Path(__file__).resolve().parent.parent / "verifier"
-DECISION_MODULES = ["__init__.py", "objective.py", "merge.py", "verify.py"]
+DECISION_MODULES = ["__init__.py", "objective.py", "merge.py", "verify.py", "counter.py"]  # counter: M13
 VIEWER_MODULES = ["plot.py"]
 
 # Top-level module names the decision code may import. Everything else is refused, which
