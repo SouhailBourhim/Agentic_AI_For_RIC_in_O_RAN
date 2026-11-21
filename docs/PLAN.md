@@ -338,6 +338,10 @@ The review (`REVIEW-2026-11-11.md` §3.3-§3.4, P2) found that the fast loop has
 
 **M12 done 2026-11-16.** `uv run python -m demo` runs the whole chain on the simulator in about 30 s with no GPU or LLM, through the MCP gateway's three tools ([learn/M12-presentable.md](learn/M12-presentable.md)). [CLAIMS.md](CLAIMS.md) gathers 23 claims with their evidence and verdicts; [learn/README.md](learn/README.md) indexes the notes; Apache-2.0 licence. The Grafana GIF (recorded by Souhail) is at the top of the README. Left: champion weights as a release asset (not now).
 
+## 13. M13: the verifier answers a rejection with what would fit (decided 2026-11-21)
+
+**M13 done on the simulator 2026-11-21.** On a budget, floor, training range, conflict or step rejection, `verifier/counter.py` computes the largest scaled-down version of the proposal that fits a cell 7 % smaller (the lowest capacity measured on the testbed), with the same bound, window and weights. It travels with the decision to `get_status`; the agent shows it to the model in eval mode and in the rejection's reason in both modes (`RIC_OFFERS`, on by default since the test split). Pre-registered (DECISIONS 2026-11-21): on F4b + the new F6, an operator who takes the offer gets 0.954 of the request delivered against 0.848 when rejected (G +0.106 on m13_test, scored once), with the guarantee in force unchanged (H 0.000). Open: the LLM runs on the simulator and the paired testbed S3 check (Souhail). Note: [learn/M13-rejection-offer.md](learn/M13-rejection-offer.md).
+
 ## 8. Open questions
 
 - **OCUDU (formerly the srsRAN Project) as the RAN, instead of or next to OAI (supervisor's suggestion, 2026-11-17).** Not decided. What it would change, cost and how we would decide (a timeboxed spike first): [PERSPECTIVES.md, P-1](PERSPECTIVES.md#p-1-ocudu-formerly-the-srsran-project-as-the-ran-instead-of-or-next-to-oai).
@@ -395,7 +399,7 @@ The review (`REVIEW-2026-11-11.md` §3.3-§3.4, P2) found that the fast loop has
 - **A rejected request can leave a slice worse off (found in M08a, S3). Reduced 2026-11-07, not solved.** With eMBB and BE
   targets in force and URLLC's own request rejected as a conflict, URLLC got 8 % of the cell and about 8 s of delay. Implied
   targets (`verifier.verify.with_fair_shares`) raise it to 17.7 Mb/s and 2.9 s; an equal split gives 25 Mb/s and 2 s. The model
-  still never relaxes the rejected target. **Open:** whether the agent should relax it or tell the operator what the rejection costs.
+  still never relaxes the rejected target. **Answered in M13 (2026-11-21):** the verifier now says what would fit (an offer, same bound, 7 % margin); the operator, or the model in eval mode, may take it, and it is verified again ([§13](#13-m13-the-verifier-answers-a-rejection-with-what-would-fit-decided-2026-11-21)).
 - **Done in M08d: capacity 79 Mb/s by a rule written first (`testbed/measure_capacity_m08d.py`), and traffic on a clock** (every surge started on time). The two items below record how they were found. M07b's own settings now give 73-76 Mb/s against its 69-72, which remains unexplained. **New from M08d:** the capacity depends on the split (73.5-80.2), and S3's result for LLM + RL sits inside that spread; at the right capacity RL only's swing fails S2 (0.43).
 - **Testbed capacity in the verifier (decided for M08c, then contradicted by it).** `cell_info()` reports M07b's 69 Mb/s
   since 2026-11-07. M08c's standing queues show 81 Mb/s by KPM and 79 received by iperf3 (0.75 Mb/s per PRB). **Open:** why M07b

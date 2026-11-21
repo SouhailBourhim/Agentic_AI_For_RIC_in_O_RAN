@@ -66,3 +66,6 @@ One note per checkpoint, in the order they were built. Each one has the same sev
 
 **M12: presentable**
 - [M12](M12-presentable.md): the one-command demo, the claims table, this index and the licence.
+
+**M13: rejections that help**
+- [M13](M13-rejection-offer.md): the verifier answers a rejection with the largest version that fits.
