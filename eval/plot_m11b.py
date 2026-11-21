@@ -8,7 +8,10 @@
    rule's reference, with the rule's margin.
 3. docs/learn/img/M11b-timeline.png: one dev instance (m09 F4, two overlapping intents) where the monitor fires:
    best effort's throughput against its target, for the three labels, M11b′'s final trigger.
-Reads only committed tables (docs/learn/data/M11b-*) and, for figure 3, the raw r6 runs (eval/results/m11b/r6).
+4. docs/learn/img/M11b-testbed.png: the paired S3 check on the testbed: intent 1 met per repeat for static, LLM + RL
+   with and without the monitor, and best effort's throughput over time in the median repeat.
+Reads committed tables (docs/learn/data/M11b-*) and, for figures 3 and 4, the raw runs (eval/results/m11b/r6,
+eval/results/m11b_testbed), which are git-ignored.
 """
 
 import json
@@ -17,7 +20,8 @@ from pathlib import Path
 import numpy as np
 from matplotlib.figure import Figure
 
-from eval import m11b
+from eval import m11b, m11b_testbed
+from eval.testbed_scenarios import SCENARIOS
 from eval.generator import dev_instances
 from eval.metrics import load_run
 from eval.plot_control import ACCENT, IMG, NEUTRAL, titled
@@ -130,9 +134,58 @@ def plot_timeline(instance: str = "f4_08") -> Figure:
     return fig
 
 
+TESTBED_LABELS = {"static": "static (equal split)", "mon": "LLM + RL, monitor", "nomon": "LLM + RL, no monitor"}
+TESTBED_COLOURS = {"static": NEUTRAL, "mon": ACCENT, "nomon": "#b4b2ac"}
+TESTBED_MARKERS = {"static": "s", "mon": "o", "nomon": "D"}
+
+
+def plot_testbed() -> Figure:
+    """Left: S3 intent 1 met per repeat (committed score). Right: best effort over time in the median repeat."""
+    result = json.loads((DATA / "M11b-testbed.json").read_text())
+    repeats = [k for k in result if k.startswith("repeat")]
+    diffs = {k: result[k]["mon"]["met"] - result[k]["nomon"]["met"] for k in repeats}
+    median_repeat = sorted(repeats, key=diffs.get)[len(repeats) // 2]
+    fig = Figure(figsize=(12.5, 3.8), facecolor=SURFACE, layout="constrained")
+    met_ax, thr_ax = fig.subplots(1, 2, width_ratios=(1, 2.4))
+    x = np.arange(len(repeats))
+    for k, arm in enumerate(TESTBED_LABELS):
+        met_ax.scatter(x + (k - 1) * 0.18, [result[r][arm]["met"] for r in repeats], s=40, zorder=3,
+                       color=TESTBED_COLOURS[arm], marker=TESTBED_MARKERS[arm], label=TESTBED_LABELS[arm],
+                       edgecolors=SURFACE, linewidths=1.2)
+    met_ax.set_xticks(x, [f"repeat {r.removeprefix('repeat')}" for r in repeats], fontsize=8.5)
+    met_ax.set_ylim(0.5, 1.05)
+    met_ax.set_ylabel("S3 intent 1 met", color=TEXT_MUTED, fontsize=8.5)
+    titled(met_ax, f"median of mon − nomon: {result['verdict']['median']:+.3f}")
+    met_ax.legend(frameon=False, fontsize=8, loc="lower left")
+    intent = SCENARIOS["s3"].intents[0]
+    target = intent.expected["min_thr_mbps"]["be"]
+    start, end = intent.at_s, intent.at_s + intent.expected["duration_s"]
+    for arm in ("nomon", "mon"):
+        study, controller, _ = next(a for a in m11b_testbed.ARMS if a[0] == arm)
+        work = m11b_testbed.RESULTS / m11b_testbed.run_of(study, controller, int(median_repeat[-1])).run_id
+        kpis, events = load_run(work)
+        be = kpis["be"]
+        thr_ax.plot(be["t"], be["thr"], color=TESTBED_COLOURS[arm], linewidth=1.6 if arm == "mon" else 1.2,
+                    label=TESTBED_LABELS[arm], zorder=3 if arm == "mon" else 2)
+        for e in events if arm == "mon" else []:
+            if e["event"] in ("executor_fallback", "executor_resume"):
+                thr_ax.axvline(e["ts_backend"], color=ACCENT, linewidth=1.0, linestyle=(0, (1, 2)))
+                text = "formula takes over" if e["event"] == "executor_fallback" else "intent over: RL again"
+                thr_ax.annotate(text, (e["ts_backend"], 0.96), xycoords=thr_ax.get_xaxis_transform(), xytext=(4, 0),
+                                textcoords="offset points", fontsize=7.5, color=TEXT_MUTED)
+    thr_ax.hlines(target, start, end, color=TEXT, linewidth=1.0, linestyles=(0, (4, 3)),
+                  label=f"stated target {target:g} Mb/s")
+    thr_ax.axvspan(start, end, color=GRID, alpha=0.15, zorder=0)
+    thr_ax.set_xlabel("time (s)", color=TEXT_MUTED, fontsize=8.5)
+    thr_ax.set_ylabel("best effort throughput (Mb/s)", color=TEXT_MUTED, fontsize=8.5)
+    titled(thr_ax, f"testbed S3, {median_repeat.replace('repeat', 'repeat ')} (median): \"{intent.text}\"")
+    thr_ax.legend(frameon=False, fontsize=8, loc="lower right", ncols=3)
+    return fig
+
+
 def main() -> None:
     for name, fig in (("M11b-test.png", plot_test()), ("M11b-revisions.png", plot_revisions()),
-                      ("M11b-timeline.png", plot_timeline())):
+                      ("M11b-timeline.png", plot_timeline()), ("M11b-testbed.png", plot_testbed())):
         fig.savefig(IMG / name, dpi=150, facecolor=SURFACE)
         print(IMG / name)
 

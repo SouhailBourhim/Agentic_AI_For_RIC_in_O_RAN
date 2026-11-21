@@ -10,6 +10,8 @@ Grafana. The first trigger (M11b: N seconds in a row) failed its pre-registered 
 experiment (M11b′) changed only the trigger, tuned it on half of the dev set, checked it on the other half, and then
 played it once on a fresh test split. **On that test split, LLM + RL with the monitor is within 0.05 of LLM + formula
 on every family of both cells, and never more than 0.02 under the RL alone where the RL was the better executor.**
+On the testbed (S3, three paired repeats on the same cell, rule written first), LLM + RL with the monitor meets the
+intent better than without it in every repeat (median +0.174).
 
 ## 2. Where it sits in the architecture
 
@@ -109,6 +111,37 @@ grey) keeps best effort under its target (dashed) for most of the window. With t
 over at 64 s, keeps the intent when a second intent starts at 130 s (a new segment), and gives the policy back when
 the intents end.
 
+**On the testbed** (rules in DECISIONS 2026-11-21, before the runs). S3 on the OAI cell, the LLM in the loop, the
+rl-xapp image with the served trigger. Each repeat plays static (the cell's reference), LLM + RL with the monitor
+(`mon`) and LLM + RL with `--no-monitor` (`nomon`), order rotated, the same session. A repeat counts when its three
+runs are valid and each carried ≥ 0.68 Mb/s per PRB. The first pass had a slow run in every repeat (cell noise, kept
+as `repeatN_lowcap`, not scored); the replays all count.
+
+```
+uv run python -m eval.m11b_testbed --play     # 9 runs, ~6 min each, resumes if stopped (needs the testbed up)
+uv run python -m eval.m11b_testbed --score    # -> the JSON committed as docs/learn/data/M11b-testbed.json
+```
+
+| S3 intent 1 met | static | LLM + RL, monitor | LLM + RL, no monitor | mon − nomon |
+|---|---|---|---|---|
+| repeat 1 | 0.993 | 0.973 | 0.609 | +0.365 |
+| repeat 2 | 0.993 | 0.966 | 0.792 | +0.174 |
+| repeat 3 | 0.997 | 0.970 | 0.805 | +0.165 |
+
+Median mon − nomon **+0.174 > 0: the monitor helps** (the registered reading). In every `mon` run it fired once, on
+best effort's stated target, at 127-136 s, held the intent until it ended (363-364 s) and gave the policy back; no
+safe state. Two things the table also shows: static meets this intent better still (0.99), so with the monitor LLM +
+RL comes close to the reference but not past it, the ~70 s before the takeover being what it loses; and the agent's
+own reflection revised the objective (same targets, higher weights) in two `nomon` runs and none of the `mon` runs,
+which is part of the system under test in both arms.
+
+![Testbed](img/M11b-testbed.png)
+
+How to read it: left, one marker per arm and repeat; the violet dot (monitor) sits under the dark square (static) and
+well above the light diamond (no monitor) every time. Right, best effort's throughput in the median repeat: without
+the monitor (grey) the RL keeps it around the 23 Mb/s target and dips under it every few seconds; with the monitor
+(violet) the formula takes over at 136 s and holds it flat just above the target until the intent ends.
+
 ## 5. Choices and simplifications
 
 - **Two experiments, both reported.** M11b (N in a row, M10d's tolerance, every target) failed rule A at N = 20 s
@@ -129,8 +162,11 @@ the intents end.
   can't be trusted. Here the KPIs are fine and the problem is the policy, so the better executor takes over.
 - **Sticky for the intent, no handing back.** It can't flap. The cost: a policy that would recover stays replaced
   until the intent ends. *Rejected:* handing back after the formula meets the target for a while.
-- **Scripted mode on the simulator only.** No LLM, the real verifier and apply step. Not run on the testbed yet (it
-  needs an rl-xapp image rebuild): residual risk R6 in the threat model.
+- **Evidence: the simulator for breadth, the testbed for one scenario.** The test split is scripted mode (no LLM, the
+  real verifier and apply step) over 360 instances; the testbed check is one scenario (S3), three paired repeats,
+  with the LLM. The testbed result says the monitor works on a real cell and helps where M08d saw the RL miss, not
+  that rules A and B hold there. *Rejected:* comparing one testbed run with M08d's numbers (the first session's
+  cell carried 0.50 Mb/s per PRB, against 0.72-0.75): same cell, same day, paired, or nothing.
 - **A real system** would watch every executor this way, with the KPIs it trusts, would report each takeover to the
   Non-RT RIC (here: the event log and the gauge), and would re-evaluate the policy offline from the takeovers.
 

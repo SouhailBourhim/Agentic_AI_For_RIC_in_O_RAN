@@ -1,0 +1,89 @@
+{
+ "repeat1": {
+  "counts": true,
+  "static": {
+   "valid": true,
+   "per_prb": 0.7283146285714285,
+   "met": 0.9933110367892977,
+   "fallbacks": []
+  },
+  "mon": {
+   "valid": true,
+   "per_prb": 0.7252613333333333,
+   "met": 0.9732441471571907,
+   "fallbacks": [
+    [
+     133,
+     "be"
+    ]
+   ]
+  },
+  "nomon": {
+   "valid": true,
+   "per_prb": 0.7283674482758621,
+   "met": 0.6086956521739131,
+   "fallbacks": []
+  }
+ },
+ "repeat2": {
+  "counts": true,
+  "static": {
+   "valid": true,
+   "per_prb": 0.7337752222222222,
+   "met": 0.9933110367892977,
+   "fallbacks": []
+  },
+  "mon": {
+   "valid": true,
+   "per_prb": 0.7312648888888889,
+   "met": 0.9664429530201343,
+   "fallbacks": [
+    [
+     136,
+     "be"
+    ]
+   ]
+  },
+  "nomon": {
+   "valid": true,
+   "per_prb": 0.7229705454545455,
+   "met": 0.7919463087248322,
+   "fallbacks": []
+  }
+ },
+ "repeat3": {
+  "counts": true,
+  "static": {
+   "valid": true,
+   "per_prb": 0.7408738158730159,
+   "met": 0.9966555183946488,
+   "fallbacks": []
+  },
+  "mon": {
+   "valid": true,
+   "per_prb": 0.7322075555555556,
+   "met": 0.9698996655518395,
+   "fallbacks": [
+    [
+     127,
+     "be"
+    ]
+   ]
+  },
+  "nomon": {
+   "valid": true,
+   "per_prb": 0.71588864,
+   "met": 0.8053691275167785,
+   "fallbacks": []
+  }
+ },
+ "verdict": {
+  "mon_minus_nomon": [
+   0.36454849498327757,
+   0.1744966442953021,
+   0.164530538035061
+  ],
+  "median": 0.1744966442953021,
+  "reading": "helps"
+ }
+}

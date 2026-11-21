@@ -151,7 +151,8 @@ benchmark with seven controllers and a simulator calibrated against 72 testbed r
 - **Runtime monitor** ([M11b](docs/learn/M11b-runtime-monitor.md)): the formula runs in shadow; when RL keeps
   missing a stated target that the formula's split would meet, the formula takes that intent over, logged and shown.
   On a fresh test split, LLM + RL with the monitor stays within 0.05 of LLM + formula in every family, and keeps
-  RL's lead where RL was better (m10: 0.841 against the formula's 0.815).
+  RL's lead where RL was better (m10: 0.841 against the formula's 0.815). On the testbed (S3, three paired repeats)
+  it raised the intent met from 0.61-0.81 to 0.97.
 
 ## What this project demonstrates
 
@@ -289,7 +290,7 @@ core, gNB, nrUE), **FlexRIC**, C xApps, **Docker**, on WSL2 with an RTX 5070 lap
 | M10c′ | RL trained on the varying cell vs the estimating formula, F1-F3/F5, pre-registered | Done: formula better, −0.046 [−0.072, −0.022]; RL wins steady loads (F2, F5), loses F3 (−0.25) |
 | M10d | Testbed demand from the gNB's PDCP volume instead of the traffic script | Done: calibration passed (rev. 1); S1 LLM + RL measured − oracle +0.003 (H-d, margin 0.05); the oracle was wrong for 15–35 s after segment changes on saturated slices |
 | M11a | Runner safe state: stale KPIs, dead actuator or an error → equal split, alert, status; xApp restart | Done: enters at once, hands back after 3 clean ticks; simulator runs unchanged (replay byte-identical) |
-| M11b | Runtime monitor with formula fallback | Done: first trigger (N s in a row) failed its rule twice; M11b′ (k of 20 s, stated targets, per intent) passed on a fresh split once: A and B hold in every family, m10 0.751 → 0.841 (formula 0.815), m09 0.786 → 0.933 (0.943); [note](docs/learn/M11b-runtime-monitor.md) |
+| M11b | Runtime monitor with formula fallback | Done: first trigger (N s in a row) failed its rule twice; M11b′ (k of 20 s, stated targets, per intent) passed on a fresh split once: A and B hold in every family, m10 0.751 → 0.841 (formula 0.815), m09 0.786 → 0.933 (0.943); testbed S3, 3 paired repeats: met +0.174 (median) over LLM + RL without it; [note](docs/learn/M11b-runtime-monitor.md) |
 | M11d | Shielded RL: URLLC floored at the formula's share under a latency bound, RL splits the rest | Done, reported not served: alone it beats both executors on m10 dev (0.857 vs RL 0.766, formula 0.826; F3 fixed), but adds only +0.007 over the served monitor (rule: 0.01); [note](docs/learn/M11d-shielded-rl.md) |
 | M11c | Threat model: who can reach what, each threat with its tests, residual risks stated | Done: [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md), 21 threats / 9 residual risks; a corrupt policy row no longer ends the runner |
 | M12 | Presentable: one-command demo, claims table, notes index, licence | Done: `uv run python -m demo` in ~30 s with no GPU or LLM; [docs/CLAIMS.md](docs/CLAIMS.md), 23 claims |
