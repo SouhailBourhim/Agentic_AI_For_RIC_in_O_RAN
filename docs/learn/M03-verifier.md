@@ -62,6 +62,9 @@ an LLM with another LLM only moves the problem.
    - For URLLC with a bound B, the cell's latency is `base / (1 − ρ)`. Staying under B needs
      `ρ ≤ 1 − base/B`, so carrying the target needs `target / (C · (1 − base/B))`. Example: 30 Mb/s
      within 3 ms needs 30 / (75 × ⅓) = 120 % of the cell.
+     *Since M13b, optional:* with `RIC_BOUND_FROM_LOAD=1` the bounded URLLC target is replaced by
+     max(target, URLLC's peak traffic over 30 s), since a bound must serve the whole queue. Off by
+     default: its evaluation failed (learn/M13b-load-aware-bound.md).
 
    Then **budget**: `Σ need ≤ 1`. **Floor**: `Σ max(need, 5 %) ≤ 1`, i.e. the targets must leave
    every slice at least 5 % of the PRBs. The reason names the starved slice.

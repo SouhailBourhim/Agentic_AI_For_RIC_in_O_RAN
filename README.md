@@ -157,8 +157,8 @@ benchmark with seven controllers and a simulator calibrated against 72 testbed r
   verifier offers the largest version that does (same latency bound, 7 % capacity margin); the operator or the
   model can take it, and it is verified again. On the simulator, taking it delivered 0.954 of the request instead
   of 0.848, with the guarantees already in force unchanged. On the testbed it starved them (met 0.96 → 0.22): the
-  offer kept a 5 ms bound on traffic twice its target, and the verifier does not see traffic. Off by default
-  until M13b.
+  offer kept a 5 ms bound on traffic twice its target, and the verifier does not see traffic. Off by default;
+  M13b's load-aware verifier removed most of that harm but not all, and is off too.
 
 ## What this project demonstrates
 
@@ -301,6 +301,7 @@ core, gNB, nrUE), **FlexRIC**, C xApps, **Docker**, on WSL2 with an RTX 5070 lap
 | M11c | Threat model: who can reach what, each threat with its tests, residual risks stated | Done: [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md), 21 threats / 9 residual risks; a corrupt policy row no longer ends the runner |
 | M12 | Presentable: one-command demo, claims table, notes index, licence | Done: `uv run python -m demo` in ~30 s with no GPU or LLM; [docs/CLAIMS.md](docs/CLAIMS.md), 23 claims |
 | M13 | The verifier answers a rejection with what would fit (an offer) | Done; sim (scripted, fresh split once, and LLM): delivered 0.848 → 0.954, guarantee in force unchanged; testbed S3: the guarantee in force fell 0.96 → 0.22 (the verifier ignores load), so offers are off by default, M13b next; [note](docs/learn/M13-rejection-offer.md) |
+| M13b | The verifier sizes a latency bound from the traffic | Closed, negative: pre-registered, dev failed (guarantee in force 0.930 vs 0.966 rejected, M13's offer 0.418; gain +0.026); switches off; [note](docs/learn/M13b-load-aware-bound.md) |
 
 </details>
 

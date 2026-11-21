@@ -69,3 +69,4 @@ One note per checkpoint, in the order they were built. Each one has the same sev
 
 **M13: rejections that help**
 - [M13](M13-rejection-offer.md): the verifier answers a rejection with the largest version that fits.
+- [M13b](M13b-load-aware-bound.md): the verifier sizes a latency bound from the traffic (a negative result).
