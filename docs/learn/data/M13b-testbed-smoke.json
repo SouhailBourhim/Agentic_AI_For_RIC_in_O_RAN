@@ -1,0 +1,29 @@
+{
+ "valid": true,
+ "per_prb": 0.7389574857142858,
+ "delivered_2": 0.0014971482626887395,
+ "met_2": 0.0,
+ "met_1": 0.9698996655518395,
+ "first_check": "conflict",
+ "first_reason": "together with active intent(s) i0001 at t=1.79528e+09 s, the minimum targets need 125% of the PRBs (embb 29%, urllc 66%, be 29%; urllc sized from its traffic, 31.5 Mb/s, above its 23 Mb/s target: a 5 ms bound must serve the whole queue), more than the cell has",
+ "offer": null,
+ "applied_2": null,
+ "fallbacks": 1,
+ "passes": true,
+ "run": {
+  "study": "smoke",
+  "scenario": "s3",
+  "controller": "proposed",
+  "repeat": 1,
+  "seed": 1,
+  "alpha": 0.1,
+  "delay_ticks": 0,
+  "importance": null,
+  "commit": "bd25394",
+  "scale": 1.0,
+  "t0": 1795284733.3545105,
+  "wall_s": 403.3,
+  "valid": true,
+  "problems": []
+ }
+}

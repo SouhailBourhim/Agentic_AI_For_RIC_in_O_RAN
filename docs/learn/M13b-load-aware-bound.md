@@ -119,8 +119,16 @@ eMBB or BE then falls 1.5-7 Mb/s under its 22-23 Mb/s target (f7_33: BE 16.2 aga
 fair share (`with_fair_shares`, about 24 Mb/s), at low latency. The offer adds a bound and a target to traffic that
 was already carried.
 
-**Testbed S3 smoke run** (one run, load-aware, offers on; reported): pending, Souhail's run
-(`uv run python -m eval.m13b_testbed --smoke`). The paired S3b study was not run: once dev failed it could no longer
+**Testbed S3 smoke run** (`uv run python -m eval.m13b_testbed --smoke`, one run, load-aware, offers on; reported;
+data `docs/learn/data/M13b-testbed-smoke.json`): **passes.**
+- The run is valid, at 0.74 Mb/s per PRB.
+- The verifier saw URLLC's 31.5 Mb/s on the real KPI path and rejected the request as a conflict, with **no offer**.
+  Its reason: "the minimum targets need 125% of the PRBs (embb 29%, urllc 66%, be 29%; urllc sized from its traffic,
+  31.5 Mb/s, above its 23 Mb/s target: a 5 ms bound must serve the whole queue)".
+- The model repeated its proposal, and the intent ended rejected.
+- Intent 1 was met 0.970 of the time (rule ≥ 0.907; M13's runs without an offer: 0.957-0.980, with it: 0.20-0.24).
+- The one monitor fallback (best effort's throughput, at 114 s) came before the URLLC request, under intent 1 alone,
+  as in M13's runs without an offer. The paired S3b study was not run: once dev failed it could no longer
 change a default (DECISIONS).
 
 ## 5. Choices and simplifications
